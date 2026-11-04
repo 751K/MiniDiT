@@ -1,0 +1,22 @@
+# Swift / Xcode 编译产物
+.build/
+.swiftpm/
+DerivedData/
+build/
+*.xcuserstate
+xcuserdata/
+
+# SSH 库编译的中间文件（Scripts/build-libssh2-xcframework.sh）
+.ssh-build/
+
+# 真机调试临时目录
+.dd/
+.dd-device/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# macOS
+.DS_Store

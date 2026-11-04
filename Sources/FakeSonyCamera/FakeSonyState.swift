@@ -1,0 +1,187 @@
+import Foundation
+import SonyRemoteKit
+
+/// 模拟 A7 IV 的 SDIO 行为：属性表、按键、取景帧、待传照片。
+public final class FakeSonyState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var props: [UInt16: SonyPropertyDesc] = [:]
+    private(set) var controls: [(code: UInt16, value: UInt16)] = []
+    private(set) var sets: [(code: UInt16, data: [UInt8])] = []
+    private var s1 = false
+    public var pendingFile: (name: String, data: Data)?
+    public var twinList = true
+    /// 模拟存储卡；为 nil 时不响应存储操作。
+    public var card: FakeCard?
+    /// 远程传输（0x923B–0x923E）能读到的卡槽；空表示相机不支持远程传输。
+    public var remoteSlots: [UInt32: FakeCard] = [:]
+    /// GetDeviceInfo 里列出的操作码；nil 时返回空数据（模拟老实现）。
+    public var advertisedOperations: [UInt16]?
+    /// 收到的 0x9212（内容传输模式）参数。
+    public private(set) var contentsTransferModeParams: [[UInt32]] = []
+    /// 为 true 时模拟真机：不进入内容传输模式就读不到存储卡（返回 StoreNotAvailable）。
+    public var requireContentsTransferMode = false
+    /// 0x9210 收到的功能模式。
+    public private(set) var sessionMode: UInt32?
+    private var contentsOn = false
+    private var readyPolls = 0
+    public let jpeg = Data([0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3, 4, 0xFF, 0xD9])
+    /// 可替换成真实画面（命令行模拟器会生成真正的 JPEG）。
+    public var liveViewProvider: (@Sendable () -> Data)?
+    public var photoProvider: (@Sendable () -> Data)?
+    /// 收到 PTP 操作时的日志回调。
+    public var onOperation: (@Sendable (String) -> Void)?
+
+    public init() {
+        func p(_ code: UInt16, _ t: PTPDataType, _ v: Int64, _ list: [Int64]? = nil, writable: Bool = true) {
+            props[code] = SonyPropertyDesc(code: code, dataType: t, getSet: writable ? 1 : 0, isEnabled: 1,
+                                           factoryDefault: .int(v), current: .int(v),
+                                           form: list.map { .enumeration($0) } ?? .none)
+        }
+        p(SonyProperty.shutterSpeed, .uint32, 0x0001_00FA, [0x0001_00FA, 0x0001_01F4, 0x0001_03E8, 0x0012_000A, 0])
+        p(SonyProperty.fNumber, .uint16, 400, [280, 400, 560, 800, 1100])
+        p(SonyProperty.iso, .uint32, 0x00FF_FFFF, [0x00FF_FFFF, 100, 200, 400, 0x01FF_FFFF])
+        p(SonyProperty.exposureBias, .int16, 0, [-1000, -300, 0, 300, 700])
+        p(SonyProperty.whiteBalance, .uint16, 0x0002, [0x0002, 0x0004, 0x8010, 0x8012])
+        p(SonyProperty.exposureProgramMode, .uint32, 0x0000_0001, writable: false)
+        p(SonyProperty.focusMode, .uint16, 2, writable: false)
+        p(SonyProperty.focusFound, .uint8, 1, writable: false)
+        p(SonyProperty.objectInMemory, .uint16, 0, writable: false)
+        p(SonyProperty.movieRecordingState, .uint8, 0, writable: false)
+        p(SonyProperty.stillImageStoreDestination, .uint16, 0x0010, [0x0001, 0x0010, 0x0011])
+        p(SonyProperty.contentsTransferEnabled, .uint8, 0, writable: false)
+        props[SonyProperty.batteryLevel] = SonyPropertyDesc(code: SonyProperty.batteryLevel, dataType: .int8, getSet: 0, isEnabled: 1,
+                                                            factoryDefault: .int(-1), current: .int(76),
+                                                            form: .range(min: -1, max: 100, step: 1))
+    }
+
+    public func value(_ code: UInt16) -> Int64? { lock.withLock { props[code]?.intValue } }
+
+    private func setValue(_ code: UInt16, _ v: Int64) {
+        guard let p = props[code] else { return }
+        props[code] = SonyPropertyDesc(code: p.code, dataType: p.dataType, getSet: p.getSet, isEnabled: p.isEnabled,
+                                       factoryDefault: p.factoryDefault, current: .int(v), form: p.form)
+    }
+
+    public var controlLog: [(code: UInt16, value: UInt16)] { lock.withLock { controls } }
+    public var setLog: [(code: UInt16, data: [UInt8])] { lock.withLock { sets } }
+
+    public func handle(_ code: UInt16, _ params: [UInt32], _ dataOut: Data?) -> FakeCamera.Reply {
+        onOperation?(String(format: "op 0x%04X %@", code, params.map { String(format: "0x%X", $0) }.joined(separator: ",")))
+        // 存储卡上的对象（不含取景、刚拍的照片这两个特殊句柄）交给 FakeCard。
+        let storageOps: Set<UInt16> = [PTPOperation.getStorageIDs, PTPOperation.getStorageInfo, PTPOperation.getObjectHandles,
+                                       PTPOperation.getObjectInfo, PTPOperation.getThumb, PTPOperation.getPartialObject,
+                                       PTPOperation.getObject, SonyOperation.getPartialLargeObject]
+        let remoteOps: Set<UInt16> = [SonyOperation.getCapturedDateList, SonyOperation.getContentsInfoList,
+                                      SonyOperation.getContentsData, SonyOperation.getContentsCompressedData]
+        if remoteOps.contains(code) {
+            let slots = lock.withLock { remoteSlots }
+            guard !slots.isEmpty else { return .init(code: PTPResponse.operationNotSupported) }
+            let slot = code == SonyOperation.getCapturedDateList ? params.first ?? 0
+                : code == SonyOperation.getContentsInfoList ? (params.count > 3 ? params[3] : 0)
+                : (params.count > 1 ? params[1] >> 24 : 0)
+            guard let c = slots[slot] else { return .init(code: 0x201D) }   // InvalidParameter：没有卡
+            return c.remoteTransfer(code, params) ?? .init(code: 0x201D)
+        }
+        if let card, storageOps.contains(code), params.first.map({ $0 < 0xFFFF_0000 }) ?? true {
+            let allowed = lock.withLock { !requireContentsTransferMode || contentsOn }
+            guard allowed else { return .init(code: PTPResponse.storeNotAvailable) }
+            if let reply = card.handle(code, params) { return reply }
+        }
+        return lock.withLock {
+            switch code {
+            case SonyOperation.sdioOpenSession:
+                sessionMode = params.count > 1 ? params[1] : nil
+                return .init()
+            case SonyOperation.setContentsTransferMode:
+                contentsTransferModeParams.append(params)
+                contentsOn = params.count > 1 && params[1] == 1 && sessionMode == 1
+                readyPolls = 0
+                if !contentsOn { setValue(SonyProperty.contentsTransferEnabled, 0) }
+                return .init()
+            case SonyOperation.getDeviceDescriptionFile:
+                let xml = "<root><X_PTP_Information><X_PTP_MediaServerSupport>Enable</X_PTP_MediaServerSupport>" +
+                    "<X_PTP_ContentsTransferSupport>Enable</X_PTP_ContentsTransferSupport></X_PTP_Information></root>"
+                return .init(data: Data(xml.utf8))
+            case PTPOperation.getDeviceInfo:
+                guard let ops = advertisedOperations else { return .init() }
+                var w = PTPWriter()
+                w.u16(100); w.u32(0x11); w.u16(100); w.u8(0); w.u16(0)
+                w.u32(UInt32(ops.count)); ops.forEach { w.u16($0) }
+                return .init(data: w.data)
+            case PTPOperation.openSession, PTPOperation.closeSession:
+                return .init()
+            case SonyOperation.sdioConnect:
+                return .init(data: Data(count: 8))
+            case SonyOperation.getExtDeviceInfo:
+                var w = PTPWriter()
+                w.u16(SonyProtocolVersion.v300)
+                let propCodes = Array(props.keys)
+                w.u32(UInt32(propCodes.count)); propCodes.forEach { w.u16($0) }
+                let ctl: [UInt16] = [SonyControl.shutterHalfPress, SonyControl.shutterFullPress, SonyControl.movieRecord]
+                w.u32(UInt32(ctl.count)); ctl.forEach { w.u16($0) }
+                return .init(data: w.data)
+            case SonyOperation.getAllExtDevicePropInfo:
+                // 进入传输模式后第 2 次轮询才报告就绪，用来测试等待逻辑。
+                if contentsOn {
+                    readyPolls += 1
+                    if readyPolls >= 2 { setValue(SonyProperty.contentsTransferEnabled, 1) }
+                }
+                let list = props.values.sorted { $0.code < $1.code }
+                return .init(data: SonyDatasets.encodeAllProperties(list, twinList: twinList))
+            case SonyOperation.setExtDevicePropValue:
+                let c = UInt16(params.first ?? 0)
+                let bytes = [UInt8](dataOut ?? Data())
+                sets.append((c, bytes))
+                guard let p = props[c] else { return .init() }  // 未知属性（如 PriorityMode）照样返回 OK
+                guard p.getSet == 1 else { return .init(code: PTPResponse.accessDenied) }
+                var r = PTPReader(bytes)
+                guard let v = try? PTPValue.read(p.dataType, from: &r).intValue else {
+                    return .init(code: 0x201C)
+                }
+                if case .enumeration(let allowed) = p.form, !allowed.contains(v) { return .init(code: 0x201C) }
+                setValue(c, v)
+                return .init()
+            case SonyOperation.controlDevice:
+                let c = UInt16(params.first ?? 0)
+                var r = PTPReader(dataOut ?? Data())
+                let v = (try? r.u16()) ?? 0
+                controls.append((c, v))
+                switch (c, v) {
+                case (SonyControl.shutterHalfPress, SonyControl.down):
+                    s1 = true; setValue(SonyProperty.focusFound, 2)
+                case (SonyControl.shutterHalfPress, SonyControl.up):
+                    s1 = false; setValue(SonyProperty.focusFound, 1)
+                case (SonyControl.shutterFullPress, SonyControl.up):
+                    pendingFile = ("DSC01234.JPG", photoProvider?() ?? Data((0..<70_000).map { UInt8($0 % 251) }))
+                    setValue(SonyProperty.objectInMemory, 0x8001)
+                case (SonyControl.movieRecord, SonyControl.down):
+                    setValue(SonyProperty.movieRecordingState, 1)
+                case (SonyControl.movieRecord, SonyControl.up):
+                    setValue(SonyProperty.movieRecordingState, 0)
+                default: break
+                }
+                return .init()
+            case PTPOperation.getObjectInfo:
+                if params.first == SonyObjectHandle.liveView { return .init(data: Data(count: 64)) }
+                guard let f = pendingFile else { return .init(code: PTPResponse.invalidObjectHandle) }
+                return .init(data: PTPObjectInfo(format: PTPObjectFormat.jpeg, size: UInt32(f.data.count), parent: 0, filename: f.name).encoded())
+            case PTPOperation.getObject:
+                if params.first == SonyObjectHandle.liveView {
+                    // 头部 u32 偏移、u32 长度，并在头部里故意放一个假的 FF D8。
+                    var w = PTPWriter()
+                    let frame = liveViewProvider?() ?? jpeg
+                    w.u32(32); w.u32(UInt32(frame.count))
+                    w.raw([0xFF, 0xD8]); w.raw([UInt8](repeating: 0, count: 22))
+                    w.raw(frame)
+                    return .init(data: w.data)
+                }
+                guard let f = pendingFile else { return .init(code: PTPResponse.invalidObjectHandle) }
+                pendingFile = nil
+                setValue(SonyProperty.objectInMemory, 0)
+                return .init(data: f.data)
+            default:
+                return .init(code: PTPResponse.operationNotSupported)
+            }
+        }
+    }
+}
