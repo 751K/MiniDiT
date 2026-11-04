@@ -1,8 +1,8 @@
 # MiniDiT
 
-Mac 上的「小号 DIT」：通过 Wi-Fi 连接索尼 α 相机，按拍摄日期浏览卡里的照片，下载后直接建好 Capture One 会话。
+Mac 上的「小号 DIT」：通过 Wi-Fi 连接索尼 α 相机（或者插读卡器），按拍摄日期浏览卡里的照片，下载后直接建好 Capture One 会话。
 
-> 早期 demo。功能规划见 [docs/MiniDiT-ROADMAP.md](docs/MiniDiT-ROADMAP.md)。
+> 早期版本（v0.2）。功能规划见 [docs/MiniDiT-ROADMAP.md](docs/MiniDiT-ROADMAP.md)。
 >
 > **Sony / 索尼是索尼集团的商标，本项目与索尼没有关联。** 本项目根据公开资料独立实现了 PTP/IP 和索尼 SDIO 扩展协议，参考了 libgphoto2、alpha2go 等开源项目，没有复制它们的代码。协议笔记见 [docs/PROTOCOL.md](docs/PROTOCOL.md)。
 
@@ -23,12 +23,17 @@ Mac 上的「小号 DIT」：通过 Wi-Fi 连接索尼 α 相机，按拍摄日�
 | 大图预览（空格；← → 翻页，P 选中） | ✅ |
 | 启动时自动连接上次的相机；会话内容名记住最近用过的 | ✅ |
 | 导入记录按机身序列号区分 | ✅ |
+| 识别机型和固件（ILCE-7M5 显示为「α7 V · 固件 2.00」） | ✅ |
+| 在侧栏切换相机、卡槽或读卡器（先确认目标在线再断开当前的） | ✅ |
+| 「分别记录」（RAW 在卡 1、HIF 在卡 2）合成一格；「同时记录」两张卡的同一文件只导一份 | ✅ |
+| 相机掉线后自动重连，保留浏览内容和选择；导入中断后可以继续导进同一个会话 | ✅ |
 
 ## 项目结构
 
 ```
-Apps/MiniDiT/MiniDiT.xcodeproj  Mac 工程（SwiftUI，本机签名运行）
+Apps/MiniDiT/MiniDiT.xcodeproj  Mac 工程（SwiftUI）
 Apps/MiniDiT/MiniDiT/
+  AppIcon.icon                  App 图标（Icon Composer 文档）
   App/                          入口、AppModel、日志
   Camera/                       搜索相机、钥匙串账号、连过的相机
   Import/                       导入记录、Capture One（AppleScript）
@@ -44,18 +49,21 @@ Sources/ssh-e2e/                SSH 端到端测试
 Tests/SonyRemoteKitTests/       单元测试和端到端测试
 Vendor/CLibssh2.xcframework     预编译的 OpenSSL 3.5.9 + libssh2 1.11.1（版本和校验值见 Vendor/CLibssh2.VERSION）
 Scripts/                        编译 SSH 库、SSH 测试服务器
+Apps/MiniDiT/design/            平面版图标 SVG 和渲染脚本
 docs/                           协议笔记、功能规划
 ```
 
 ## 编译运行
 
-需要 Xcode 16 以上，以及 Apple 芯片的 Mac。
+需要 Xcode 26 以上（Liquid Glass 和 `.icon` 图标要用），以及 Apple 芯片的 Mac。App 支持 macOS 14 以上，在 macOS 26 以上才有液态玻璃效果。
 
 ```bash
 open Apps/MiniDiT/MiniDiT.xcodeproj
 ```
 
-直接运行即可，用的是本机签名，不需要开发者账号。第一次导入时，macOS 会询问是否允许 MiniDiT 控制 Capture One。
+工程用「Apple Development」证书签名（团队 HGXZB3UC25）。自己编译时，在 Signing 里换成自己的团队；没有开发者账号就把签名身份改成「Sign to Run Locally」。用临时签名也能运行，只是每次重新编译后，钥匙串都会再问一次能不能读取相机账号。
+
+第一次导入时，macOS 会询问是否允许 MiniDiT 控制 Capture One。
 
 运行测试：
 
@@ -83,8 +91,8 @@ Scripts/build-libssh2-xcframework.sh
    - 第一次连接时，要输入相机上显示的用户名和密码，并核对指纹。这些信息在相机的 MENU → 网络 → 网络选项 → 访问认证信息里。
    - 相机同一时间只接受一个遥控端，先断开 Creators' App。
 2. **找相机**：点「搜索相机」，或者直接输入相机的 IP。连过的相机按 SSH 指纹记住，IP 变了也能认出来。
-3. **浏览**：左边按拍摄日期列出，勾选某天就是导入这一天没导过的照片；点日期在右边查看（按住 ⌘ 多选）。右边和访达一样选：单击、⌘ 单击、⇧ 单击、拖动框选、方向键、⌘A；空格看大图。
-   也可以把存储卡插到读卡器上，在首页点「打开」。
+3. **浏览**：左边按拍摄日期列出。勾选某天，就是选中这一天没导过的照片，这一天也会显示在右边；点日期只是查看（按住 ⌘ 可以多选）。右边和访达一样选：单击、⌘ 单击、⇧ 单击、拖动框选、方向键、⌘A；空格看大图。
+   侧栏上面可以切换卡槽、换另一台连过的相机，或者换成读卡器。也可以把存储卡插到读卡器上，在「选择来源」页点那张卡。
 4. **导入**：点「导入到新会话…」，输入会话名（比如 `3.15-公园`），也可以加入已有的会话。新会话默认放在 C1 当前打开的会话所在的文件夹。
 
    设置里可以改会话存放位置，也可以换成其他模式：导入到 C1 当前打开的目录，或者只下载到文件夹。
@@ -101,7 +109,7 @@ swift run fake-sony-camera 15740
 
 ## 排查问题
 
-连接页和浏览页都有「复制诊断信息」，里面有网络状况、SSH 协商结果、列目录方式和缩略图格式，不包括密码。出错时，提示里会带上 PTP 操作码和响应码，可以对照 [docs/PROTOCOL.md](docs/PROTOCOL.md) 排查。
+设置 › 记录 里有「复制日志」，内容包括网络状况、SSH 协商结果、列目录方式和缩略图格式，不包括密码。出错时，提示里会带上 PTP 操作码和响应码，可以对照 [docs/PROTOCOL.md](docs/PROTOCOL.md) 排查。
 
 ## 许可证
 
