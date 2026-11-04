@@ -8,7 +8,8 @@ struct SettingsView: View {
     var body: some View {
         TabView {
             ImportSettings().tabItem { Label("导入", systemImage: "square.and.arrow.down") }
-            ConnectSettings().tabItem { Label("连接", systemImage: "wifi") }
+            ConnectSettings().tabItem { Label("相机", systemImage: "camera") }
+            AppsSettings().tabItem { Label("软件", systemImage: "square.grid.2x2") }
             RecordSettings().tabItem { Label("记录", systemImage: "clock.arrow.circlepath") }
         }
         .frame(width: 560, height: 560)

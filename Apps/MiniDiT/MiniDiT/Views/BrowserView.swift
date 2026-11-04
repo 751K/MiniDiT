@@ -233,6 +233,7 @@ struct BrowseHeader: View {
                     .font(.system(size: 11)).foregroundStyle(.secondary)
             }
             Spacer(minLength: 8)
+            SelectAllButton()
             CapsuleSegment(options: [("全部", false), ("未导入", true)], selection: $model.onlyNew)
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel("显示范围")
@@ -259,6 +260,26 @@ struct BrowseHeader: View {
 
 /// 工具栏里统一的胶囊控件高度。
 private let pillHeight: CGFloat = 26
+
+/// 全选右边显示的照片；都选上了就变成「取消全选」。
+private struct SelectAllButton: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        let order = model.grid.order
+        let all = !order.isEmpty && order.allSatisfy(model.grid.contains)
+        Button { all ? model.grid.clear() : model.grid.selectAll() } label: {
+            Text(all ? "取消全选" : "全选")
+                .font(.system(size: 13))
+                .padding(.horizontal, 12).frame(height: pillHeight)
+                .background(Capsule().fill(Color.primary.opacity(0.08)))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(order.isEmpty)
+        .help(all ? "取消选择（⌘D）" : "选中右边显示的全部照片（⌘A）")
+    }
+}
 
 private struct TypeToggle: View {
     let label: String
