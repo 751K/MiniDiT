@@ -39,7 +39,13 @@ struct KnownCamera: Codable, Hashable, Identifiable {
     var host: String
     var name: String
     var lastSeen: Date
+    /// 型号（ILCE-7M5）和固件版本；旧记录没有。
+    var model: String? = nil
+    var firmware: String? = nil
     var id: String { fingerprint }
+
+    /// 名字还是 IP（第一次连接时没读到型号）。
+    var nameIsAddress: Bool { name == host || name.allSatisfy { $0.isNumber || $0 == "." } }
 
     static let key = "knownCameras"
 

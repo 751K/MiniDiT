@@ -369,11 +369,15 @@ final class AppModel {
             sourceKind = .camera
             deviceInfo = await lib.deviceInfo
             cameraID = deviceInfo?.cameraID
-            let model = deviceInfo?.model ?? ""
-            let name = cam.knownName ?? (model.isEmpty ? cam.host : model)
+            let modelName = deviceInfo.map(\.displayName) ?? ""
+            // 用户起过的名字优先；名字还是 IP（以前没读到型号）就换成机型名。
+            let known = knownCameras.first { $0.fingerprint == cam.fingerprint }
+            let keepName = cam.knownName.flatMap { n in (known?.nameIsAddress ?? false) || n == cam.host ? nil : n }
+            let name = keepName ?? (modelName.isEmpty ? (cam.knownName ?? cam.host) : modelName)
             attach(lib, name: name, host: cam.host)
             lastCamera = FoundCamera(host: cam.host, kind: cam.kind, knownName: name)
-            KnownCamera.remember(KnownCamera(fingerprint: cam.fingerprint, host: cam.host, name: name, lastSeen: Date()))
+            KnownCamera.remember(KnownCamera(fingerprint: cam.fingerprint, host: cam.host, name: name, lastSeen: Date(),
+                                             model: deviceInfo?.model ?? known?.model, firmware: deviceInfo?.version ?? known?.firmware))
             knownCameras = KnownCamera.load()
             if let deviceInfo { log.add("相机：\(deviceInfo.model) 固件 \(deviceInfo.version)，机身 ID \(cameraID ?? "无")") }
             await loadAll()

@@ -33,6 +33,22 @@ public struct CameraDeviceInfo: Sendable, Equatable, Codable {
                                 serialNumber: strings[3], operations: Set(ops))
     }
 
+    /// 给人看的机型名：ILCE-7M5 → α7 V；不认识的型号原样返回。
+    public var displayName: String { Self.displayName(model: model) }
+
+    public static func displayName(model raw: String) -> String {
+        let m = raw.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        let table: [String: String] = [
+            "ILCE-7M5": "α7 V", "ILCE-7M4": "α7 IV", "ILCE-7M3": "α7 III",
+            "ILCE-7RM5": "α7R V", "ILCE-7RM4": "α7R IV", "ILCE-7RM4A": "α7R IVA", "ILCE-7RM3": "α7R III",
+            "ILCE-7SM3": "α7S III", "ILCE-7CM2": "α7C II", "ILCE-7CR": "α7CR", "ILCE-7C": "α7C",
+            "ILCE-1": "α1", "ILCE-1M2": "α1 II", "ILCE-9M3": "α9 III", "ILCE-9M2": "α9 II",
+            "ILCE-6700": "α6700", "ILCE-6600": "α6600", "ILCE-6400": "α6400",
+            "ZV-E1": "ZV-E1", "ZV-E10M2": "ZV-E10 II", "ILME-FX3": "FX3", "ILME-FX30": "FX30",
+        ]
+        return table[m] ?? raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     /// 用来区分机身的 ID：有序列号用序列号，否则用型号。
     public var cameraID: String? {
         let s = serialNumber.trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "0")))

@@ -112,7 +112,10 @@ struct Sidebar: View {
     private var sourceDetail: String {
         if model.offline { return "已断开，正在重新连接…" }
         if model.sourceKind == .card { return "读卡器" }
-        return (model.connectedHost ?? "") + (model.usesRemoteTransfer ? "" : " · 内容传输模式")
+        var parts = [model.connectedHost ?? ""]
+        if let v = model.deviceInfo?.version, !v.isEmpty { parts.append("固件 \(v)") }
+        if !model.usesRemoteTransfer { parts.append("内容传输模式") }
+        return parts.joined(separator: " · ")
     }
 }
 
