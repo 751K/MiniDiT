@@ -27,7 +27,6 @@ struct BrowserView: View {
                     .padding(.bottom, 16)
             }
             .background(Color(nsColor: .textBackgroundColor))
-            .toolbar(.hidden, for: .windowToolbar)
         }
         .overlay {
             if model.previewShot != nil { PreviewOverlay() }
@@ -245,7 +244,7 @@ struct OfflineBanner: View {
             Button("重新连接") { model.reconnectNow() }.buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.small)
         }
         .padding(.init(top: 8, leading: 12, bottom: 8, trailing: 8))
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.06)))
+        .glassRounded(10)
         .padding(.horizontal, 20).padding(.bottom, 8)
         .accessibilityElement(children: .contain)
     }
@@ -614,16 +613,13 @@ struct FloatingBar: View {
         HStack(spacing: 16) { content() }
             .padding(.init(top: 8, leading: 24, bottom: 8, trailing: 8))
             .frame(maxWidth: 640)
-            .background(Capsule().fill(.regularMaterial))
-            .overlay(Capsule().strokeBorder(Color(nsColor: .separatorColor)))
-            .shadow(color: .black.opacity(0.08), radius: 10, y: 2)
+            .glassCapsule()
     }
 
     private func pill<C: View>(@ViewBuilder _ content: () -> C) -> some View {
         HStack(spacing: 8) { content() }
             .padding(.horizontal, 16).padding(.vertical, 8)
-            .background(Capsule().fill(.regularMaterial))
-            .overlay(Capsule().strokeBorder(Color(nsColor: .separatorColor)))
+            .glassCapsule()
     }
 
     private func twoLines(_ title: String, _ detail: String) -> some View {
@@ -636,9 +632,10 @@ struct FloatingBar: View {
 
     private func mainButton(_ title: String, disabled: Bool = false, _ action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(title).font(.system(size: 17, weight: .semibold)).padding(.horizontal, 10).frame(height: 32)
+            Text(title).font(.system(size: 15, weight: .semibold)).padding(.horizontal, 8).frame(height: 28)
         }
-        .buttonStyle(.borderedProminent).buttonBorderShape(.capsule).controlSize(.large)
+        .glassProminentButton()
+        .controlSize(.large)
         .disabled(disabled)
     }
 
@@ -741,10 +738,47 @@ struct PreviewOverlay: View {
         Button(action: action) {
             Image(systemName: icon).font(.system(size: size * 0.38, weight: .semibold))
                 .frame(width: size, height: size)
-                .background(Circle().fill(Color.white.opacity(0.14)))
                 .contentShape(Circle())
+                .glassCircle()
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
+    }
+}
+
+// MARK: - 液态玻璃（macOS 26 起；更早的系统用毛玻璃）
+
+extension View {
+    @ViewBuilder func glassCapsule() -> some View {
+        if #available(macOS 26.0, *) {
+            glassEffect(.regular, in: Capsule())
+        } else {
+            background(Capsule().fill(.regularMaterial))
+                .overlay(Capsule().strokeBorder(Color(nsColor: .separatorColor)))
+        }
+    }
+
+    @ViewBuilder func glassRounded(_ radius: CGFloat) -> some View {
+        if #available(macOS 26.0, *) {
+            glassEffect(.regular, in: RoundedRectangle(cornerRadius: radius))
+        } else {
+            background(RoundedRectangle(cornerRadius: radius).fill(.regularMaterial))
+        }
+    }
+
+    @ViewBuilder func glassCircle() -> some View {
+        if #available(macOS 26.0, *) {
+            glassEffect(.regular.interactive(), in: Circle())
+        } else {
+            background(Circle().fill(Color.white.opacity(0.14)))
+        }
+    }
+
+    @ViewBuilder func glassProminentButton() -> some View {
+        if #available(macOS 26.0, *) {
+            buttonStyle(.glassProminent)
+        } else {
+            buttonStyle(.borderedProminent).buttonBorderShape(.capsule)
+        }
     }
 }
