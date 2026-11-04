@@ -12,6 +12,7 @@ struct MiniDiTApp: App {
                 .environment(model)
                 .frame(minWidth: 860, minHeight: 560)
         }
+        .windowStyle(.hiddenTitleBar)
         .commands {
             CommandGroup(replacing: .newItem) {}
             CommandMenu("选择") {
@@ -33,7 +34,7 @@ struct MiniDiTApp: App {
             }
         }
         Settings {
-            SettingsView().environment(model).frame(width: 520)
+            SettingsView().environment(model)
         }
     }
 }
@@ -44,7 +45,7 @@ struct RootView: View {
     var body: some View {
         @Bindable var model = model
         Group {
-            if model.phase == .ready || (model.phase == .loading && !model.days.isEmpty) {
+            if model.phase == .ready || model.offline || (model.phase == .loading && model.connectedName != nil) {
                 BrowserView()
             } else {
                 ConnectView()

@@ -57,6 +57,17 @@ final class AppModel {
     private(set) var connectedHost: String?
     private(set) var sourceKind: SourceKind = .camera
     private(set) var usesRemoteTransfer = false
+    /// 正在连接的相机地址（来源页的卡片上显示转圈）。
+    private(set) var connectingHost: String?
+    /// 搜索没结果，而且看起来是没有本地网络权限。
+    private(set) var networkBlocked = false
+    /// 首页上显示的一句话（比如「已推出 TESTCARD，可以拔卡了」）。
+    private(set) var notice: String?
+    /// 相机掉线了，正在自动重连；浏览页的内容和选择都保留。
+    private(set) var offline = false
+    private var lastCamera: FoundCamera?
+    private var reconnectTask: Task<Void, Never>?
+    private var lostDuringImport = false
     /// 机身 ID（型号#序列号），导入记录用来区分不同机身。读卡器没有。
     private(set) var cameraID: String?
     private(set) var deviceInfo: CameraDeviceInfo?
@@ -110,6 +121,7 @@ final class AppModel {
 
     var previewShot: UInt32?
     private(set) var previewImage: NSImage?
+    private(set) var previewLoaded = false
     private var previewTask: Task<Void, Never>?
 
     // MARK: 导入
@@ -126,7 +138,24 @@ final class AppModel {
         var fraction: Double { bytesTotal == 0 ? 0 : min(1, Double(bytesDone) / Double(bytesTotal)) }
     }
 
+    struct ImportResult {
+        var files: Int
+        var reused: Int
+        var failed: Int
+        var session: String?
+        var c1Failed: Bool
+        var cancelled: Bool
+    }
+    /// 导入中断（相机掉线）：没导完的仍然选中，重连后可以继续。
+    struct Interrupted {
+        var done: Int
+        var total: Int
+        var session: SessionChoice?
+    }
+
     private(set) var progress: ImportProgress?
+    private(set) var lastResult: ImportResult?
+    private(set) var interrupted: Interrupted?
     private(set) var lastSummary: String?
     private(set) var lastBatch: [URL] = []
     private var importTask: Task<Void, Never>?
@@ -163,7 +192,7 @@ final class AppModel {
     }
 
     /// 导入前要用户填会话名。
-    enum SessionChoice { case new(String), existing(URL) }
+    enum SessionChoice { case new(String), existing(URL), resolved(captureDir: URL, name: String) }
     struct SessionRequest: Identifiable {
         let id = UUID()
         let suggestedName: String
@@ -210,6 +239,7 @@ final class AppModel {
         guard phase == .idle else { return }
         phase = .searching
         errorMessage = nil
+        notice = nil
         log.add("搜索相机：\(CameraFinder.networkSummary())")
         let known = knownCameras
         connectTask = Task {
@@ -218,6 +248,8 @@ final class AppModel {
             }
             found = result
             searched = true
+            networkBlocked = result.isEmpty ? await CameraFinder.localNetworkBlocked() : false
+            if networkBlocked { log.add("搜索：看起来没有本地网络权限") }
             log.add("搜索结果：\(result.map { "\($0.host)\($0.knownName.map { "（\($0)）" } ?? "")" })")
             if phase == .searching { phase = .idle }
             status = ""
@@ -282,7 +314,10 @@ final class AppModel {
 
     private func connect(_ cam: FoundCamera) async {
         phase = .connecting
+        connectingHost = cam.host
+        defer { connectingHost = nil }
         errorMessage = nil
+        notice = nil
         log.add("连接 \(cam.host)")
         do {
             let lib = try await openLibrary(cam)
@@ -292,6 +327,7 @@ final class AppModel {
             let model = deviceInfo?.model ?? ""
             let name = cam.knownName ?? (model.isEmpty ? cam.host : model)
             attach(lib, name: name, host: cam.host)
+            lastCamera = FoundCamera(host: cam.host, kind: cam.kind, knownName: name)
             KnownCamera.remember(KnownCamera(fingerprint: cam.fingerprint, host: cam.host, name: name, lastSeen: Date()))
             knownCameras = KnownCamera.load()
             if let deviceInfo { log.add("相机：\(deviceInfo.model) 固件 \(deviceInfo.version)，机身 ID \(cameraID ?? "无")") }
@@ -321,10 +357,10 @@ final class AppModel {
         }
     }
 
-    private func openLibrary(_ cam: FoundCamera) async throws -> any CameraLibrary {
+    private func openLibrary(_ cam: FoundCamera, interactive: Bool = true) async throws -> any CameraLibrary {
         let step: @Sendable (String) -> Void = { s in Task { @MainActor in self.status = s; self.log.add(s) } }
         do {
-            let tunnel = try await prepareTunnel(cam)
+            let tunnel = try await prepareTunnel(cam, interactive: interactive)
             let lib = try await SonyRemoteTransferLibrary.open(host: cam.host, identity: HostIdentityStore.identity,
                                                                tunnel: tunnel, progress: step)
             usesRemoteTransfer = true
@@ -333,17 +369,20 @@ final class AppModel {
         } catch let e where e is SonyRemoteTransferError || e is PTPError {
             log.add("远程传输不可用（\(e.localizedDescription)），改用内容传输模式")
             try? await Task.sleep(for: .milliseconds(800))
-            let tunnel = try await prepareTunnel(cam)
+            let tunnel = try await prepareTunnel(cam, interactive: interactive)
             usesRemoteTransfer = false
             return try await SonyContentsTransfer.openLibrary(host: cam.host, identity: HostIdentityStore.identity,
                                                               tunnel: tunnel, progress: step)
         }
     }
 
-    private func prepareTunnel(_ cam: FoundCamera) async throws -> CameraSSHTunnel? {
+    private func prepareTunnel(_ cam: FoundCamera, interactive: Bool = true) async throws -> CameraSSHTunnel? {
         guard case .ssh(let fingerprint) = cam.kind else { return nil }
         var creds = CredentialStore.load(fingerprint)
-        if creds == nil { creds = await askCredentials(host: cam.host, message: nil, prefillUser: nil) }
+        if creds == nil {
+            guard interactive else { throw CancellationError() }
+            creds = await askCredentials(host: cam.host, message: nil, prefillUser: nil)
+        }
         while true {
             guard var current = creds else { throw CancellationError() }
             try Task.checkCancellation()
@@ -352,6 +391,7 @@ final class AppModel {
                 let trusted = current.trustedFingerprint
                 let tunnel = try await CameraSSHTunnel.open(host: cam.host, credentials: current) { key in
                     if let trusted, trusted == key.sha256Base64 { return true }
+                    guard interactive else { return false }
                     return await self.confirmFingerprint(host: cam.host, key: key)
                 }
                 current.trustedFingerprint = tunnel.hostKey.sha256Base64
@@ -359,6 +399,7 @@ final class AppModel {
                 log.add("加密连接成功：\(tunnel.hostKey.keyType) \(tunnel.hostKey.sha256Base64)；\(tunnel.negotiated?.description ?? "")")
                 return tunnel
             } catch SSHTunnelError.authenticationFailed(let detail) {
+                guard interactive else { throw CancellationError() }
                 log.add("访问身份验证失败：用户名「\(current.username)」，密码 \(current.password.count) 个字符；\(detail)")
                 creds = await askCredentials(host: cam.host, message: "用户名或密码不对，请对照相机上的「访问身份验证信息」重新输入。",
                                              prefillUser: current.username)
@@ -405,6 +446,10 @@ final class AppModel {
         importTask?.cancel()
         connectTask?.cancel()
         watchTask?.cancel()
+        reconnectTask?.cancel()
+        offline = false
+        lastCamera = nil
+        interrupted = nil
         let lib = library
         library = nil
         Task { await lib?.close() }
@@ -420,6 +465,16 @@ final class AppModel {
 
     private func handleLost() {
         guard library != nil else { return }
+        // 相机掉线：保留内容和选择，后台自动重连。
+        if sourceKind == .camera, lastCamera != nil, !items.isEmpty {
+            log.add("和相机的连接断开了，开始自动重连")
+            lostDuringImport = progress != nil
+            importTask?.cancel()
+            library = nil
+            offline = true
+            startReconnect()
+            return
+        }
         let wasCard = sourceKind == .card
         log.add(wasCard ? "存储卡被移除了" : "和相机的连接断开了")
         importTask?.cancel()
@@ -429,13 +484,63 @@ final class AppModel {
         errorMessage = wasCard ? "存储卡被移除了。" : "和相机的连接断开了（相机关机、离开 Wi-Fi，或者被别的设备连上了）。"
     }
 
+    // MARK: 自动重连
+
+    private func startReconnect() {
+        reconnectTask?.cancel()
+        reconnectTask = Task {
+            var attempt = 0
+            while !Task.isCancelled, offline {
+                attempt += 1
+                if await reconnectOnce() { return }
+                try? await Task.sleep(for: .seconds(attempt < 5 ? 3 : 8))
+            }
+        }
+    }
+
+    /// 「重新连接」按钮：马上再试一次。
+    func reconnectNow() {
+        guard offline else { return }
+        startReconnect()
+    }
+
+    private func reconnectOnce() async -> Bool {
+        guard let cam = lastCamera else { return false }
+        status = "正在重新连接 \(cam.host)…"
+        guard await probe(host: cam.host)?.fingerprint == cam.fingerprint else { return false }
+        do {
+            let lib = try await openLibrary(cam, interactive: false)
+            guard offline else { await lib.close(); return true }
+            let keep = selectedKeys()
+            let keepDays = shownDays
+            deviceInfo = await lib.deviceInfo
+            cameraID = deviceInfo?.cameraID ?? cameraID
+            attach(lib, name: connectedName ?? cam.host, host: cam.host)
+            offline = false
+            log.add("已重新连上相机")
+            await loadAll(restoring: keep, days: keepDays)
+            status = ""
+            return true
+        } catch {
+            log.add("重连失败：\(error.localizedDescription)")
+            return false
+        }
+    }
+
+    /// 选择的「身份」：卡槽 + 文件名 + 拍摄时间。重新列目录后句柄会变，用它把选择找回来。
+    private static func stableKey(_ i: CameraContentItem) -> String { "\(i.storageID >> 16)|\(i.filename)|\(i.captureDateRaw)" }
+
+    private func selectedKeys() -> Set<String> {
+        Set(grid.selected.compactMap { shots[$0] }.flatMap(\.handles).compactMap { items[$0].map(Self.stableKey) })
+    }
+
     private func resetContent() {
         items = [:]; allShots = []; shots = [:]; shotOfFile = [:]; slots = []; days = []
         grid = GridSelection(); shownDays = []
         thumbnails = [:]; thumbOrder = []; pendingThumbs = []
         connectedName = nil; connectedHost = nil; cameraID = nil; deviceInfo = nil; cardRoot = nil
         previewShot = nil; previewImage = nil
-        progress = nil
+        progress = nil; lastResult = nil; interrupted = nil; offline = false
     }
 
     // MARK: 存储卡
@@ -458,6 +563,8 @@ final class AppModel {
         guard phase == .idle else { return }
         connectTask?.cancel()
         errorMessage = nil
+        notice = nil
+        lastCamera = nil
         let lib = LocalCardLibrary(root: url)
         sourceKind = .card
         usesRemoteTransfer = false
@@ -474,7 +581,7 @@ final class AppModel {
         disconnect()
         do {
             try NSWorkspace.shared.unmountAndEjectDevice(at: root)
-            lastSummary = "已推出「\(root.lastPathComponent)」，可以拔卡了"
+            notice = "已推出 \(root.lastPathComponent)，可以拔卡了"
         } catch {
             errorMessage = "推出存储卡失败：\(error.localizedDescription)"
         }
@@ -482,9 +589,10 @@ final class AppModel {
 
     // MARK: 读取存储卡
 
-    private func loadAll() async {
+    private func loadAll(restoring keep: Set<String>? = nil, days keepDays: Set<String> = []) async {
         guard let library else { return }
         phase = .loading
+        thumbnails = [:]; thumbOrder = []; pendingThumbs = []   // 句柄会变，旧缩略图不能再用
         do {
             let folders = try await library.folders()
             var all: [UInt32: CameraContentItem] = [:]
@@ -507,8 +615,17 @@ final class AppModel {
             shotOfFile = [:]
             for s in allShots { for h in s.handles { shotOfFile[h] = s.id } }
             slots = Array(Set(all.values.map { $0.storageID >> 16 })).sorted()
+            grid = GridSelection()
             rebuild()
-            selectDefault()
+            if let keep {
+                // 重连后：按文件身份找回原来的选择和查看的日期。
+                let ids = allShots.filter { s in s.handles.contains { items[$0].map { keep.contains(Self.stableKey($0)) } ?? false } }.map(\.id)
+                grid.set(ids, selected: true)
+                let valid = keepDays.intersection(Set(days.map(\.id)))
+                if !valid.isEmpty { shownDays = valid }
+            } else {
+                selectDefault()
+            }
             phase = .ready
             log.add("读卡完成：\(all.count) 个文件，\(allShots.count) 次拍摄，\(days.count) 天")
         } catch {
@@ -601,6 +718,14 @@ final class AppModel {
         grid.setOrder(visibleDays.flatMap(\.shots))
     }
 
+    /// 某个卡槽里的拍摄数（侧栏显示）。
+    func shotCount(slot: UInt32) -> Int {
+        allShots.filter { items[$0.primary].map { $0.storageID >> 16 == slot } ?? false }.count
+    }
+
+    /// 当前来源上没导入过的拍摄数。
+    var newShotCount: Int { days.reduce(0) { $0 + $1.newCount } }
+
     var visibleDays: [ShootingDay] { days.filter { shownDays.contains($0.id) } }
 
     func item(_ h: UInt32) -> CameraContentItem? { items[h] }
@@ -689,12 +814,13 @@ final class AppModel {
 
     private func showPreview(_ id: UInt32) {
         previewShot = id
+        previewLoaded = false
         previewImage = shots[id].flatMap { thumbnails[$0.primary] }
         previewTask?.cancel()
         guard let library, let s = shots[id] else { return }
         previewTask = Task {
             guard let data = try? await library.preview(s.primary), !Task.isCancelled, let img = NSImage(data: data) else { return }
-            if previewShot == id { previewImage = img }
+            if previewShot == id { previewImage = img; previewLoaded = true }
         }
     }
 
@@ -745,6 +871,9 @@ final class AppModel {
 
     func startImport(session: SessionChoice?) {
         sessionRequest = nil
+        interrupted = nil
+        lastResult = nil
+        lostDuringImport = false
         guard let library, progress == nil else { return }
         let picked = Array(selectedFiles().reversed())  // 旧的先导
         guard !picked.isEmpty else { return }
@@ -771,6 +900,9 @@ final class AppModel {
                     case .existing(let file):
                         sessionName = file.deletingPathExtension().lastPathComponent
                         captureDir = try await CaptureOneBridge.openSession(file)
+                    case .resolved(let dir, let name):
+                        sessionName = name
+                        captureDir = dir
                     }
                     log.add("会话「\(sessionName)」，Capture 文件夹：\(captureDir!.path)")
                 } catch {
@@ -837,12 +969,13 @@ final class AppModel {
                 } catch is CancellationError {
                     break
                 } catch {
-                    if error is PTPIPTransportError { progress?.failed.append(item.filename); break }
+                    if error is PTPIPTransportError { progress?.failed.append(item.filename); lostDuringImport = true; break }
                     log.add("导入失败 \(item.filename)：\(error.localizedDescription)")
                     progress?.failed.append(item.filename)
                 }
             }
             ImportHistory.shared.record(done, camera: camera)
+            let wasLost = lostDuringImport || (progress.map { !$0.failed.isEmpty } ?? false) && offline
             var summary = "导入 \(done.count) 个文件"
             if let p = progress, p.reused > 0 { summary += "，其中 \(p.reused) 个用了本地已有的" }
             if let p = progress, p.skipped > 0 { summary += "，\(p.skipped) 个目标文件夹里已有" }
@@ -854,7 +987,17 @@ final class AppModel {
             } else if mode != .off && !saved.isEmpty {
                 summary += await sendToCaptureOne(saved, inPlace: mode == .inPlace)
             }
+            var c1Failed = false
+            if mode != .newSession && mode != .off && !saved.isEmpty { c1Failed = summary.contains("Capture One 导入失败") }
             lastSummary = summary
+            if wasLost {
+                let resume: SessionChoice? = captureDir.map { .resolved(captureDir: $0, name: sessionName) }
+                interrupted = Interrupted(done: done.count, total: picked.count, session: mode == .newSession ? resume : nil)
+            } else {
+                lastResult = ImportResult(files: done.count, reused: progress?.reused ?? 0, failed: progress?.failed.count ?? 0,
+                                          session: mode == .newSession && !sessionName.isEmpty ? sessionName : nil,
+                                          c1Failed: c1Failed, cancelled: Task.isCancelled)
+            }
             log.add("导入结束：\(summary)")
             // 全部文件都导好的拍摄取消选中。
             let doneIDs = Set(done.map(\.0.id))
@@ -867,6 +1010,15 @@ final class AppModel {
 
     func cancelImport() { importTask?.cancel() }
 
+    /// 中断后继续：导到同一个会话，不再问名字。
+    func continueImport() {
+        guard !offline, let i = interrupted else { return }
+        if i.session == nil, captureOneMode == .newSession { beginImport(); return }
+        startImport(session: i.session)
+    }
+
+    func dismissResult() { lastResult = nil }
+
     /// 本地已有的同一个文件：先看导入记录里的位置，再看「保存位置/年/年-月-日/」（旧版记录没有位置）。
     static func localCopy(of item: CameraContentItem, root: URL, camera: String?) -> URL? {
         if let u = ImportHistory.shared.localFile(item, camera: camera) { return u }
@@ -878,6 +1030,7 @@ final class AppModel {
         Task {
             let r = await sendToCaptureOne(lastBatch, inPlace: captureOneMode == .inPlace)
             lastSummary = "重新导入 \(lastBatch.count) 个文件" + r
+            lastResult?.c1Failed = r.contains("失败")
         }
     }
 

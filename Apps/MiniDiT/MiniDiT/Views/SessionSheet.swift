@@ -2,6 +2,7 @@ import AppKit
 import SonyRemoteKit
 import SwiftUI
 
+/// 给这批照片定一个去处：新建会话，或加入已有会话。
 struct SessionSheet: View {
     @Environment(AppModel.self) private var model
     let request: AppModel.SessionRequest
@@ -14,52 +15,85 @@ struct SessionSheet: View {
         name.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
     }
     private var nameTaken: Bool {
-        FileManager.default.fileExists(atPath: model.sessionsFolder.appending(path: cleanName).path)
+        !cleanName.isEmpty && FileManager.default.fileExists(atPath: model.sessionsFolder.appending(path: cleanName).path)
     }
+    /// 只有日期前缀（「11.4-」）还不算填好。
+    private var nameReady: Bool { !cleanName.isEmpty && !cleanName.hasSuffix("-") }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("导入到 Capture One 会话").font(.title2.bold())
-            Picker("", selection: $useExisting) {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("导入 \(model.selectedShotCount) 张照片").font(.system(size: 17, weight: .semibold))
+                Text("\(model.selectedFiles().count) 个文件 · \(FloatingBar.bytes(model.selectionBytes))")
+                    .font(.system(size: 12)).foregroundStyle(.secondary)
+            }
+            Picker("导入方式", selection: $useExisting) {
                 Text("新建会话").tag(false)
                 Text("加入已有会话").tag(true)
             }
             .pickerStyle(.segmented).labelsHidden()
             .disabled(request.existing.isEmpty)
 
-            if !useExisting {
-                TextField("会话名称", text: $name, prompt: Text("例如 3.15-公园"))
-                    .textFieldStyle(.roundedBorder)
-                    .focused($focused)
-                    .onSubmit { if canStart { start() } }
-                if !model.recentContents.isEmpty {
-                    HStack(spacing: 6) {
-                        Text("最近：").font(.caption).foregroundStyle(.secondary)
-                        ForEach(model.recentContents.prefix(6), id: \.self) { c in
-                            Button(c) { name = datePrefix + c }
-                                .buttonStyle(.bordered).controlSize(.small)
+            Group {
+                if !useExisting {
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text("会话名称").font(.system(size: 12, weight: .semibold))
+                        TextField("会话名称", text: $name, prompt: Text("例如 11.4-公园"))
+                            .textFieldStyle(.roundedBorder).controlSize(.large)
+                            .labelsHidden()
+                            .focused($focused)
+                            .onSubmit { if canStart { start() } }
+                            .padding(.top, 6)
+                        HStack(alignment: .top, spacing: 6) {
+                            if nameTaken {
+                                Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange)
+                                Text("这个位置已有同名文件夹。请换个名字，或改用「加入已有会话」。")
+                            } else {
+                                Text("放在 " + model.sessionsFolder.appending(path: cleanName.isEmpty ? "…" : cleanName).path(percentEncoded: false))
+                                    .foregroundStyle(.secondary).lineLimit(2).truncationMode(.middle)
+                            }
+                        }
+                        .font(.system(size: 12))
+                        .padding(.top, 10)
+                        Spacer(minLength: 8)
+                        if !model.recentContents.isEmpty {
+                            HStack(spacing: 6) {
+                                Text("最近").font(.system(size: 12)).foregroundStyle(.secondary)
+                                ForEach(model.recentContents.prefix(6), id: \.self) { c in
+                                    Button { name = datePrefix + c } label: {
+                                        Text(c).font(.system(size: 12)).padding(.horizontal, 10).frame(height: 24)
+                                            .background(Capsule().fill(Color.primary.opacity(0.08)))
+                                            .contentShape(Capsule())
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
                         }
                     }
+                } else {
+                    List(request.existing, id: \.self, selection: $existing) { f in
+                        Text(f.deletingPathExtension().lastPathComponent)
+                    }
+                    .listStyle(.bordered)
+                    .accessibilityLabel("最近 15 个会话")
                 }
-                Text(nameTaken ? "已经有同名的文件夹了，换个名字，或者选「加入已有会话」。"
-                     : "会放在 \(model.sessionsFolder.path(percentEncoded: false))/\(cleanName.isEmpty ? "…" : cleanName)/")
-                    .font(.caption).foregroundStyle(nameTaken ? Color.orange : Color.secondary)
-            } else {
-                List(request.existing, id: \.self, selection: $existing) { f in
-                    Text(f.deletingPathExtension().lastPathComponent)
-                }
-                .frame(height: 180)
             }
-            Text("\(model.selectedShotCount) 张（\(model.selectedFiles().count) 个文件），\(ImportBar.bytes(model.selectionBytes))，下载到会话的 Capture 文件夹。")
-                .font(.caption).foregroundStyle(.secondary)
-            HStack {
+            .frame(height: 168, alignment: .top)
+
+            HStack(spacing: 8) {
+                Text("下载到会话的 Capture 文件夹").font(.system(size: 12)).foregroundStyle(.secondary)
                 Spacer()
-                Button("取消") { model.sessionRequest = nil }.keyboardShortcut(.cancelAction)
-                Button("开始导入") { start() }.keyboardShortcut(.defaultAction).disabled(!canStart)
+                Button("取消") { model.sessionRequest = nil }
+                    .buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.large)
+                    .keyboardShortcut(.cancelAction)
+                Button { start() } label: { Text("开始导入").fontWeight(.semibold).padding(.horizontal, 4) }
+                    .buttonStyle(.borderedProminent).buttonBorderShape(.capsule).controlSize(.large)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(!canStart)
             }
         }
-        .padding(24)
-        .frame(width: 460)
+        .padding(20)
+        .frame(width: 480)
         .onAppear { name = request.suggestedName; focused = true }
     }
 
@@ -69,7 +103,7 @@ struct SessionSheet: View {
         return request.suggestedName
     }
 
-    private var canStart: Bool { useExisting ? existing != nil : (!cleanName.isEmpty && !nameTaken) }
+    private var canStart: Bool { useExisting ? existing != nil : (nameReady && !nameTaken) }
 
     private func start() {
         if useExisting, let existing { model.startImport(session: .existing(existing)) }

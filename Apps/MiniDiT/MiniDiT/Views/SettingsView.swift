@@ -3,79 +3,177 @@ import MiniDiTCore
 import SonyRemoteKit
 import SwiftUI
 
+/// 设置窗口：导入 / 连接 / 记录。
 struct SettingsView: View {
+    var body: some View {
+        TabView {
+            ImportSettings().tabItem { Label("导入", systemImage: "square.and.arrow.down") }
+            ConnectSettings().tabItem { Label("连接", systemImage: "wifi") }
+            RecordSettings().tabItem { Label("记录", systemImage: "clock.arrow.circlepath") }
+        }
+        .frame(width: 560, height: 560)
+    }
+}
+
+private struct ImportSettings: View {
     @Environment(AppModel.self) private var model
-    @State private var copied = false
 
     var body: some View {
         @Bindable var model = model
         Form {
-            Section("连接") {
-                Toggle("启动时自动连接上次的相机", isOn: $model.autoConnect)
-            }
-            Section("Capture One 会话") {
-                HStack {
-                    Text("新会话放在：" + model.sessionsFolder.path(percentEncoded: false)).lineLimit(1).truncationMode(.middle)
-                    Spacer()
-                    Button("选择…") { chooseFolder(\.sessionsFolder) }
-                }
-                Text("「新建 C1 会话」模式下，每次导入新建一个会话（名字默认是「月.日-」，后面补上内容），照片直接下载到会话的 Capture 文件夹。也可以选加入已有的会话。没设置过位置时，跟 C1 当前打开的会话放在同一个文件夹。")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            Section("保存位置（其他模式）") {
-                HStack {
-                    Text(model.destination.path(percentEncoded: false)).lineLimit(1).truncationMode(.middle)
-                    Spacer()
-                    Button("选择…") { chooseFolder(\.destination) }
-                }
-                Text("按拍摄日期分文件夹：年/年-月-日。文件夹里已有同名同大小的文件时不会重复下载。")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            Section("Capture One") {
-                Picker("下载后", selection: $model.captureOneMode) {
-                    ForEach(CaptureOneMode.allCases) { Text($0.title).tag($0) }
-                }
-                Text("导入到 Capture One 当前打开的目录或会话。「按导入设置」会沿用 C1 里的导入目标、命名和风格；如果 C1 设置的是复制到别处，文件会再复制一份。「就地添加」只对目录有效，文件留在上面的保存位置。")
-                    .font(.caption).foregroundStyle(.secondary)
-                if let d = model.captureOneDocument {
-                    LabeledContent("当前文档", value: "\(d.kind)「\(d.name)」")
-                }
-                Button("刷新 Capture One 状态") { model.refreshCaptureOne() }
-            }
-            Section("RAW + JPEG") {
-                Picker("同一张同时有 RAW 和 JPEG/HEIF 时", selection: $model.pairPolicy) {
-                    ForEach(PairPolicy.allCases) { Text($0.title).tag($0) }
-                }
-            }
-            Section("记录") {
-                ForEach(model.knownCameras) { cam in
-                    HStack {
-                        VStack(alignment: .leading) {
-                            Text(cam.name)
-                            Text("\(cam.host) · \(cam.fingerprint)").font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+            Section("导入方式") {
+                Picker("导入方式", selection: $model.captureOneMode) {
+                    ForEach([CaptureOneMode.newSession, .c1Settings, .inPlace, .off]) { m in
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(Self.title(m))
+                            Text(Self.detail(m)).font(.caption).foregroundStyle(.secondary)
                         }
-                        Spacer()
-                        Button("忘记") { model.forget(cam) }
+                        .tag(m)
                     }
                 }
-                Button("清除导入记录（\(ImportHistory.shared.count) 条）") { ImportHistory.shared.clear(); model.rebuild() }
-                Button(copied ? "已复制" : "复制诊断日志") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString("MiniDiT 诊断日志\n网络：\(CameraFinder.networkSummary())\n\(AppLog.shared.text)", forType: .string)
-                    copied = true
+                .pickerStyle(.radioGroup).labelsHidden()
+                if let d = model.captureOneDocument {
+                    Text("Capture One 当前打开的文档：\(d.name)").font(.caption).foregroundStyle(.secondary)
                 }
+            }
+            Section("存放位置") {
+                LabeledContent {
+                    Button("更改…") {
+                        if model.captureOneMode == .newSession { choose(\.sessionsFolder) } else { choose(\.destination) }
+                    }
+                } label: {
+                    Text(model.captureOneMode == .newSession ? "新会话的位置" : "下载位置")
+                    Text(locationText).lineLimit(1).truncationMode(.middle)
+                }
+            }
+            Section("同时有 RAW 和 JPG/HIF 时") {
+                Picker("配对规则", selection: $model.pairPolicy) {
+                    Text("都导入").tag(PairPolicy.both)
+                    Text("只导 RAW").tag(PairPolicy.rawOnly)
+                    Text("只导 JPG/HIF").tag(PairPolicy.jpegOnly)
+                }
+                .pickerStyle(.segmented).labelsHidden()
             }
         }
         .formStyle(.grouped)
-        .padding()
+        .onAppear { model.refreshCaptureOne() }
     }
 
-    private func chooseFolder(_ key: ReferenceWritableKeyPath<AppModel, URL>) {
+    private var locationText: String {
+        if model.captureOneMode == .newSession {
+            let explicit = UserDefaults.standard.url(forKey: "sessionsFolder") != nil
+            return (explicit ? "" : "跟随 Capture One 当前的会话 · ") + model.sessionsFolder.path(percentEncoded: false)
+        }
+        return model.destination.path(percentEncoded: false) + "，按「年/年-月-日」分文件夹"
+    }
+
+    static func title(_ m: CaptureOneMode) -> String {
+        switch m {
+        case .newSession: "新建会话"
+        case .c1Settings: "按 Capture One 的导入设置"
+        case .inPlace: "就地添加"
+        case .off: "只下载"
+        }
+    }
+
+    static func detail(_ m: CaptureOneMode) -> String {
+        switch m {
+        case .newSession: "每次导入新建一个会话，照片存进它的 Capture 文件夹。"
+        case .c1Settings: "交给当前打开的文档，按它的导入设置处理。"
+        case .inPlace: "下载到下面的位置，再直接加入当前文档。"
+        case .off: "只存到电脑，不打开 Capture One。"
+        }
+    }
+
+    private func choose(_ key: ReferenceWritableKeyPath<AppModel, URL>) {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.canCreateDirectories = true
         panel.directoryURL = model[keyPath: key]
         if panel.runModal() == .OK, let url = panel.url { model[keyPath: key] = url }
+    }
+}
+
+private struct ConnectSettings: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        @Bindable var model = model
+        Form {
+            Section {
+                Toggle("启动时自动连接上次的相机", isOn: $model.autoConnect)
+            }
+            Section {
+                if model.knownCameras.isEmpty {
+                    Text("还没有连过相机").foregroundStyle(.secondary)
+                }
+                ForEach(model.knownCameras) { cam in
+                    HStack {
+                        Image(systemName: "camera").foregroundStyle(.secondary)
+                        VStack(alignment: .leading) {
+                            Text(cam.name)
+                            Text("上次连接：\(Self.when(cam.lastSeen)) · \(cam.host)").font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("忘记") { model.forget(cam) }
+                    }
+                }
+            } header: {
+                Text("连过的相机")
+            } footer: {
+                Text("忘记后，下次连接要重新核对指纹并填写账号。").font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    static func when(_ d: Date) -> String {
+        if Calendar.current.isDateInToday(d) { return "今天" }
+        if Calendar.current.isDateInYesterday(d) { return "昨天" }
+        let f = DateFormatter(); f.locale = Locale(identifier: "zh_CN"); f.dateFormat = "M月d日"
+        return f.string(from: d)
+    }
+}
+
+private struct RecordSettings: View {
+    @Environment(AppModel.self) private var model
+    @State private var confirmClear = false
+    @State private var copied = false
+    @State private var count = ImportHistory.shared.count
+
+    var body: some View {
+        Form {
+            Section("导入记录") {
+                LabeledContent {
+                    Button("清除记录…") { confirmClear = true }.disabled(count == 0)
+                } label: {
+                    Text(count > 0 ? "已记录 \(count.formatted()) 条" : "没有导入记录")
+                    Text("清除后，所有照片都会重新显示为未导入。")
+                }
+            }
+            Section("诊断") {
+                LabeledContent {
+                    Button(copied ? "已复制" : "复制日志") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString("MiniDiT 诊断日志\n网络：\(CameraFinder.networkSummary())\n\(AppLog.shared.text)", forType: .string)
+                        copied = true
+                    }
+                } label: {
+                    Text("诊断日志")
+                    Text("反馈问题时可以附上这份日志。")
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .confirmationDialog("清除全部 \(count) 条导入记录？", isPresented: $confirmClear) {
+            Button("清除", role: .destructive) {
+                ImportHistory.shared.clear()
+                model.rebuild()
+                count = 0
+            }
+        } message: {
+            Text("清除后，所有照片都会重新显示为未导入。已经导入的文件不会被删除。")
+        }
     }
 }

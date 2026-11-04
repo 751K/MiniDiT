@@ -43,6 +43,33 @@ enum CameraFinder {
         return parts.isEmpty ? "没有连接网络" : parts.joined(separator: "；")
     }
 
+    /// 有没有被 macOS 的「本地网络」隐私设置拦住：没有权限时，连局域网地址会立刻返回「没有到主机的路由」。
+    static func localNetworkBlocked() async -> Bool {
+        guard let gw = interfaces().lazy.compactMap({ CameraDiscovery.defaultGateway(interface: $0) }).first else { return false }
+        return await Task.detached { connectErrno(host: gw, port: 53) == EHOSTUNREACH }.value
+    }
+
+    /// 非阻塞 connect，返回 errno（成功或超时返回 0）。
+    private static func connectErrno(host: String, port: UInt16) -> Int32 {
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else { return 0 }
+        defer { close(fd) }
+        _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
+        var addr = sockaddr_in()
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = port.bigEndian
+        guard inet_pton(AF_INET, host, &addr.sin_addr) == 1 else { return 0 }
+        let r = withUnsafePointer(to: &addr) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) } }
+        if r == 0 { return 0 }
+        if errno != EINPROGRESS { return errno }
+        var pfd = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
+        guard poll(&pfd, 1, 800) > 0 else { return 0 }
+        var err: Int32 = 0
+        var len = socklen_t(MemoryLayout<Int32>.size)
+        getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &len)
+        return err
+    }
+
     static func search(known: [KnownCamera],
                        progress: @escaping @Sendable (String) -> Void) async -> [FoundCamera] {
         let knownByFingerprint = Dictionary(known.map { ($0.fingerprint, $0.name) }, uniquingKeysWith: { a, _ in a })
