@@ -308,6 +308,23 @@ final class AppModel {
         }
     }
 
+    /// 连过的相机：只认指纹相同的设备（同一个地址上可能换成了别的机器）。
+    func connect(known k: KnownCamera) {
+        connectTask = Task {
+            phase = .connecting
+            connectingHost = k.host
+            status = "正在找「\(k.name)」…"
+            if let cam = await probe(host: k.host), cam.fingerprint == k.fingerprint {
+                await connect(FoundCamera(host: cam.host, kind: cam.kind, knownName: k.name))
+                return
+            }
+            connectingHost = nil
+            phase = .idle
+            status = ""
+            errorMessage = "「\(k.name)」不在线（上次的地址是 \(k.host)）。请确认相机开着并打开了遥控拍摄；如果相机换了地址，点「搜索相机」。"
+        }
+    }
+
     func connect(_ cam: FoundCamera) {
         connectTask = Task { await connect(cam) }
     }

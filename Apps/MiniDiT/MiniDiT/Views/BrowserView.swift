@@ -189,11 +189,9 @@ struct BrowseHeader: View {
                     .font(.system(size: 11)).foregroundStyle(.secondary)
             }
             Spacer(minLength: 8)
-            Picker("显示范围", selection: $model.onlyNew) {
-                Text("全部").tag(false)
-                Text("未导入").tag(true)
-            }
-            .pickerStyle(.segmented).labelsHidden().fixedSize()
+            CapsuleSegment(options: [("全部", false), ("未导入", true)], selection: $model.onlyNew)
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("显示范围")
             HStack(spacing: 2) {
                 TypeToggle(label: "RAW", on: $model.showRaw)
                 TypeToggle(label: "JPG/HIF", on: $model.showPhotos)
@@ -215,6 +213,9 @@ struct BrowseHeader: View {
     }
 }
 
+/// 工具栏里统一的胶囊控件高度。
+private let pillHeight: CGFloat = 26
+
 private struct TypeToggle: View {
     let label: String
     @Binding var on: Bool
@@ -222,13 +223,47 @@ private struct TypeToggle: View {
     var body: some View {
         Button { on.toggle() } label: {
             Text(label)
-                .padding(.horizontal, 10).frame(height: 26)
+                .font(.system(size: 13))
+                .padding(.horizontal, 10).frame(height: pillHeight)
                 .foregroundStyle(on ? Color.primary : Color.secondary)
-                .background(Capsule().fill(on ? Color.primary.opacity(0.1) : Color.clear))
+                .background(Capsule().fill(on ? Color.primary.opacity(0.12) : Color.clear))
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(on ? .isSelected : [])
+    }
+}
+
+/// 胶囊分段控件：灰色底，选中的一项是浮起的亮色胶囊。
+private struct CapsuleSegment<T: Hashable>: View {
+    let options: [(String, T)]
+    @Binding var selection: T
+    @Namespace private var ns
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(options, id: \.1) { label, value in
+                let on = selection == value
+                Button { withAnimation(.snappy(duration: 0.2)) { selection = value } } label: {
+                    Text(label)
+                        .font(.system(size: 13, weight: on ? .semibold : .regular))
+                        .foregroundStyle(on ? Color.primary : Color.secondary)
+                        .padding(.horizontal, 12).frame(height: pillHeight - 4)
+                        .background {
+                            if on {
+                                Capsule().fill(Color(nsColor: .controlBackgroundColor))
+                                    .shadow(color: .black.opacity(0.15), radius: 1, y: 0.5)
+                                    .matchedGeometryEffect(id: "on", in: ns)
+                            }
+                        }
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(on ? .isSelected : [])
+            }
+        }
+        .padding(2)
+        .background(Capsule().fill(Color.primary.opacity(0.08)))
     }
 }
 

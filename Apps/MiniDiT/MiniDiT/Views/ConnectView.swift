@@ -61,7 +61,7 @@ struct ConnectView: View {
             let detail: String = model.phase == .searching ? "正在查找…" : model.searched ? "不在线" : "上次 \(k.host)"
             out.append(.init(id: "k:" + k.fingerprint, kind: .camera, name: k.name, detail: detail,
                              state: model.phase == .searching ? .busy : .quiet,
-                             action: model.phase == .idle ? { model.connect(host: k.host) } : nil))
+                             action: model.phase == .idle ? { model.connect(known: k) } : nil))
         }
         if out.isEmpty {
             out.append(.init(id: "placeholder", kind: .camera, name: "相机", detail: model.phase == .searching ? "正在查找…" : "还没有连过",
