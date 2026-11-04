@@ -720,8 +720,10 @@ final class AppModel {
 
     /// 一次拍摄里，按当前筛选和配对规则实际要导入的文件。
     func importFiles(of shot: Shot) -> [UInt32] {
-        ShotBuilder.files(of: shot, policy: pairPolicy, kindOf: { items[$0]?.kind })
-            .filter { items[$0].map(kindAccepted) ?? false }
+        // 先按筛选（卡槽、类型）去掉，再去重：选了「卡 2」时就用卡 2 上的那份。
+        ShotBuilder.files(of: shot, policy: pairPolicy, kindOf: { items[$0]?.kind },
+                          identity: { items[$0].map { "\($0.filename)|\($0.size)" } },
+                          include: { items[$0].map(kindAccepted) ?? false })
     }
 
     func isFileImported(_ h: UInt32) -> Bool { items[h].map { ImportHistory.shared.contains($0, camera: cameraID) } ?? false }
@@ -765,7 +767,7 @@ final class AppModel {
 
     /// 某个卡槽里的拍摄数（侧栏显示）。
     func shotCount(slot: UInt32) -> Int {
-        allShots.filter { items[$0.primary].map { $0.storageID >> 16 == slot } ?? false }.count
+        allShots.filter { $0.handles.contains { items[$0].map { $0.storageID >> 16 == slot } ?? false } }.count
     }
 
     /// 当前来源上没导入过的拍摄数。

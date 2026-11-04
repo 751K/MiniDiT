@@ -25,13 +25,34 @@ private func item(_ id: UInt32, _ name: String, _ fmt: UInt16, size: UInt64 = 10
         #expect(shots[2].isVideo)
     }
 
-    @Test func sameNameOnOtherSlotOrFarApartStaysSeparate() {
+    @Test func rawAndJpegOnDifferentSlotsBecomeOneShot() {
+        // 「分别记录」：RAW 在卡 1，HIF 在卡 2。
         let shots = ShotBuilder.group([
             item(1, "DSC00001.ARW", PTPObjectFormat.sonyARW, slot: 1),
-            item(2, "DSC00001.JPG", PTPObjectFormat.jpeg, slot: 2),        // 另一张卡（同时记录 / 分开记录）
-            item(3, "DSC00001.HIF", PTPObjectFormat.heif, date: "20250101T000000"),   // 计数器归零后的另一张
+            item(2, "DSC00001.HIF", PTPObjectFormat.heif, slot: 2),
         ])
-        #expect(shots.count == 3)
+        #expect(shots.count == 1)
+        #expect(shots[0].badge == "RAW+HIF")
+    }
+
+    @Test func farApartStaysSeparate() {
+        let shots = ShotBuilder.group([
+            item(1, "DSC00001.ARW", PTPObjectFormat.sonyARW),
+            item(2, "DSC00001.HIF", PTPObjectFormat.heif, date: "20250101T000000"),   // 计数器归零后的另一张
+        ])
+        #expect(shots.count == 2)
+    }
+
+    @Test func simultaneousRecordingImportsOneCopy() {
+        // 「同时记录」：两张卡上是同一个文件。
+        let a = item(1, "DSC00001.ARW", PTPObjectFormat.sonyARW, slot: 1)
+        let b = item(2, "DSC00001.ARW", PTPObjectFormat.sonyARW, slot: 2)
+        let shots = ShotBuilder.group([a, b])
+        #expect(shots.count == 1)
+        let byID: [UInt32: CameraContentItem] = [1: a, 2: b]
+        let files = ShotBuilder.files(of: shots[0], policy: .both, kindOf: { byID[$0]?.kind },
+                                      identity: { byID[$0].map { "\($0.filename)|\($0.size)" } })
+        #expect(files == [1])
     }
 
     @Test func pairPolicyPicksFiles() {

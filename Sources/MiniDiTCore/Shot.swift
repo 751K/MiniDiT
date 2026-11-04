@@ -27,7 +27,8 @@ public struct Shot: Identifiable, Hashable, Sendable {
 }
 
 public enum ShotBuilder {
-    /// 同一卡槽、同一文件名主体、拍摄时间相差不超过这么多秒的文件算同一次拍摄。
+    /// 同一文件名主体、拍摄时间相差不超过这么多秒的文件算同一次拍摄。
+    /// 不看卡槽：「分别记录」时 RAW 在卡 1、JPG/HIF 在卡 2；「同时记录」时两张卡上是同样的文件。
     public static let pairWindow: TimeInterval = 5
 
     /// 按传入顺序分组（保持第一个文件出现的位置）。
@@ -37,7 +38,7 @@ public enum ShotBuilder {
         var times: [Int: Date?] = [:]
         for item in items {
             let isVideo = item.kind == .video
-            let key = "\(item.storageID)/\(item.baseName.uppercased())"
+            let key = item.baseName.uppercased()
             if !isVideo, let candidates = open[key],
                let idx = candidates.first(where: { i in
                    !shots[i].isVideo && close(times[i] ?? nil, item.captureDate)
@@ -62,14 +63,22 @@ public enum ShotBuilder {
         return abs(a.timeIntervalSince(b)) <= pairWindow
     }
 
-    /// 导入时按配对规则选出实际要下载的文件。
-    public static func files(of shot: Shot, policy: PairPolicy, kindOf: (UInt32) -> CameraContentItem.Kind?) -> [UInt32] {
-        shot.handles.filter { h in
+    /// 导入时实际要下载的文件：先按 `include`（卡槽、类型筛选）留下，再按配对规则取舍；
+    /// 同一个文件在两张卡上都有（同时记录）时只取一份。
+    public static func files(of shot: Shot, policy: PairPolicy, kindOf: (UInt32) -> CameraContentItem.Kind?,
+                             identity: (UInt32) -> String? = { _ in nil },
+                             include: (UInt32) -> Bool = { _ in true }) -> [UInt32] {
+        let accepted = shot.handles.filter(include)
+        let kinds = accepted.compactMap(kindOf)
+        let hasRaw = kinds.contains(.raw), hasPhoto = kinds.contains(.jpeg) || kinds.contains(.heif)
+        var seen = Set<String>()
+        return accepted.filter { h in
             guard let k = kindOf(h) else { return false }
+            if let id = identity(h), !seen.insert(id).inserted { return false }
             switch policy {
             case .both: return true
-            case .rawOnly: return !(shot.hasRaw && (k == .jpeg || k == .heif))
-            case .jpegOnly: return !(shot.hasPhoto && k == .raw)
+            case .rawOnly: return !(hasRaw && (k == .jpeg || k == .heif))
+            case .jpegOnly: return !(hasPhoto && k == .raw)
             }
         }
     }
