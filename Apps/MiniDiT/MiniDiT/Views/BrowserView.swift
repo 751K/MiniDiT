@@ -47,9 +47,11 @@ struct Sidebar: View {
                 SourceRow(icon: model.sourceKind == .card ? "sdcard" : "camera",
                           name: model.connectedName ?? "",
                           detail: sourceDetail,
-                          current: model.slotFilter == nil,
+                          current: true,
+                          connected: !model.offline,
                           eject: model.sourceKind == .card ? { model.ejectCard() } : nil,
                           pick: { model.slotFilter = nil })
+                    .listRowBackground(rowHighlight(model.slotFilter == nil))
                 if model.slots.count > 1 {
                     ForEach(model.slots, id: \.self) { slot in
                         Button { model.slotFilter = slot } label: {
@@ -62,6 +64,8 @@ struct Sidebar: View {
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        .listRowBackground(rowHighlight(model.slotFilter == slot))
+                        .accessibilityAddTraits(model.slotFilter == slot ? .isSelected : [])
                     }
                 }
                 // 其他来源：插着的卡、连过的相机，点一下切换过去。
@@ -109,6 +113,15 @@ struct Sidebar: View {
         }
     }
 
+    /// 和日期列表的选中效果一致的圆角底色。
+    @ViewBuilder private func rowHighlight(_ on: Bool) -> some View {
+        if on {
+            RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.1)).padding(.horizontal, 10)
+        } else {
+            Color.clear
+        }
+    }
+
     private var sourceDetail: String {
         if model.offline { return "已断开，正在重新连接…" }
         if model.sourceKind == .card { return "读卡器" }
@@ -124,6 +137,7 @@ private struct SourceRow: View {
     let name: String
     let detail: String
     let current: Bool
+    var connected = false
     let eject: (() -> Void)?
     let pick: () -> Void
 
@@ -131,7 +145,17 @@ private struct SourceRow: View {
         HStack(spacing: 8) {
             Button(action: pick) {
                 HStack(spacing: 8) {
-                    Image(systemName: icon).frame(width: 18).foregroundStyle(.secondary)
+                    Image(systemName: icon).frame(width: 18)
+                        .foregroundStyle(current ? Color.accentColor : Color.secondary)
+                        .overlay(alignment: .bottomTrailing) {
+                            if current {
+                                Circle().fill(connected ? Color.green : Color.orange)
+                                    .frame(width: 7, height: 7)
+                                    .overlay(Circle().stroke(Color(nsColor: .windowBackgroundColor), lineWidth: 1.5))
+                                    .offset(x: 3, y: 2)
+                                    .help(connected ? "已连接" : "已断开，正在重新连接")
+                            }
+                        }
                     VStack(alignment: .leading, spacing: 0) {
                         Text(name).fontWeight(current ? .semibold : .regular).lineLimit(1)
                         Text(detail).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
@@ -148,6 +172,7 @@ private struct SourceRow: View {
             }
         }
         .padding(.vertical, 2)
+        .accessibilityValue(current ? (connected ? "当前来源，已连接" : "当前来源，已断开") : "")
     }
 }
 
