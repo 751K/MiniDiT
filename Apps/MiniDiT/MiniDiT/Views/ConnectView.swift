@@ -10,8 +10,29 @@ struct ConnectView: View {
         VStack(spacing: 20) {
             Image(systemName: "camera.on.rectangle").font(.system(size: 48)).foregroundStyle(.secondary)
             Text("从相机导入照片").font(.title.bold())
-            Text("相机和这台 Mac 连到同一个 Wi-Fi，并在相机上打开「遥控拍摄」。")
+            Text("相机和这台 Mac 连到同一个 Wi-Fi，并在相机上打开「遥控拍摄」；或者把存储卡插到读卡器上。")
                 .foregroundStyle(.secondary)
+
+            if let s = model.lastSummary, model.phase == .idle {
+                Text(s).font(.callout).foregroundStyle(.secondary)
+            }
+
+            if !model.cards.isEmpty && model.phase == .idle {
+                GroupBox("插着的存储卡") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(model.cards, id: \.self) { url in
+                            HStack {
+                                Image(systemName: "sdcard")
+                                Text(url.lastPathComponent).bold()
+                                Spacer()
+                                Button("打开") { model.openCard(url) }
+                            }
+                        }
+                    }
+                    .padding(6)
+                }
+                .frame(maxWidth: 420)
+            }
 
             if model.phase == .searching || model.phase == .connecting || model.phase == .loading {
                 VStack(spacing: 10) {

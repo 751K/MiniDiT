@@ -120,6 +120,8 @@ public final class FakeCard: @unchecked Sendable {
                 let fid = Int(params[1] & 0xFFFF)
                 guard fid >= 1, fid <= c.handles.count, let o = objects[c.handles[fid - 1]] else { return nil }
                 if code == SonyOperation.getContentsCompressedData {
+                    // 参数 2 = screennail：模拟相机直接给原图（图本身不大）。
+                    if params[2] == 2, o.data.starts(with: [0xFF, 0xD8]) { return .init(data: o.data) }
                     return o.thumb.isEmpty ? .init(code: 0x2010) : .init(data: o.thumb)
                 }
                 guard params.count >= 5 else { return nil }

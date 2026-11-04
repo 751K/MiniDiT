@@ -14,6 +14,23 @@ struct MiniDiTApp: App {
         }
         .commands {
             CommandGroup(replacing: .newItem) {}
+            CommandMenu("选择") {
+                Button("选所有没导入过的") { model.selectNew(in: Set(model.days.map(\.id))) }
+                    .keyboardShortcut("n", modifiers: [.command, .shift])
+                Button("反选") { model.grid.invert() }
+                    .keyboardShortcut("i", modifiers: [.command, .shift])
+                Button("取消选择") { model.grid.clear() }
+                    .keyboardShortcut("d", modifiers: .command)
+                Divider()
+                Button("大图预览") { model.openPreview() }
+                    .keyboardShortcut("y", modifiers: .command)
+            }
+            CommandGroup(after: .toolbar) {
+                Button("放大缩略图") { model.thumbSize = min(320, model.thumbSize + 30) }
+                    .keyboardShortcut("+", modifiers: .command)
+                Button("缩小缩略图") { model.thumbSize = max(110, model.thumbSize - 30) }
+                    .keyboardShortcut("-", modifiers: .command)
+            }
         }
         Settings {
             SettingsView().environment(model).frame(width: 520)

@@ -16,6 +16,9 @@ public final class FakeSonyState: @unchecked Sendable {
     public var remoteSlots: [UInt32: FakeCard] = [:]
     /// GetDeviceInfo 里列出的操作码；nil 时返回空数据（模拟老实现）。
     public var advertisedOperations: [UInt16]?
+    /// GetDeviceInfo 里的型号和序列号。
+    public var model = "ILCE-7M5"
+    public var serialNumber = "00000000012345"
     /// 收到的 0x9212（内容传输模式）参数。
     public private(set) var contentsTransferModeParams: [[UInt32]] = []
     /// 为 true 时模拟真机：不进入内容传输模式就读不到存储卡（返回 StoreNotAvailable）。
@@ -107,6 +110,8 @@ public final class FakeSonyState: @unchecked Sendable {
                 var w = PTPWriter()
                 w.u16(100); w.u32(0x11); w.u16(100); w.u8(0); w.u16(0)
                 w.u32(UInt32(ops.count)); ops.forEach { w.u16($0) }
+                for _ in 0..<4 { w.u32(0) }   // 事件、属性、拍摄格式、图像格式
+                w.ptpString("Sony Corporation"); w.ptpString(model); w.ptpString("1.00"); w.ptpString(serialNumber)
                 return .init(data: w.data)
             case PTPOperation.openSession, PTPOperation.closeSession:
                 return .init()

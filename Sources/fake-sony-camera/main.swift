@@ -83,6 +83,11 @@ if !CommandLine.arguments.contains("-no-remote") {
                                   SonyOperation.getContentsCompressedData]
 }
 
+// -serial XXXX：同时开多台模拟相机时区分机身。
+if let i = CommandLine.arguments.firstIndex(of: "-serial"), i + 1 < CommandLine.arguments.count {
+    state.serialNumber = CommandLine.arguments[i + 1]
+}
+
 let verbose = CommandLine.arguments.contains("-v")
 state.onOperation = { line in
     if verbose || !line.hasPrefix("op 0x1009 0xFFFFC002") && !line.hasPrefix("op 0x9209") { print(line) }

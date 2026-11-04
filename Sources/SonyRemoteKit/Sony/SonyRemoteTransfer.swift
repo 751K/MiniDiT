@@ -134,9 +134,11 @@ public actor SonyRemoteTransferLibrary: CameraLibrary {
     public nonisolated let connectionLost: AsyncStream<Void>
     public private(set) var listingNotes: [String] = []
     private var thumbNoted = false
+    public let deviceInfo: CameraDeviceInfo?
 
-    init(client: PTPIPClient, slots: [UInt32], notes: [String]) {
+    init(client: PTPIPClient, slots: [UInt32], notes: [String], deviceInfo: CameraDeviceInfo? = nil) {
         self.client = client
+        self.deviceInfo = deviceInfo
         self.slots = slots
         self.listingNotes = notes
         let (stream, cont) = AsyncStream.makeStream(of: Void.self)
@@ -158,7 +160,9 @@ public actor SonyRemoteTransferLibrary: CameraLibrary {
         try await client.connect()
         do {
             var notes: [String] = []
-            let ops = await supportedOperations(client)
+            let info = await fetchDeviceInfo(client)
+            let ops = info?.operations ?? []
+            if let info { notes.append("相机：\(info.manufacturer) \(info.model)，固件 \(info.version)，序列号 \(info.serialNumber.isEmpty ? "无" : "有")") }
             notes.append("远程传输：相机列出 \(ops.count) 个操作，" +
                          "0x923B–0x923E \([SonyOperation.getCapturedDateList, SonyOperation.getContentsInfoList, SonyOperation.getContentsData, SonyOperation.getContentsCompressedData].allSatisfy(ops.contains) ? "都有" : "不全")")
 
@@ -191,27 +195,20 @@ public actor SonyRemoteTransferLibrary: CameraLibrary {
                 }
             }
             guard !available.isEmpty else { throw SonyRemoteTransferError.cardsUnavailable(failures.joined(separator: "；")) }
-            return SonyRemoteTransferLibrary(client: client, slots: available, notes: notes)
+            return SonyRemoteTransferLibrary(client: client, slots: available, notes: notes, deviceInfo: info)
         } catch {
             await client.disconnect()
             throw error
         }
     }
 
-    /// GetDeviceInfo 里列出的操作码（解析失败返回空集合）。
-    static func supportedOperations(_ client: PTPIPClient) async -> Set<UInt16> {
+    /// GetDeviceInfo（失败返回 nil）。
+    static func fetchDeviceInfo(_ client: PTPIPClient) async -> CameraDeviceInfo? {
         guard let r = try? await client.transaction(PTPOperation.getDeviceInfo, requireOK: false),
-              r.code == PTPResponse.ok else { return [] }
-        return parseDeviceInfoOperations(r.data)
+              r.code == PTPResponse.ok else { return nil }
+        return CameraDeviceInfo.parse(r.data)
     }
 
-    static func parseDeviceInfoOperations(_ data: Data) -> Set<UInt16> {
-        var r = PTPReader(data)
-        guard (try? r.u16()) != nil, (try? r.u32()) != nil, (try? r.u16()) != nil,
-              (try? r.ptpString()) != nil, (try? r.u16()) != nil,
-              let ops = try? r.array({ try $0.u16() }) else { return [] }
-        return Set(ops)
-    }
 
     /// 0x923B 回复开头的 u32 数量。
     static func count(_ data: Data) -> UInt32 {
@@ -311,6 +308,15 @@ public actor SonyRemoteTransferLibrary: CameraLibrary {
             thumbNoted = true
             listingNotes.append("缩略图：0x923E \(image.map(PTPCameraLibrary.imageKind) ?? "无法识别")，\(r.data.count) 字节，开头 \(PTPCameraLibrary.hexPrefix(r.data))")
         }
+        return image
+    }
+
+    /// 0x923E 参数 2：screennail（约 1616 px 的 JPEG）。
+    public func preview(_ handle: UInt32) async throws -> Data? {
+        let e = try entry(handle)
+        let r = try await client.transaction(SonyOperation.getContentsCompressedData,
+                                             [e.contentID, e.slot << 24 | UInt32(e.fileID), 2], requireOK: false)
+        guard r.code == PTPResponse.ok, let image = PTPCameraLibrary.decodableImage(r.data) else { return try await thumbnail(handle) }
         return image
     }
 

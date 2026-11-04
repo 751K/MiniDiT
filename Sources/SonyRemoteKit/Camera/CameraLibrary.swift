@@ -87,6 +87,10 @@ public protocol CameraLibrary: AnyObject, Sendable {
     func handles(in folder: CameraFolder) async throws -> [UInt32]
     func item(_ handle: UInt32) async throws -> CameraContentItem
     func thumbnail(_ handle: UInt32) async throws -> Data?
+    /// 大图预览（约 1600 px）；没有时返回缩略图。
+    func preview(_ handle: UInt32) async throws -> Data?
+    /// 型号、序列号；拿不到时为 nil。
+    var deviceInfo: CameraDeviceInfo? { get async }
     /// 用「按格式列文件」一次性得到文件夹里每个文件的类型；相机不支持时返回 nil。
     func kinds(in folder: CameraFolder) async -> [UInt32: CameraContentItem.Kind]?
     func download(_ item: CameraContentItem, to url: URL,

@@ -1,4 +1,5 @@
 import AppKit
+import MiniDiTCore
 import SonyRemoteKit
 import SwiftUI
 
@@ -9,6 +10,9 @@ struct SettingsView: View {
     var body: some View {
         @Bindable var model = model
         Form {
+            Section("连接") {
+                Toggle("启动时自动连接上次的相机", isOn: $model.autoConnect)
+            }
             Section("Capture One 会话") {
                 HStack {
                     Text("新会话放在：" + model.sessionsFolder.path(percentEncoded: false)).lineLimit(1).truncationMode(.middle)
@@ -54,7 +58,7 @@ struct SettingsView: View {
                         Button("忘记") { model.forget(cam) }
                     }
                 }
-                Button("清除导入记录") { ImportHistory.shared.clear(); model.rebuild() }
+                Button("清除导入记录（\(ImportHistory.shared.count) 条）") { ImportHistory.shared.clear(); model.rebuild() }
                 Button(copied ? "已复制" : "复制诊断日志") {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString("MiniDiT 诊断日志\n网络：\(CameraFinder.networkSummary())\n\(AppLog.shared.text)", forType: .string)

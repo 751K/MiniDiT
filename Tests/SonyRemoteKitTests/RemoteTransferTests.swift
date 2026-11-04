@@ -48,6 +48,9 @@ import FakeSonyCamera
         let lib = try await SonyRemoteTransferLibrary.open(host: "127.0.0.1", port: port, identity: .random(name: "T"))
         let folders = try await lib.folders()
         #expect(folders.map(\.name) == ["卡槽 1", "卡槽 2"])
+        let info = try #require(await lib.deviceInfo)
+        #expect(info.model == "ILCE-7M5")
+        #expect(info.cameraID == "ILCE-7M5#00000000012345")
 
         let hs1 = try await lib.handles(in: folders[0])
         #expect(hs1.count == 135)

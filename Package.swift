@@ -6,6 +6,7 @@ let package = Package(
     platforms: [.iOS(.v17), .macOS(.v14)],
     products: [
         .library(name: "SonyRemoteKit", targets: ["SonyRemoteKit"]),
+        .library(name: "MiniDiTCore", targets: ["MiniDiTCore"]),
         .executable(name: "fake-sony-camera", targets: ["fake-sony-camera"]),
     ],
     targets: [
@@ -19,5 +20,8 @@ let package = Package(
         // SSH 访问身份验证端到端测试（Scripts/test-ssh-e2e.sh）。
         .executableTarget(name: "ssh-e2e", dependencies: ["SonyRemoteKit"]),
         .testTarget(name: "SonyRemoteKitTests", dependencies: ["SonyRemoteKit", "FakeSonyCamera"]),
+        // MiniDiT 里和界面无关的逻辑：拍摄分组、选择、导入记录匹配。
+        .target(name: "MiniDiTCore", dependencies: ["SonyRemoteKit"]),
+        .testTarget(name: "MiniDiTCoreTests", dependencies: ["MiniDiTCore"]),
     ]
 )

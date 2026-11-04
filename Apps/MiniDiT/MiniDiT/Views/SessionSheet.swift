@@ -32,6 +32,15 @@ struct SessionSheet: View {
                     .textFieldStyle(.roundedBorder)
                     .focused($focused)
                     .onSubmit { if canStart { start() } }
+                if !model.recentContents.isEmpty {
+                    HStack(spacing: 6) {
+                        Text("最近：").font(.caption).foregroundStyle(.secondary)
+                        ForEach(model.recentContents.prefix(6), id: \.self) { c in
+                            Button(c) { name = datePrefix + c }
+                                .buttonStyle(.bordered).controlSize(.small)
+                        }
+                    }
+                }
                 Text(nameTaken ? "已经有同名的文件夹了，换个名字，或者选「加入已有会话」。"
                      : "会放在 \(model.sessionsFolder.path(percentEncoded: false))/\(cleanName.isEmpty ? "…" : cleanName)/")
                     .font(.caption).foregroundStyle(nameTaken ? Color.orange : Color.secondary)
@@ -41,7 +50,7 @@ struct SessionSheet: View {
                 }
                 .frame(height: 180)
             }
-            Text("\(model.selection.count) 个文件，\(ImportBar.bytes(model.selectionBytes))，下载到会话的 Capture 文件夹。")
+            Text("\(model.selectedShotCount) 张（\(model.selectedFiles().count) 个文件），\(ImportBar.bytes(model.selectionBytes))，下载到会话的 Capture 文件夹。")
                 .font(.caption).foregroundStyle(.secondary)
             HStack {
                 Spacer()
@@ -52,6 +61,12 @@ struct SessionSheet: View {
         .padding(24)
         .frame(width: 460)
         .onAppear { name = request.suggestedName; focused = true }
+    }
+
+    /// 名字里「-」之前的日期部分（没有就用建议的日期）。
+    private var datePrefix: String {
+        if let dash = name.firstIndex(of: "-") { return String(name[...dash]) }
+        return request.suggestedName
     }
 
     private var canStart: Bool { useExisting ? existing != nil : (!cleanName.isEmpty && !nameTaken) }

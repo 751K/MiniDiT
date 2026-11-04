@@ -1,14 +1,16 @@
 import AppKit
 import Foundation
+import MiniDiTCore
 import Observation
 import SonyRemoteKit
 
-/// 一天的照片（按相机里的拍摄日期分组，不受 Mac 时区影响）。
+/// 一天的拍摄（按相机里的拍摄日期分组，不受 Mac 时区影响）。
 struct ShootingDay: Identifiable, Hashable {
     let id: String          // yyyyMMdd，没有日期的是 "unknown"
     let title: String
-    var handles: [UInt32]
+    var shots: [UInt32]
     var importedCount: Int
+    var newCount: Int { shots.count - importedCount }
 }
 
 enum CaptureOneMode: String, CaseIterable, Identifiable {
@@ -24,23 +26,15 @@ enum CaptureOneMode: String, CaseIterable, Identifiable {
     }
 }
 
-enum PairPolicy: String, CaseIterable, Identifiable {
-    case both, rawOnly, jpegOnly
-    var id: String { rawValue }
-    var title: String {
-        switch self {
-        case .both: "RAW 和 JPEG/HEIF 都导"
-        case .rawOnly: "有 RAW 时只导 RAW"
-        case .jpegOnly: "有 JPEG/HEIF 时只导 JPEG/HEIF"
-        }
-    }
-}
+/// 侧栏日期前的勾选框状态。
+enum CheckState { case off, mixed, on }
 
 @MainActor @Observable
 final class AppModel {
     // MARK: 连接
 
     enum Phase: Equatable { case idle, searching, connecting, loading, ready }
+    enum SourceKind: Equatable { case camera, card }
 
     struct CredentialRequest: Identifiable {
         let id = UUID()
@@ -61,36 +55,62 @@ final class AppModel {
     private(set) var searched = false
     private(set) var connectedName: String?
     private(set) var connectedHost: String?
+    private(set) var sourceKind: SourceKind = .camera
     private(set) var usesRemoteTransfer = false
+    /// 机身 ID（型号#序列号），导入记录用来区分不同机身。读卡器没有。
+    private(set) var cameraID: String?
+    private(set) var deviceInfo: CameraDeviceInfo?
     var errorMessage: String?
     var credentialRequest: CredentialRequest?
     var fingerprintRequest: FingerprintRequest?
     private var credentialContinuation: CheckedContinuation<SSHCredentials?, Never>?
     private var fingerprintContinuation: CheckedContinuation<Bool, Never>?
     private var library: (any CameraLibrary)?
+    private var cardRoot: URL?
     private var connectTask: Task<Void, Never>?
     private var watchTask: Task<Void, Never>?
     private let log = AppLog.shared
 
     var knownCameras: [KnownCamera] = KnownCamera.load()
+    /// 插着的存储卡（读卡器 / 相机 USB 大容量存储）。
+    private(set) var cards: [URL] = []
+
+    var autoConnect: Bool = UserDefaults.standard.object(forKey: "autoConnect") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(autoConnect, forKey: "autoConnect") }
+    }
 
     // MARK: 内容
 
     private(set) var items: [UInt32: CameraContentItem] = [:]
-    private(set) var order: [UInt32] = []        // 新的在前
+    private var allShots: [Shot] = []                 // 新的在前
+    private(set) var shots: [UInt32: Shot] = [:]
+    private var shotOfFile: [UInt32: UInt32] = [:]
     private(set) var slots: [UInt32] = []
     var slotFilter: UInt32? = nil { didSet { rebuild() } }        // nil = 全部卡槽
     var showPhotos = true { didSet { rebuild() } }
     var showRaw = true { didSet { rebuild() } }
     var showVideo = false { didSet { rebuild() } }
-    var onlyNew = false { didSet { rebuild() } }
+    var onlyNew = UserDefaults.standard.object(forKey: "onlyNew") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(onlyNew, forKey: "onlyNew"); rebuild() }
+    }
     private(set) var days: [ShootingDay] = []
-    var selectedDays: Set<String> = []
-    var selection: Set<UInt32> = []
+    /// 侧栏里点中的日期（右边显示哪几天）。
+    var shownDays: Set<String> = [] { didSet { updateGridOrder() } }
+    /// 选中的拍摄（Shot.id）。
+    var grid = GridSelection<UInt32>()
     private(set) var thumbnails: [UInt32: NSImage] = [:]
     private var thumbOrder: [UInt32] = []
     private var pendingThumbs: [UInt32] = []
     private var thumbLoaderRunning = false
+    var thumbSize: Double = UserDefaults.standard.object(forKey: "thumbSize") as? Double ?? 170 {
+        didSet { UserDefaults.standard.set(thumbSize, forKey: "thumbSize") }
+    }
+
+    // MARK: 预览
+
+    var previewShot: UInt32?
+    private(set) var previewImage: NSImage?
+    private var previewTask: Task<Void, Never>?
 
     // MARK: 导入
 
@@ -117,14 +137,14 @@ final class AppModel {
     }
     private(set) var destinationVersion = 0
     static var defaultDestination: URL {
-        FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask)[0].appending(path: "相机导入", directoryHint: .isDirectory)
+        FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask)[0].appending(path: "MiniDiT", directoryHint: .isDirectory)
     }
 
     var captureOneMode: CaptureOneMode = CaptureOneMode(rawValue: UserDefaults.standard.string(forKey: "c1Mode") ?? "") ?? .newSession {
         didSet { UserDefaults.standard.set(captureOneMode.rawValue, forKey: "c1Mode") }
     }
     var pairPolicy: PairPolicy = PairPolicy(rawValue: UserDefaults.standard.string(forKey: "pairPolicy") ?? "") ?? .both {
-        didSet { UserDefaults.standard.set(pairPolicy.rawValue, forKey: "pairPolicy"); rebuild() }
+        didSet { UserDefaults.standard.set(pairPolicy.rawValue, forKey: "pairPolicy") }
     }
     private(set) var captureOneDocument: CaptureOneBridge.DocumentInfo?
 
@@ -151,11 +171,37 @@ final class AppModel {
     }
     var sessionRequest: SessionRequest?
 
-    /// 会话名默认是选中文件里最早一天的日期，格式「月.日-」（如 3.15-公园），用户在后面补内容。
+    /// 最近用过的会话内容名（「3.15-公园」里的「公园」），新的在前。
+    private(set) var recentContents: [String] = UserDefaults.standard.stringArray(forKey: "recentContents") ?? []
+
+    init() {
+        refreshCards()
+        let nc = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification] {
+            nc.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
+                let path = (note.userInfo?[NSWorkspace.volumeURLUserInfoKey] as? URL)
+                MainActor.assumeIsolated { self?.volumesChanged(unmounted: name == NSWorkspace.didUnmountNotification ? path : nil) }
+            }
+        }
+        if autoConnect, !knownCameras.isEmpty {
+            connectTask = Task { await autoConnectLast() }
+        }
+    }
+
+    /// 会话名默认是选中内容里最早一天的日期，格式「月.日-」（如 3.15-公园），用户在后面补内容。
     func suggestedSessionName() -> String {
-        let keys = selection.compactMap { items[$0].map(Self.dayKey) }.filter { $0 != "unknown" }.sorted()
+        let keys = selectedFiles().map(Self.dayKey).filter { $0 != "unknown" }.sorted()
         guard let first = keys.first, let m = Int(first.dropFirst(4).prefix(2)), let d = Int(first.suffix(2)) else { return "" }
         return "\(m).\(d)-"
+    }
+
+    private func rememberContent(of sessionName: String) {
+        guard let dash = sessionName.firstIndex(of: "-") else { return }
+        let content = sessionName[sessionName.index(after: dash)...].trimmingCharacters(in: .whitespaces)
+        guard !content.isEmpty else { return }
+        recentContents = [content] + recentContents.filter { $0 != content }
+        recentContents = Array(recentContents.prefix(12))
+        UserDefaults.standard.set(recentContents, forKey: "recentContents")
     }
 
     // MARK: 搜索
@@ -178,18 +224,51 @@ final class AppModel {
         }
     }
 
+    /// 启动时连上次的相机：先试上次的地址，不行再搜一遍子网找认识的相机。
+    private func autoConnectLast() async {
+        guard let last = knownCameras.first else { return }
+        phase = .searching
+        status = "正在找上次的相机「\(last.name)」…"
+        log.add("自动连接：先试 \(last.host)")
+        if let cam = await probe(host: last.host), cam.fingerprint == last.fingerprint {
+            await connect(FoundCamera(host: cam.host, kind: cam.kind, knownName: last.name))
+            return
+        }
+        if Task.isCancelled { phase = .idle; status = ""; return }
+        status = "上次的地址连不上，正在搜索…"
+        let result = await CameraFinder.search(known: knownCameras) { s in Task { @MainActor in self.status = s } }
+        found = result
+        searched = true
+        if Task.isCancelled { phase = .idle; status = ""; return }
+        if let cam = result.first(where: { $0.knownName != nil }) {
+            await connect(cam)
+        } else {
+            log.add("自动连接：没找到连过的相机")
+            phase = .idle
+            status = ""
+        }
+    }
+
+    /// 检查某个地址上有没有相机（先 PTP/IP 直连，再 SSH）。
+    private func probe(host: String) async -> FoundCamera? {
+        if await CameraDiscovery.probe(host: host, port: PTPIPClient.defaultPort, timeout: 1.5) {
+            return FoundCamera(host: host, kind: .direct)
+        }
+        if let (key, _) = try? await CameraSSHTunnel.probe(host: host, timeout: 4) {
+            return FoundCamera(host: host, kind: .ssh(fingerprint: key.sha256Base64))
+        }
+        return nil
+    }
+
     func connect(host: String) {
         let h = host.trimmingCharacters(in: .whitespaces)
         guard !h.isEmpty else { return }
         connectTask = Task {
             phase = .connecting
             status = "正在检查 \(h)…"
-            if await CameraDiscovery.probe(host: h, port: PTPIPClient.defaultPort, timeout: 1.5) {
-                await connect(FoundCamera(host: h, kind: .direct))
-                return
-            }
-            if let (key, _) = try? await CameraSSHTunnel.probe(host: h, timeout: 4) {
-                await connect(FoundCamera(host: h, kind: .ssh(fingerprint: key.sha256Base64)))
+            if let cam = await probe(host: h) {
+                let name = knownCameras.first { $0.fingerprint == cam.fingerprint }?.name
+                await connect(FoundCamera(host: cam.host, kind: cam.kind, knownName: name))
                 return
             }
             phase = .idle
@@ -207,18 +286,15 @@ final class AppModel {
         log.add("连接 \(cam.host)")
         do {
             let lib = try await openLibrary(cam)
-            library = lib
-            connectedHost = cam.host
-            connectedName = cam.knownName ?? cam.host
-            KnownCamera.remember(KnownCamera(fingerprint: cam.fingerprint, host: cam.host, name: connectedName!, lastSeen: Date()))
+            sourceKind = .camera
+            deviceInfo = await lib.deviceInfo
+            cameraID = deviceInfo?.cameraID
+            let model = deviceInfo?.model ?? ""
+            let name = cam.knownName ?? (model.isEmpty ? cam.host : model)
+            attach(lib, name: name, host: cam.host)
+            KnownCamera.remember(KnownCamera(fingerprint: cam.fingerprint, host: cam.host, name: name, lastSeen: Date()))
             knownCameras = KnownCamera.load()
-            let lost = lib.connectionLost
-            watchTask = Task { [weak self] in
-                for await _ in lost {
-                    self?.handleLost()
-                    return
-                }
-            }
+            if let deviceInfo { log.add("相机：\(deviceInfo.model) 固件 \(deviceInfo.version)，机身 ID \(cameraID ?? "无")") }
             await loadAll()
             refreshCaptureOne()
         } catch is CancellationError {
@@ -230,6 +306,19 @@ final class AppModel {
             phase = .idle
         }
         status = ""
+    }
+
+    private func attach(_ lib: any CameraLibrary, name: String, host: String?) {
+        library = lib
+        connectedHost = host
+        connectedName = name
+        let lost = lib.connectionLost
+        watchTask = Task { [weak self] in
+            for await _ in lost {
+                self?.handleLost()
+                return
+            }
+        }
     }
 
     private func openLibrary(_ cam: FoundCamera) async throws -> any CameraLibrary {
@@ -309,6 +398,7 @@ final class AppModel {
         connectTask?.cancel()
         if credentialRequest != nil { submitCredentials(nil) }
         if fingerprintRequest != nil { answerFingerprint(false) }
+        if phase == .searching { phase = .idle; status = "" }
     }
 
     func disconnect() {
@@ -330,20 +420,64 @@ final class AppModel {
 
     private func handleLost() {
         guard library != nil else { return }
-        log.add("和相机的连接断开了")
+        let wasCard = sourceKind == .card
+        log.add(wasCard ? "存储卡被移除了" : "和相机的连接断开了")
         importTask?.cancel()
         library = nil
         resetContent()
         phase = .idle
-        errorMessage = "和相机的连接断开了（相机关机、离开 Wi-Fi，或者被别的设备连上了）。"
+        errorMessage = wasCard ? "存储卡被移除了。" : "和相机的连接断开了（相机关机、离开 Wi-Fi，或者被别的设备连上了）。"
     }
 
     private func resetContent() {
-        items = [:]; order = []; slots = []; days = []
-        selection = []; selectedDays = []
+        items = [:]; allShots = []; shots = [:]; shotOfFile = [:]; slots = []; days = []
+        grid = GridSelection(); shownDays = []
         thumbnails = [:]; thumbOrder = []; pendingThumbs = []
-        connectedName = nil; connectedHost = nil
+        connectedName = nil; connectedHost = nil; cameraID = nil; deviceInfo = nil; cardRoot = nil
+        previewShot = nil; previewImage = nil
         progress = nil
+    }
+
+    // MARK: 存储卡
+
+    func refreshCards() {
+        let vols = FileManager.default.mountedVolumeURLs(includingResourceValuesForKeys: [.volumeIsRemovableKey],
+                                                         options: [.skipHiddenVolumes]) ?? []
+        cards = vols.filter { $0.path != "/" && LocalCardLibrary.looksLikeCard($0) }
+    }
+
+    private func volumesChanged(unmounted: URL?) {
+        refreshCards()
+        if let unmounted, let cardRoot, unmounted.standardizedFileURL == cardRoot.standardizedFileURL,
+           let lib = library as? LocalCardLibrary {
+            lib.markLost()
+        }
+    }
+
+    func openCard(_ url: URL) {
+        guard phase == .idle else { return }
+        connectTask?.cancel()
+        errorMessage = nil
+        let lib = LocalCardLibrary(root: url)
+        sourceKind = .card
+        usesRemoteTransfer = false
+        cameraID = nil
+        deviceInfo = nil
+        cardRoot = url
+        attach(lib, name: url.lastPathComponent, host: nil)
+        log.add("打开存储卡 \(url.path)")
+        connectTask = Task { await loadAll() }
+    }
+
+    func ejectCard() {
+        guard let root = cardRoot else { return }
+        disconnect()
+        do {
+            try NSWorkspace.shared.unmountAndEjectDevice(at: root)
+            lastSummary = "已推出「\(root.lastPathComponent)」，可以拔卡了"
+        } catch {
+            errorMessage = "推出存储卡失败：\(error.localizedDescription)"
+        }
     }
 
     // MARK: 读取存储卡
@@ -368,18 +502,29 @@ final class AppModel {
             for n in await library.listingNotes { log.add("读卡：\(n)") }
             items = all
             ord.sort { (all[$0]?.captureDateRaw ?? "") > (all[$1]?.captureDateRaw ?? "") }
-            order = ord
+            allShots = ShotBuilder.group(ord.compactMap { all[$0] })
+            shots = Dictionary(uniqueKeysWithValues: allShots.map { ($0.id, $0) })
+            shotOfFile = [:]
+            for s in allShots { for h in s.handles { shotOfFile[h] = s.id } }
             slots = Array(Set(all.values.map { $0.storageID >> 16 })).sorted()
             rebuild()
-            if let first = days.first { selectedDays = [first.id] }
+            selectDefault()
             phase = .ready
-            log.add("读卡完成：\(all.count) 个文件，\(days.count) 天")
+            log.add("读卡完成：\(all.count) 个文件，\(allShots.count) 次拍摄，\(days.count) 天")
         } catch {
             log.add("读取存储卡失败：\(error.localizedDescription)")
             errorMessage = "读取存储卡失败：\(error.localizedDescription)"
             phase = .ready
         }
         status = ""
+    }
+
+    /// 打开后默认：显示并勾选最近一天里没导入过的。
+    private func selectDefault() {
+        if let day = days.first(where: { $0.newCount > 0 }) ?? days.first {
+            shownDays = [day.id]
+            grid.set(day.shots.filter { !isImported(shot: $0) }, selected: true)
+        }
     }
 
     static func dayKey(_ item: CameraContentItem) -> String {
@@ -400,78 +545,113 @@ final class AppModel {
         return out.string(from: d)
     }
 
-    private func accepts(_ item: CameraContentItem) -> Bool {
+    /// 文件类型 / 卡槽筛选（不含「只看未导入」）。
+    private func kindAccepted(_ item: CameraContentItem) -> Bool {
         if let slotFilter, item.storageID >> 16 != slotFilter { return false }
         switch item.kind {
-        case .jpeg, .heif: if !showPhotos { return false }
-        case .raw: if !showRaw { return false }
-        case .video: if !showVideo { return false }
+        case .jpeg, .heif: return showPhotos
+        case .raw: return showRaw
+        case .video: return showVideo
         case .other: return false
         }
-        if onlyNew && ImportHistory.shared.contains(item) { return false }
-        return true
     }
 
-    /// 同一次拍摄的 RAW + JPEG：按设置去掉其中一个。
-    private func applyPairPolicy(_ hs: [UInt32]) -> [UInt32] {
-        guard pairPolicy != .both else { return hs }
-        var byBase: [String: [CameraContentItem.Kind]] = [:]
-        for h in hs { if let i = items[h] { byBase["\(i.storageID)/\(i.baseName)", default: []].append(i.kind) } }
-        return hs.filter { h in
-            guard let i = items[h], let kinds = byBase["\(i.storageID)/\(i.baseName)"] else { return true }
-            let hasRaw = kinds.contains(.raw), hasPhoto = kinds.contains(.jpeg) || kinds.contains(.heif)
-            switch pairPolicy {
-            case .rawOnly: return !(hasRaw && (i.kind == .jpeg || i.kind == .heif))
-            case .jpegOnly: return !(hasPhoto && i.kind == .raw)
-            case .both: return true
-            }
-        }
+    /// 一次拍摄里，按当前筛选和配对规则实际要导入的文件。
+    func importFiles(of shot: Shot) -> [UInt32] {
+        ShotBuilder.files(of: shot, policy: pairPolicy, kindOf: { items[$0]?.kind })
+            .filter { items[$0].map(kindAccepted) ?? false }
+    }
+
+    func isFileImported(_ h: UInt32) -> Bool { items[h].map { ImportHistory.shared.contains($0, camera: cameraID) } ?? false }
+
+    /// 这次拍摄要导入的文件都导过了。
+    func isImported(shot id: UInt32) -> Bool {
+        guard let s = shots[id] else { return false }
+        let files = importFiles(of: s)
+        return !files.isEmpty && files.allSatisfy(isFileImported)
     }
 
     func rebuild() {
-        let visible = applyPairPolicy(order.filter { items[$0].map(accepts) ?? false })
         var groups: [String: [UInt32]] = [:]
         var keys: [String] = []
-        for h in visible {
-            let k = Self.dayKey(items[h]!)
+        var importedCounts: [String: Int] = [:]
+        for s in allShots {
+            guard !importFiles(of: s).isEmpty, let first = items[s.primary] else { continue }
+            let imported = isImported(shot: s.id)
+            if onlyNew && imported { continue }
+            let k = Self.dayKey(first)
             if groups[k] == nil { keys.append(k) }
-            groups[k, default: []].append(h)
+            groups[k, default: []].append(s.id)
+            if imported { importedCounts[k, default: 0] += 1 }
         }
         keys.sort { a, b in a == "unknown" ? false : b == "unknown" ? true : a > b }
         days = keys.map { k in
-            let hs = groups[k]!
-            return ShootingDay(id: k, title: Self.dayTitle(k), handles: hs,
-                               importedCount: hs.filter { ImportHistory.shared.contains(items[$0]!) }.count)
+            ShootingDay(id: k, title: Self.dayTitle(k), shots: groups[k]!, importedCount: importedCounts[k] ?? 0)
         }
-        let valid = Set(visible)
-        selection = selection.intersection(valid)
-        selectedDays = selectedDays.intersection(Set(keys))
+        // 被筛掉的内容不再算选中（否则会导入看不见的东西）。
+        let visible = Set(days.flatMap(\.shots))
+        grid.replace(with: grid.selected.intersection(visible))
+        let validDays = Set(keys)
+        if !shownDays.isSubset(of: validDays) { shownDays = shownDays.intersection(validDays) }
+        if shownDays.isEmpty, let first = days.first { shownDays = [first.id] }
+        updateGridOrder()
     }
 
-    var visibleDays: [ShootingDay] { days.filter { selectedDays.contains($0.id) } }
+    private func updateGridOrder() {
+        grid.setOrder(visibleDays.flatMap(\.shots))
+    }
+
+    var visibleDays: [ShootingDay] { days.filter { shownDays.contains($0.id) } }
 
     func item(_ h: UInt32) -> CameraContentItem? { items[h] }
-    func isImported(_ h: UInt32) -> Bool { items[h].map(ImportHistory.shared.contains) ?? false }
 
-    func toggle(_ h: UInt32) {
-        if selection.contains(h) { selection.remove(h) } else { selection.insert(h) }
+    // MARK: 选择
+
+    func checkState(_ day: ShootingDay) -> CheckState {
+        let n = day.shots.filter(grid.contains).count
+        if n == 0 { return .off }
+        let target = day.newCount > 0 ? day.shots.filter { !isImported(shot: $0) } : day.shots
+        return target.allSatisfy(grid.contains) ? .on : .mixed
+    }
+
+    /// 侧栏勾选框：勾上 = 这一天没导入过的全部选中（都导过了就全选）；再点一下取消这一天。
+    func toggleDay(_ day: ShootingDay) {
+        if checkState(day) == .on {
+            grid.set(day.shots, selected: false)
+        } else {
+            let target = day.newCount > 0 ? day.shots.filter { !isImported(shot: $0) } : day.shots
+            grid.set(target, selected: true)
+        }
     }
 
     func selectNew(in dayIDs: Set<String>) {
-        for d in days where dayIDs.contains(d.id) {
-            for h in d.handles where !isImported(h) { selection.insert(h) }
-        }
+        for d in days where dayIDs.contains(d.id) { grid.set(d.shots.filter { !isImported(shot: $0) }, selected: true) }
     }
 
     func selectAll(in dayIDs: Set<String>) {
-        for d in days where dayIDs.contains(d.id) { selection.formUnion(d.handles) }
+        for d in days where dayIDs.contains(d.id) { grid.set(d.shots, selected: true) }
     }
 
     func deselect(in dayIDs: Set<String>) {
-        for d in days where dayIDs.contains(d.id) { selection.subtract(d.handles) }
+        for d in days where dayIDs.contains(d.id) { grid.set(d.shots, selected: false) }
     }
 
-    var selectionBytes: UInt64 { selection.reduce(0) { $0 + (items[$1]?.size ?? 0) } }
+    func day(of shot: UInt32) -> ShootingDay? { days.first { $0.shots.contains(shot) } }
+
+    /// 要导入的文件（按显示顺序：新的在前）。
+    func selectedFiles() -> [CameraContentItem] {
+        allShots.filter { grid.contains($0.id) }.flatMap(importFiles).compactMap { items[$0] }
+    }
+
+    var selectedShotCount: Int { grid.selected.count }
+    var selectionBytes: UInt64 { selectedFiles().reduce(0) { $0 + $1.size } }
+
+    /// 这次拍摄的文件已经在本地的位置（用来「在访达中显示」）。
+    func localFile(of shot: UInt32) -> URL? {
+        guard let s = shots[shot] else { return nil }
+        for h in s.handles { if let i = items[h], let u = ImportHistory.shared.localFile(i, camera: cameraID) { return u } }
+        return nil
+    }
 
     // MARK: 缩略图
 
@@ -500,6 +680,44 @@ final class AppModel {
         }
     }
 
+    // MARK: 预览
+
+    func openPreview(_ shot: UInt32? = nil) {
+        guard let id = shot ?? grid.focus ?? grid.order.first(where: grid.contains) ?? grid.order.first else { return }
+        showPreview(id)
+    }
+
+    private func showPreview(_ id: UInt32) {
+        previewShot = id
+        previewImage = shots[id].flatMap { thumbnails[$0.primary] }
+        previewTask?.cancel()
+        guard let library, let s = shots[id] else { return }
+        previewTask = Task {
+            guard let data = try? await library.preview(s.primary), !Task.isCancelled, let img = NSImage(data: data) else { return }
+            if previewShot == id { previewImage = img }
+        }
+    }
+
+    func previewStep(_ delta: Int) {
+        guard let cur = previewShot, let i = grid.order.firstIndex(of: cur) else { return }
+        let j = i + delta
+        guard grid.order.indices.contains(j) else { return }
+        grid.setFocus(grid.order[j])     // 翻页只移动焦点，不改变选择
+        showPreview(grid.order[j])
+    }
+
+    /// 预览里按 P：切换当前这张的选中状态。
+    func togglePreviewSelection() {
+        guard let id = previewShot else { return }
+        grid.set([id], selected: !grid.contains(id))
+    }
+
+    func closePreview() {
+        previewTask?.cancel()
+        previewShot = nil
+        previewImage = nil
+    }
+
     // MARK: 导入
 
     func refreshCaptureOne() {
@@ -515,7 +733,7 @@ final class AppModel {
 
     /// 点「导入」：新建会话模式先问会话名，其他模式直接开始。
     func beginImport() {
-        guard progress == nil, !selection.isEmpty else { return }
+        guard progress == nil, !grid.selected.isEmpty else { return }
         if captureOneMode == .newSession {
             refreshCaptureOne()
             sessionRequest = SessionRequest(suggestedName: suggestedSessionName(),
@@ -527,10 +745,13 @@ final class AppModel {
 
     func startImport(session: SessionChoice?) {
         sessionRequest = nil
-        guard let library, progress == nil, !selection.isEmpty else { return }
-        let picked = order.filter { selection.contains($0) }.compactMap { items[$0] }.reversed()  // 旧的先导
+        guard let library, progress == nil else { return }
+        let picked = Array(selectedFiles().reversed())  // 旧的先导
+        guard !picked.isEmpty else { return }
+        let pickedShots = grid.selected
         let root = destination
         let mode = captureOneMode
+        let camera = cameraID
         progress = ImportProgress(total: picked.count, bytesTotal: picked.reduce(0) { $0 + $1.size })
         lastSummary = nil
         log.add("开始导入 \(picked.count) 个文件到 \(root.path)，Capture One：\(mode.title)")
@@ -545,6 +766,7 @@ final class AppModel {
                     switch session {
                     case .new(let name):
                         sessionName = name
+                        rememberContent(of: name)
                         captureDir = try await CaptureOneBridge.createSession(name: name, in: sessionsFolder)
                     case .existing(let file):
                         sessionName = file.deletingPathExtension().lastPathComponent
@@ -572,7 +794,7 @@ final class AppModel {
                 let target = dir.appending(path: item.filename)
                 do {
                     try fm.createDirectory(at: dir, withIntermediateDirectories: true)
-                    if HistoryCheck.sameFile(target, item) {
+                    if ImportHistory.matches(target, item) {
                         // 目标位置已经有同样大小的同名文件：不重复下载，也不再交给 C1。
                         progress?.skipped += 1
                         progress?.bytesDone += item.size
@@ -580,7 +802,7 @@ final class AppModel {
                         continue
                     }
                     let final = fm.fileExists(atPath: target.path) ? Self.uniqueURL(target) : target
-                    if let local = Self.localCopy(of: item, root: root), local.standardizedFileURL != final.standardizedFileURL {
+                    if let local = Self.localCopy(of: item, root: root, camera: camera), local.standardizedFileURL != final.standardizedFileURL {
                         // 本地已经有（上次下载过）：直接拿来用。在下载文件夹里的就移过去，在别处（比如别的会话）的就复制。
                         if local.path.hasPrefix(root.path + "/") {
                             try fm.moveItem(at: local, to: final)
@@ -600,6 +822,10 @@ final class AppModel {
                             }
                         }
                         progress?.bytesDone = base + item.size
+                        guard ImportHistory.matches(part, item) else {
+                            try? fm.removeItem(at: part)
+                            throw CocoaError(.fileReadCorruptFile)
+                        }
                         try fm.moveItem(at: part, to: final)
                         if let date = item.captureDate {
                             try? fm.setAttributes([.creationDate: date, .modificationDate: date], ofItemAtPath: final.path)
@@ -616,9 +842,9 @@ final class AppModel {
                     progress?.failed.append(item.filename)
                 }
             }
-            ImportHistory.shared.record(done)
-            var summary = "下载 \(progress?.done ?? 0) 个"
-            if let p = progress, p.reused > 0 { summary += "，\(p.reused) 个用了本地已有的文件" }
+            ImportHistory.shared.record(done, camera: camera)
+            var summary = "导入 \(done.count) 个文件"
+            if let p = progress, p.reused > 0 { summary += "，其中 \(p.reused) 个用了本地已有的" }
             if let p = progress, p.skipped > 0 { summary += "，\(p.skipped) 个目标文件夹里已有" }
             if let p = progress, !p.failed.isEmpty { summary += "，\(p.failed.count) 个失败" }
             if Task.isCancelled { summary += "（已取消）" }
@@ -630,7 +856,9 @@ final class AppModel {
             }
             lastSummary = summary
             log.add("导入结束：\(summary)")
-            selection.subtract(done.map(\.0.id))
+            // 全部文件都导好的拍摄取消选中。
+            let doneIDs = Set(done.map(\.0.id))
+            grid.remove(pickedShots.filter { id in shots[id].map { importFiles(of: $0).allSatisfy(doneIDs.contains) } ?? false })
             progress = nil
             rebuild()
             importTask = nil
@@ -640,10 +868,10 @@ final class AppModel {
     func cancelImport() { importTask?.cancel() }
 
     /// 本地已有的同一个文件：先看导入记录里的位置，再看「保存位置/年/年-月-日/」（旧版记录没有位置）。
-    static func localCopy(of item: CameraContentItem, root: URL) -> URL? {
-        if let u = ImportHistory.shared.localFile(item) { return u }
+    static func localCopy(of item: CameraContentItem, root: URL, camera: String?) -> URL? {
+        if let u = ImportHistory.shared.localFile(item, camera: camera) { return u }
         let guess = folder(for: item, root: root).appending(path: item.filename)
-        return HistoryCheck.sameFile(guess, item) ? guess : nil
+        return ImportHistory.matches(guess, item) ? guess : nil
     }
 
     func retryCaptureOne() {
@@ -685,8 +913,4 @@ final class AppModel {
         }
         return dir.appending(path: "\(base)-\(UUID().uuidString.prefix(6)).\(ext)")
     }
-}
-
-@MainActor enum HistoryCheck {
-    static func sameFile(_ url: URL, _ item: CameraContentItem) -> Bool { ImportHistory.matches(url, item) }
 }

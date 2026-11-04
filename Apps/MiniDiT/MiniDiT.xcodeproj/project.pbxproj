@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		B20000000000000000000010 /* SonyRemoteKit in Frameworks */ = {isa = PBXBuildFile; productRef = B20000000000000000000020 /* SonyRemoteKit */; };
+		B20000000000000000000011 /* MiniDiTCore in Frameworks */ = {isa = PBXBuildFile; productRef = B20000000000000000000021 /* MiniDiTCore */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -24,6 +25,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				B20000000000000000000010 /* SonyRemoteKit in Frameworks */,
+				B20000000000000000000011 /* MiniDiTCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -67,6 +69,7 @@
 			name = MiniDiT;
 			packageProductDependencies = (
 				B20000000000000000000020 /* SonyRemoteKit */,
+				B20000000000000000000021 /* MiniDiTCore */,
 			);
 			productName = MiniDiT;
 			productReference = B20000000000000000000030 /* MiniDiT.app */;
@@ -258,6 +261,10 @@
 		B20000000000000000000020 /* SonyRemoteKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = SonyRemoteKit;
+		};
+		B20000000000000000000021 /* MiniDiTCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = MiniDiTCore;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
