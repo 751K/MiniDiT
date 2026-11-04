@@ -64,11 +64,21 @@ struct Sidebar: View {
                         .buttonStyle(.plain)
                     }
                 }
+                // 其他来源：插着的卡、连过的相机，点一下切换过去。
                 ForEach(model.cards.filter { $0.lastPathComponent != model.connectedName || model.sourceKind != .card }, id: \.self) { url in
                     SourceRow(icon: "sdcard", name: url.lastPathComponent, detail: "读卡器 · 点一下切换", current: false, eject: nil) {
-                        model.disconnect()
-                        model.openCard(url)
+                        model.switchTo(card: url)
                     }
+                    .disabled(model.progress != nil)
+                }
+                ForEach(model.knownCameras.filter { $0.fingerprint != model.currentFingerprint }) { k in
+                    SourceRow(icon: "camera", name: k.name,
+                              detail: model.switchingTo == k.fingerprint ? "正在检查…" : "上次 \(k.host) · 点一下切换",
+                              current: false, eject: nil) {
+                        model.switchTo(known: k)
+                    }
+                    .opacity(0.75)
+                    .disabled(model.progress != nil)
                 }
             } header: {
                 HStack {
@@ -76,8 +86,8 @@ struct Sidebar: View {
                     Spacer()
                     Button { model.disconnect() } label: { Image(systemName: "plus") }
                         .buttonStyle(.plain)
-                        .help("换一个来源")
-                        .accessibilityLabel("换一个来源")
+                        .help("切换来源…（搜索相机、选存储卡）")
+                        .accessibilityLabel("切换来源")
                         .disabled(model.progress != nil)
                 }
             }

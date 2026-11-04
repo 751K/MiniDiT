@@ -14,7 +14,11 @@ struct MiniDiTApp: App {
         }
         .windowStyle(.hiddenTitleBar)
         .commands {
-            CommandGroup(replacing: .newItem) {}
+            CommandGroup(replacing: .newItem) {
+                Button("切换来源…") { model.disconnect() }
+                    .keyboardShortcut("o", modifiers: [.command, .shift])
+                    .disabled(model.progress != nil || model.connectedName == nil)
+            }
             CommandMenu("选择") {
                 Button("选所有没导入过的") { model.selectNew(in: Set(model.days.map(\.id))) }
                     .keyboardShortcut("n", modifiers: [.command, .shift])

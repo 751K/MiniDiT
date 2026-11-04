@@ -308,6 +308,34 @@ final class AppModel {
         }
     }
 
+    /// 当前连着的相机的指纹（读卡器为 nil）。
+    var currentFingerprint: String? { sourceKind == .camera ? lastCamera?.fingerprint : nil }
+
+    /// 从浏览页直接换到另一台连过的相机 / 另一张卡。
+    /// 先确认目标相机在线（指纹一致）再断开当前来源，免得切换失败后选择也丢了。
+    private(set) var switchingTo: String?
+
+    func switchTo(known k: KnownCamera) {
+        guard progress == nil, switchingTo == nil else { return }
+        switchingTo = k.fingerprint
+        Task {
+            defer { switchingTo = nil }
+            guard let cam = await probe(host: k.host), cam.fingerprint == k.fingerprint else {
+                errorMessage = "「\(k.name)」不在线（上次的地址是 \(k.host)），没有切换。如果相机换了地址，可以用「文件 › 切换来源…」重新搜索。"
+                return
+            }
+            let target = FoundCamera(host: cam.host, kind: cam.kind, knownName: k.name)
+            disconnect()
+            connectTask = Task { await self.connect(target) }
+        }
+    }
+
+    func switchTo(card url: URL) {
+        guard progress == nil else { return }
+        disconnect()
+        openCard(url)
+    }
+
     /// 连过的相机：只认指纹相同的设备（同一个地址上可能换成了别的机器）。
     func connect(known k: KnownCamera) {
         connectTask = Task {
