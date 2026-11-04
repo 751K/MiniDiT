@@ -367,6 +367,7 @@ struct GridView: View {
     @State private var frames: [UInt32: CGRect] = [:]
     @State private var box: CGRect?
     @State private var width: CGFloat = 800
+    @State private var height: CGFloat = 600
 
     private var spacing: CGFloat { 8 }
     private var columns: [GridItem] { [GridItem(.adaptive(minimum: model.thumbSize, maximum: model.thumbSize * 1.6), spacing: spacing)] }
@@ -398,6 +399,9 @@ struct GridView: View {
                         }
                     }
                     .padding(.bottom, 96)
+                    // 内容不满一屏时也撑满可视区；空白处（行间、底部）也能开始框选。
+                    .frame(maxWidth: .infinity, minHeight: height, alignment: .top)
+                    .contentShape(Rectangle())
                     .coordinateSpace(name: "grid")
                     .overlay(alignment: .topLeading) {
                         if let box {
@@ -410,7 +414,11 @@ struct GridView: View {
                     }
                     .simultaneousGesture(boxGesture)
                 }
-                .background(GeometryReader { g in Color.clear.onAppear { width = g.size.width }.onChange(of: g.size.width) { width = $1 } })
+                .background(GeometryReader { g in
+                    Color.clear
+                        .onAppear { width = g.size.width; height = g.size.height }
+                        .onChange(of: g.size) { width = $1.width; height = $1.height }
+                })
                 .onPreferenceChange(CellFrameKey.self) { frames = $0 }
                 .focusable()
                 .focusEffectDisabled()
