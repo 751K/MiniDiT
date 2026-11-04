@@ -476,18 +476,19 @@ struct ThumbCell: View {
         let focused = model.grid.focus == shotID
         let imported = model.isImported(shot: shotID)
         VStack(alignment: .leading, spacing: 5) {
-            ZStack {
-                Rectangle().fill(Color.primary.opacity(0.06))
-                if let img = model.thumbnails[primary] {
-                    Image(nsImage: img).resizable().scaledToFill()
-                        .saturation(imported ? 0.55 : 1)
-                        .brightness(imported ? -0.2 : 0)
-                } else {
-                    Image(systemName: shot?.isVideo == true ? "video" : "photo").foregroundStyle(.tertiary)
+            // 先定一个 3:2 的框，图片在框里裁切填满：不同来源的缩略图比例不同（RAW 的是 4:3 带黑边）。
+            Color.primary.opacity(0.06)
+                .aspectRatio(3 / 2, contentMode: .fit)
+                .overlay {
+                    if let img = model.thumbnails[primary] {
+                        Image(nsImage: img).resizable().scaledToFill()
+                            .saturation(imported ? 0.55 : 1)
+                            .brightness(imported ? -0.2 : 0)
+                    } else {
+                        Image(systemName: shot?.isVideo == true ? "video" : "photo").foregroundStyle(.tertiary)
+                    }
                 }
-            }
-            .aspectRatio(3 / 2, contentMode: .fit)
-            .clipped()
+                .clipped()
             .overlay(alignment: .bottomLeading) {
                 if let shot { Badge(text: shot.badge).padding(5) }
             }
@@ -519,7 +520,8 @@ struct ThumbCell: View {
         }
         .padding(4)
         .overlay {
-            if focused { RoundedRectangle(cornerRadius: 10).strokeBorder(Color.accentColor.opacity(0.8), lineWidth: 2) }
+            // 和访达一样：选中的格子只显示选中框；焦点框只在没选中的格子上出现（方向键移动时）。
+            if focused && !selected { RoundedRectangle(cornerRadius: 10).strokeBorder(Color.accentColor.opacity(0.8), lineWidth: 2) }
         }
         .contentShape(Rectangle())
         .onTapGesture {
