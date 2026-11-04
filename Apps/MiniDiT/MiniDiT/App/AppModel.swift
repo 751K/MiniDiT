@@ -797,6 +797,8 @@ final class AppModel {
         } else {
             let target = day.newCount > 0 ? day.shots.filter { !isImported(shot: $0) } : day.shots
             grid.set(target, selected: true)
+            // 勾上的那天也显示在右边，选中的照片看得见。
+            if !shownDays.contains(day.id) { shownDays.insert(day.id) }
         }
     }
 

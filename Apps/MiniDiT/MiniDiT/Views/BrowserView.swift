@@ -178,7 +178,11 @@ private struct SourceRow: View {
 
 private struct DayRow: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.backgroundProminence) private var prominence
     let day: ShootingDay
+
+    /// 选中的行底色就是强调色：勾选框改用白色，不然看不见。
+    private var checkColor: Color { prominence == .increased ? .primary : .accentColor }
 
     var body: some View {
         let state = model.checkState(day)
@@ -186,7 +190,7 @@ private struct DayRow: View {
             Button { model.toggleDay(day) } label: {
                 Image(systemName: state == .on ? "checkmark.square.fill" : state == .mixed ? "minus.square.fill" : "square")
                     .font(.system(size: 15))
-                    .foregroundStyle(state == .off ? Color.secondary : Color.accentColor)
+                    .foregroundStyle(state == .off ? Color.secondary : checkColor)
                     .frame(width: 18, height: 22)
                     .contentShape(Rectangle())
             }
@@ -498,7 +502,7 @@ struct DayHeader: View {
         .font(.system(size: 12))
         .foregroundStyle(.secondary)
         .padding(.horizontal, 20).padding(.vertical, 8)
-        .background(.regularMaterial)
+        .background(Color(nsColor: .textBackgroundColor))   // 和标题区、网格同一个底色
     }
 }
 
