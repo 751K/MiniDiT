@@ -38,12 +38,12 @@ extension AppModel {
             await connect(FoundCamera(host: cam.host, kind: cam.kind, knownName: last.name))
             return
         }
-        if Task.isCancelled { phase = .idle; status = ""; return }
+        if Task.isCancelled { endCancelled(); return }
         status = "上次的地址连不上，正在搜索…"
         let result = await CameraFinder.search(known: knownCameras) { s in Task { @MainActor in self.status = s } }
         found = result
         searched = true
-        if Task.isCancelled { phase = .idle; status = ""; return }
+        if Task.isCancelled { endCancelled(); return }
         if let cam = result.first(where: { $0.knownName != nil }) {
             await connect(cam)
         } else {
@@ -75,6 +75,7 @@ extension AppModel {
                 await connect(FoundCamera(host: cam.host, kind: cam.kind, knownName: name))
                 return
             }
+            if Task.isCancelled { endCancelled(); return }
             phase = .idle
             errorMessage = "\(h) 上没有找到相机（22 和 15740 端口都连不上）。请确认相机开着、打开了「遥控拍摄」，并且和这台 Mac 在同一个网络。"
         }
@@ -116,6 +117,7 @@ extension AppModel {
                 return
             }
             connectingHost = nil
+            if Task.isCancelled { endCancelled(); return }
             phase = .idle
             status = ""
             errorMessage = "「\(k.name)」不在线（上次的地址是 \(k.host)）。请确认相机开着并打开了遥控拍摄；如果相机换了地址，点「搜索相机」。"
@@ -127,6 +129,8 @@ extension AppModel {
     }
 
     private func connect(_ cam: FoundCamera) async {
+        // 已经被取消（比如用户取消了自动连接、转去打开存储卡）：不能再动界面状态。
+        guard !Task.isCancelled else { return }
         phase = .connecting
         connectingHost = cam.host
         defer { connectingHost = nil }
@@ -135,6 +139,7 @@ extension AppModel {
         log.add("连接 \(cam.host)")
         do {
             let lib = try await openLibrary(cam)
+            if Task.isCancelled { await lib.close(); throw CancellationError() }
             sourceKind = .camera
             deviceInfo = await lib.deviceInfo
             cameraID = deviceInfo?.cameraID
@@ -153,7 +158,8 @@ extension AppModel {
             refreshCaptureOne()
         } catch is CancellationError {
             log.add("已取消连接")
-            phase = .idle
+            endCancelled()
+            return
         } catch {
             log.add("连接失败：\(error.localizedDescription) ｜ \(String(reflecting: error))")
             errorMessage = "连接失败：\(error.localizedDescription)"
@@ -257,7 +263,16 @@ extension AppModel {
         connectTask?.cancel()
         if credentialRequest != nil { submitCredentials(nil) }
         if fingerprintRequest != nil { answerFingerprint(false) }
-        if phase == .searching { phase = .idle; status = "" }
+        connectingHost = nil
+        endCancelled()
+    }
+
+    /// 取消以后收尾：只撤销搜索 / 连接中的状态。用户可能已经打开了别的来源，那时不能再把界面改回首页。
+    func endCancelled() {
+        if phase == .searching || phase == .connecting {
+            phase = .idle
+            status = ""
+        }
     }
 
     func disconnect() {
