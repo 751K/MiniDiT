@@ -207,7 +207,7 @@ private struct DayRow: View {
             .accessibilityLabel("导入 \(day.title)")
             .accessibilityValue(state == .on ? "已勾选" : state == .mixed ? "部分勾选" : "未勾选")
             .help(day.newCount > 0 ? "勾选当日未导入的 \(day.newCount) 张照片" : "勾选当日全部照片")
-            Text(day.title).lineLimit(1)
+            DayTitle(title: day.title)
             Spacer(minLength: 4)
             if day.newCount > 0 {
                 NewCount(new: day.newCount, total: day.shots.count, size: 12, highlighted: model.shownDays.contains(day.id))
@@ -225,6 +225,29 @@ private struct DayRow: View {
             Button("取消选择当日照片") { model.deselect(in: [day.id]) }
             Divider()
             SceneGapMenu()
+        }
+    }
+}
+
+/// 侧栏的日期：「11月4日 周三」拆成日期和星期，日期占固定宽度（按最长的「00月00日」留位），星期上下对齐。
+private struct DayTitle: View {
+    let title: String
+
+    var body: some View {
+        let parts = title.split(separator: " ", maxSplits: 1).map(String.init)
+        if parts.count == 2 {
+            HStack(spacing: 6) {
+                ZStack(alignment: .leading) {
+                    // 占位：数字换成 0，月和日都按两位算。
+                    Text(parts[0].contains("年") ? "0000年00月00日" : "00月00日").hidden()
+                    Text(parts[0])
+                }
+                .monospacedDigit()
+                Text(parts[1])
+            }
+            .lineLimit(1)
+        } else {
+            Text(title).lineLimit(1)
         }
     }
 }
