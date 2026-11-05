@@ -59,6 +59,8 @@ struct FileImporter {
     /// 事件名（会话「3.15-公园」里的「公园」）和场次号，用在备份文件夹名里。
     var event: String?
     var scene: Int?
+    /// 几个来源一起导时，备份盘上日期文件夹里再按来源分的子文件夹（「2026-11-04-公园/α7 V/」）。
+    var sourceFolder: String?
     /// 要删卡上的文件时，对没有重新复制的文件（目标已有 / 用了本地的）也读卡比对一遍。
     var checkSource = false
     var log: AppLog = .shared
@@ -183,7 +185,8 @@ struct FileImporter {
     private func copyToBackup(_ file: URL, item: CameraContentItem, root: URL, hash: UInt64,
                               progress: @escaping @Sendable (UInt64) -> Void) async throws -> URL {
         let fm = FileManager.default
-        let dir = Self.backupFolder(for: item, root: root, event: event, scene: scene)
+        var dir = Self.backupFolder(for: item, root: root, event: event, scene: scene)
+        if let sourceFolder { dir = dir.appending(path: sourceFolder, directoryHint: .isDirectory) }
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         var target = dir.appending(path: item.filename)
         if fm.fileExists(atPath: target.path) {

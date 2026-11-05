@@ -288,7 +288,12 @@ extension AppModel {
         interrupted = nil
         let lib = library
         library = nil
-        Task { await lib?.close() }
+        let extras = extraSources
+        extraSources = []
+        Task {
+            await lib?.close()
+            for e in extras { await e.library.close() }
+        }
         resetContent()
         phase = .idle
         log.add("已断开")
@@ -312,6 +317,16 @@ extension AppModel {
             return
         }
         let wasCard = sourceKind == .card
+        // 主来源的卡被拔了，但还有别的卡开着：让下一张卡顶上来，不回到首页。
+        if wasCard, let next = extraSources.first {
+            log.add("存储卡被移除了，改用同时打开的 \(next.root.lastPathComponent)")
+            importTask?.cancel()
+            extraSources.removeFirst()
+            let keep = selectedKeys(), keepDays = shownDays
+            promote(next)
+            Task { await loadAll(restoring: keep, days: keepDays) }
+            return
+        }
         log.add(wasCard ? "存储卡被移除了" : "和相机的连接断开了")
         importTask?.cancel()
         library = nil
@@ -363,15 +378,22 @@ extension AppModel {
         }
     }
 
-    /// 选择的「身份」：卡槽 + 文件名 + 拍摄时间。重新列目录后句柄会变，用它把选择找回来。
-    static func stableKey(_ i: CameraContentItem) -> String { "\(i.storageID >> 16)|\(i.filename)|\(i.captureDateRaw)" }
+    /// 选择的「身份」：来源 + 卡槽 + 文件名 + 拍摄时间。重新列目录后句柄会变，用它把选择找回来。
+    /// 来源用卷路径或机身 ID 标识（来源 id 在关掉、顶替后会变）。
+    func stableKey(_ i: CameraContentItem) -> String { "\(sourceIdentity(source(of: i.id)))|\(i.storageID >> 16)|\(i.filename)|\(i.captureDateRaw)" }
+
+    func sourceIdentity(_ id: Int) -> String {
+        if id == Self.primarySource { return cardRoot?.standardizedFileURL.path ?? cameraID ?? connectedHost ?? "" }
+        return extraSources.first { $0.id == id }?.root.standardizedFileURL.path ?? ""
+    }
 
     func selectedKeys() -> Set<String> {
-        Set(grid.selected.compactMap { shots[$0] }.flatMap(\.handles).compactMap { items[$0].map(Self.stableKey) })
+        Set(grid.selected.compactMap { shots[$0] }.flatMap(\.handles).compactMap { items[$0].map(stableKey) })
     }
 
     func resetContent() {
         items = [:]; allShots = []; shots = [:]; shotOfFile = [:]; slots = []; days = []
+        origins = [:]; cardCameraNames = [:]; sourceFilter = nil
         grid = GridSelection(); shownDays = []
         thumbnails = [:]; thumbOrder = []; pendingThumbs = []; fileCopies = [:]
         connectedName = nil; connectedHost = nil; cameraID = nil; deviceInfo = nil; cardRoot = nil
@@ -393,6 +415,8 @@ extension AppModel {
         if let unmounted, let cardRoot, unmounted.standardizedFileURL == cardRoot.standardizedFileURL,
            let lib = library as? LocalCardLibrary {
             lib.markLost()
+        } else if let unmounted {
+            extraCardLost(unmounted)
         }
     }
 
@@ -411,6 +435,23 @@ extension AppModel {
         attach(lib, name: url.lastPathComponent, host: nil)
         log.add("打开存储卡 \(url.path)")
         connectTask = Task { await loadAll() }
+    }
+
+    /// 同时打开的卡顶上来当主来源。
+    func promote(_ e: ExtraSource) {
+        watchTask?.cancel()
+        reconnectTask?.cancel()
+        sourceKind = .card
+        usesRemoteTransfer = false
+        cameraID = nil
+        deviceInfo = nil
+        lastCamera = nil
+        offline = false
+        cardRoot = e.root
+        cardCameraNames[Self.primarySource] = cardCameraNames.removeValue(forKey: e.id)
+        if sourceFilter == e.id { sourceFilter = nil }
+        attach(e.library, name: e.root.lastPathComponent, host: nil)
+        log.add("改用存储卡 \(e.root.path) 作为主来源")
     }
 
     func ejectCard() {

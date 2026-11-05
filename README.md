@@ -39,6 +39,7 @@ Mac 上的「小号 DIT」：通过 Wi-Fi 连接索尼 α 相机（或者插读�
 | 「只下载」导入完成后用访达、Adobe Bridge 或 DxO PhotoLab 打开下载的文件夹（一天就是那天的文件夹，几天就是上一层） | ✅ v0.4，访达、DxO PhotoLab 10 实测；Bridge 未实测 |
 | 大图预览显示拍摄参数：焦距、光圈、快门、ISO、曝光补偿、机身和镜头（读卡器读原文件，Wi-Fi 读相机给的预览图） | ✅ |
 | 按时间间隔分场次（默认不分，可在设置或侧栏右键里打开）：同一天相邻两张隔得比设定久就分成两场，场次可以单独查看和勾选 | ✅ v0.4 |
+| 多来源同时导入：在当前相机 / 存储卡之外再打开其他存储卡（侧栏来源卡片 › 「同时打开此存储卡」），按拍摄时间合并显示，可按来源筛选；RAW+JPG 只在同一来源里配对；导入时每个来源一个子文件夹（「α7 V/」，同机型加卷名区分），文件名不改；导入记录按机身分开 | ✅ v0.5 第一步，Wi-Fi 相机 + 两张卡实测（模拟卡）；同时连两台 Wi-Fi 相机尚未支持 |
 
 ## 项目结构
 
@@ -46,7 +47,7 @@ Mac 上的「小号 DIT」：通过 Wi-Fi 连接索尼 α 相机（或者插读�
 Apps/MiniDiT/MiniDiT.xcodeproj  Mac 工程（SwiftUI）
 Apps/MiniDiT/MiniDiT/
   AppIcon.icon                  App 图标（Icon Composer 文档）
-  App/                          入口、日志、AppModel（按职责拆成 +Source / +Library / +Import）
+  App/                          入口、日志、AppModel（按职责拆成 +Source / +Sources（多来源）/ +Library / +Import）
   Camera/                       搜索相机、钥匙串账号、连过的相机
   Import/                       单个文件的导入（FileImporter）、导入记录、Capture One（AppleScript）、Lightroom Classic（插件 + 任务文件夹）
   Views/                        连接、浏览、设置、会话、身份验证界面

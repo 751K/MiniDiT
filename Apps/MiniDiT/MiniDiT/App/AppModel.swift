@@ -110,6 +110,13 @@ final class AppModel {
     var knownCameras: [KnownCamera] = KnownCamera.load()
     /// 插着的存储卡（读卡器 / 相机 USB 大容量存储）。
     var cards: [URL] = []
+    /// 和主来源同时打开的其他存储卡（多机位：主机的卡、副机的卡一起导）。主来源仍是上面 library 那一套，id 为 0。
+    var extraSources: [ExtraSource] = []
+    var nextSourceID = 1
+    /// 每个文件（全局句柄）来自哪个来源、在来源里的句柄。几个来源的句柄会重复，所以界面上用的是重新编号的全局句柄。
+    var origins: [UInt32: Origin] = [:]
+    /// 存储卡上照片的机型（从 EXIF 读，比如「α7 V」），读卡器来源用它当名字。
+    var cardCameraNames: [Int: String] = [:]
 
     var autoConnect: Bool = UserDefaults.standard.object(forKey: "autoConnect") as? Bool ?? true {
         didSet { UserDefaults.standard.set(autoConnect, forKey: "autoConnect") }
@@ -123,6 +130,8 @@ final class AppModel {
     var shotOfFile: [UInt32: UInt32] = [:]
     var slots: [UInt32] = []
     var slotFilter: UInt32? = nil { didSet { rebuild() } }        // nil = 全部卡槽
+    /// 同时打开了几个来源时，只看其中一个（来源 id）；nil = 全部。
+    var sourceFilter: Int? = nil { didSet { rebuild() } }
     var showPhotos = true { didSet { rebuild() } }
     var showRaw = true { didSet { rebuild() } }
     var showVideo = false { didSet { rebuild() } }
@@ -298,7 +307,7 @@ final class AppModel {
         didSet { UserDefaults.standard.set(deleteAfterImport, forKey: "deleteAfterImport") }
     }
     /// 当前来源能不能删文件：只有读卡器可以，Wi-Fi 相机不支持删除。
-    var canDeleteFromSource: Bool { sourceKind == .card && connectedName != nil }
+    var canDeleteFromSource: Bool { (sourceKind == .card && connectedName != nil) || !extraSources.isEmpty }
     /// 这次导入会不会删卡上的文件。
     var willDeleteFromSource: Bool { deleteAfterImport && canDeleteFromSource }
     /// 第一次打开时选择导入方式。

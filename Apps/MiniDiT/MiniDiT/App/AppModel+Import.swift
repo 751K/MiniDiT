@@ -44,13 +44,13 @@ extension AppModel {
     func spaceShortage() -> SpaceProblem? {
         let files = selectedFiles()
         let history = ImportHistory.shared
-        let primaryNeed = files.filter { history.localFile($0, camera: cameraID) == nil }.reduce(0) { $0 + $1.size }
+        let primaryNeed = files.filter { history.localFile($0, camera: camera(of: $0.id)) == nil }.reduce(0) { $0 + $1.size }
         let primary = captureOneMode == .newSession ? sessionsFolder : destination
         if primaryNeed > 0, let free = Self.freeSpace(at: primary), free < primaryNeed + Self.spaceMargin(primaryNeed) {
             return SpaceProblem(isBackup: false, folder: primary, needed: primaryNeed, available: free)
         }
         if backupEnabled, backupAvailable, !noBackupThisTime, let backup = backupFolder {
-            let need = files.filter { history.backupFile($0, camera: cameraID) == nil }.reduce(0) { $0 + $1.size }
+            let need = files.filter { history.backupFile($0, camera: camera(of: $0.id)) == nil }.reduce(0) { $0 + $1.size }
             if need > 0, let free = Self.freeSpace(at: backup), free < need + Self.spaceMargin(need) {
                 return SpaceProblem(isBackup: true, folder: backup, needed: need, available: free)
             }
@@ -120,14 +120,19 @@ extension AppModel {
         interrupted = nil
         lastResult = nil
         lostDuringImport = false
-        guard let library, progress == nil else { return }
+        guard !openSources.isEmpty, progress == nil else { return }
         let jobs = jobs.filter { !$0.files.isEmpty }
         let picked = jobs.flatMap(\.files)  // 旧的先导
         guard !picked.isEmpty else { return }
         let pickedShots = grid.selected
         let root = destination
         let mode = captureOneMode
-        let camera = cameraID
+        // 几个来源一起导：每个来源一个子文件夹（「Capture/α7 V/DSC00001.ARW」），文件名不改。
+        let folders = sourceFolders()
+        @MainActor func sub(_ dir: URL, _ item: CameraContentItem) -> URL {
+            guard let name = folders[source(of: item.id)] else { return dir }
+            return dir.appending(path: name, directoryHint: .isDirectory)
+        }
         let backupRoot = backupEnabled && backupAvailable && !noBackupThisTime ? backupFolder : nil
         noBackupThisTime = false
         let wantsBackup = backupEnabled
@@ -192,8 +197,13 @@ extension AppModel {
                     opened[job.key] = ResumeSession(captureDir: captureDir, name: sessionName, event: event)
                     sessionNames.append(sessionName)
                 }
-                let importer = FileImporter(library: library, root: root, camera: camera, backupRoot: backupRoot, event: event,
-                                            scene: job.scene, checkSource: deleteRequested)
+                // 每个文件交给它自己的来源去下载 / 复制。
+                @MainActor func importer(for item: CameraContentItem) -> FileImporter? {
+                    guard let lib = route(item.id)?.library else { return nil }
+                    return FileImporter(library: lib, root: root, camera: camera(of: item.id), backupRoot: backupRoot,
+                                        event: event, scene: job.scene, sourceFolder: folders[source(of: item.id)],
+                                        checkSource: deleteRequested)
+                }
                 // 导入到 LrC：收藏夹名就是这一组的名字；RAW 先导，同名的 JPG/HIF 叠到它下面。
                 var collection: String?
                 if mode == .lightroom, case .new(let name) = job.session {
@@ -205,7 +215,7 @@ extension AppModel {
                 // RAW + JPG/HIF 成对时要叠在一起，插件得先有 RAW 才能叠。下载顺序不一定是 RAW 在前，
                 // 所以 RAW 还没导完的 JPG/HIF 先留着，等 RAW 交出去后紧跟着交。
                 @MainActor func pairKey(_ item: CameraContentItem) -> String {
-                    let dir = captureDir ?? FileImporter.folder(for: item, root: root, event: event, scene: job.scene)
+                    let dir = sub(captureDir ?? FileImporter.folder(for: item, root: root, event: event, scene: job.scene), item)
                     return dir.path + "/" + (item.filename as NSString).deletingPathExtension.lowercased()
                 }
                 let rawKeys = mode == .lightroom ? Set(job.files.filter { $0.kind == .raw }.map(pairKey)) : []
@@ -227,10 +237,16 @@ extension AppModel {
                     if Task.isCancelled { break }
                     progress?.current = "导入 \(item.filename)"
                     progress?.resumingFrom = nil
-                    let dir = captureDir ?? FileImporter.folder(for: item, root: root, event: event, scene: job.scene)
+                    let dir = sub(captureDir ?? FileImporter.folder(for: item, root: root, event: event, scene: job.scene), item)
                     let base = progress?.bytesDone ?? 0
+                    guard let importer = importer(for: item) else {
+                        // 来源已经关掉 / 拔掉了。
+                        progress?.failed.append(item.filename)
+                        log.add("导入失败 \(item.filename)：来源已关闭")
+                        continue
+                    }
                     do {
-                        let r = try await importer.importItem(item, into: dir, progress: { d in
+                        let r = try await importer.importItem(localItem(item), into: dir, progress: { d in
                             Task { @MainActor in
                                 if let cur = self.progress?.bytesDone, base + d > cur { self.progress?.bytesDone = base + d }
                             }
@@ -301,7 +317,10 @@ extension AppModel {
                     } catch { log.add("写校验清单失败：\(error.localizedDescription)") }
                 }
             }
-            ImportHistory.shared.record(done, camera: camera)
+            // 导入记录按机身分开记（读卡器的没有机身 ID）。
+            for (cam, entries) in Dictionary(grouping: done, by: { camera(of: $0.item.id) }) {
+                ImportHistory.shared.record(entries, camera: cam)
+            }
             if let backupRoot, !mhlBackup.isEmpty {
                 do { reports.append(try MHLWriter.append(root: backupRoot, entries: mhlBackup)) }
                 catch { log.add("写备份盘校验清单失败：\(error.localizedDescription)") }
@@ -314,26 +333,30 @@ extension AppModel {
                 var dir = opened[job.key]?.captureDir
                 if dir == nil, case .resolved(let d, _) = job.session { dir = d }
                 for f in job.files where !finishedIDs.contains(f.id) {
-                    savedBytes += FileImporter.savedPartBytes(f, in: dir ?? FileImporter.folder(for: f, root: root, event: job.event, scene: job.scene))
+                    savedBytes += FileImporter.savedPartBytes(f, in: sub(dir ?? FileImporter.folder(for: f, root: root, event: job.event, scene: job.scene), f))
                 }
             }
             var deleted: Int?
             var deleteFailed = 0
             var cardReadOnly = false
-            if deleteRequested, let card = library as? LocalCardLibrary {
+            var cardFiles = picked.count
+            if deleteRequested {
+                // 只删读卡器来源上的；Wi-Fi 相机不能删。
                 var n = 0
-                cardReadOnly = (try? card.root.resourceValues(forKeys: [.volumeIsReadOnlyKey]).volumeIsReadOnly) ?? false
-                if cardReadOnly {
-                    log.add("存储卡是只读的，没有删除文件")
-                } else {
-                    for h in deletable {
-                        progress?.current = "删除存储卡上的 \(items[h]?.filename ?? "")"
-                        do { try await card.delete(h); n += 1 }
-                        catch { deleteFailed += 1; log.add("删除失败 \(items[h]?.filename ?? "\(h)")：\(error.localizedDescription)") }
+                for h in deletable {
+                    guard let r = route(h), let card = r.library as? LocalCardLibrary else { continue }
+                    if (try? card.root.resourceValues(forKeys: [.volumeIsReadOnlyKey]).volumeIsReadOnly) ?? false {
+                        cardReadOnly = true
+                        continue
                     }
-                    log.add("从存储卡删除了 \(n) 个文件；\(picked.count - n) 个保留")
+                    progress?.current = "删除存储卡上的 \(items[h]?.filename ?? "")"
+                    do { try await card.delete(r.local); n += 1 }
+                    catch { deleteFailed += 1; log.add("删除失败 \(items[h]?.filename ?? "\(h)")：\(error.localizedDescription)") }
                 }
+                if cardReadOnly { log.add("存储卡是只读的，有文件没有删除") }
+                log.add("从存储卡删除了 \(n) 个文件；\(picked.count - n) 个保留")
                 deleted = n
+                cardFiles = picked.filter { route($0.id)?.library is LocalCardLibrary }.count
             }
             let wasLost = lostDuringImport || (progress.map { !$0.failed.isEmpty } ?? false) && offline
             var summary = "导入 \(done.count) 个文件"
@@ -376,7 +399,7 @@ extension AppModel {
                                           c1Failed: c1Failed, cancelled: Task.isCancelled,
                                           backedUp: backupRoot == nil ? nil : progress?.backedUp ?? 0,
                                           backupFailed: progress?.backupFailed.count ?? 0,
-                                          deleted: deleted, keptOnCard: deleted.map { picked.count - $0 } ?? 0,
+                                          deleted: deleted, keptOnCard: deleted.map { cardFiles - $0 } ?? 0,
                                           deleteFailed: deleteFailed, cardReadOnly: cardReadOnly,
                                           resumed: progress?.resumedFiles ?? 0, savedBytes: savedBytes, reports: reports,
                                           lightroom: mode == .lightroom ? lightroomText : nil, opened: openedText)

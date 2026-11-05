@@ -85,30 +85,7 @@ private struct SourceCard: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 10) {
-                Image(systemName: model.sourceKind == .card ? "sdcard" : "camera")
-                    .font(.system(size: 18)).frame(width: 24)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(model.connectedName ?? "").font(.system(size: 14, weight: .semibold)).lineLimit(1)
-                    HStack(spacing: 5) {
-                        Circle().fill(model.offline ? Color.orange : Color.green).frame(width: 6, height: 6)
-                        Text(statusText).lineLimit(1)
-                    }
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
-                    .help(statusHelp)
-                }
-                Spacer(minLength: 4)
-                Button { withAnimation(.snappy(duration: 0.22)) { expanded.toggle() } } label: {
-                    Image(systemName: expanded ? "chevron.up" : "chevron.up.chevron.down")
-                        .font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
-                        .frame(width: 24, height: 28).contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .disabled(model.progress != nil)
-                .help(expanded ? "收起" : "切换来源")
-                .accessibilityLabel(expanded ? "收起来源列表" : "切换来源")
-            }
-            .padding(.horizontal, 12).padding(.vertical, 10)
+            if model.isMultiSource { multiHeader } else { singleHeader }
 
             // 像手风琴一样展开：高度从 0 变到列表的高度，多出来的部分裁掉，不会压到下面的卡槽。
             SourceList { withAnimation(.snappy(duration: 0.22)) { expanded = false } }
@@ -121,12 +98,18 @@ private struct SourceCard: View {
                 .accessibilityHidden(!expanded)
                 .onPreferenceChange(ListHeight.self) { listHeight = $0 }
 
-            if model.slots.count > 1 {
-                SlotPicker().padding(.horizontal, 10).padding(.bottom, 10)
-            }
-            if !model.items.isEmpty {
-                Divider().padding(.horizontal, 10)
-                FormatSafety().padding(.horizontal, 12).padding(.vertical, 10)
+            if model.isMultiSource {
+                ForEach(model.sources) { SourceRow(source: $0) }
+                    .padding(.horizontal, 6)
+                SourcePicker().padding(.horizontal, 10).padding(.vertical, 10)
+            } else {
+                if model.slots.count > 1 {
+                    SlotPicker().padding(.horizontal, 10).padding(.bottom, 10)
+                }
+                if !model.items.isEmpty {
+                    Divider().padding(.horizontal, 10)
+                    FormatSafety().padding(.horizontal, 12).padding(.vertical, 10)
+                }
             }
         }
         .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.primary.opacity(0.06)))
@@ -134,9 +117,54 @@ private struct SourceCard: View {
         .onChange(of: model.progress != nil) { _, busy in if busy { expanded = false } }
     }
 
+    private var toggle: some View {
+        Button { withAnimation(.snappy(duration: 0.22)) { expanded.toggle() } } label: {
+            Image(systemName: expanded ? "chevron.up" : "chevron.up.chevron.down")
+                .font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+                .frame(width: 24, height: 28).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(model.progress != nil)
+        .help(expanded ? "收起" : "添加或切换来源")
+        .accessibilityLabel(expanded ? "收起来源列表" : "添加或切换来源")
+    }
+
+    /// 同时打开了几个来源：标题只写数量，每个来源一行列在下面。
+    private var multiHeader: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "square.stack").font(.system(size: 17)).frame(width: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(model.sources.count) 个来源").font(.system(size: 14, weight: .semibold))
+                Text("按拍摄时间合并显示").font(.system(size: 11)).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 4)
+            toggle
+        }
+        .padding(.horizontal, 12).padding(.vertical, 10)
+    }
+
+    private var singleHeader: some View {
+            HStack(spacing: 10) {
+                Image(systemName: model.sourceKind == .card ? "sdcard" : "camera")
+                    .font(.system(size: 18)).frame(width: 24)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(model.sourceName(AppModel.primarySource)).font(.system(size: 14, weight: .semibold)).lineLimit(1)
+                    HStack(spacing: 5) {
+                        Circle().fill(model.offline ? Color.orange : Color.green).frame(width: 6, height: 6)
+                        Text(statusText).lineLimit(1)
+                    }
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                    .help(statusHelp)
+                }
+                Spacer(minLength: 4)
+                toggle
+            }
+            .padding(.horizontal, 12).padding(.vertical, 10)
+    }
+
     private var statusText: String {
         if model.offline { return "已断开，正在重新连接…" }
-        if model.sourceKind == .card { return "读卡器" }
+        if model.sourceKind == .card { return "读卡器 · " + (model.cardRoot?.lastPathComponent ?? "") }
         return "已连接 · " + (model.connectedHost ?? "")
     }
 
@@ -154,13 +182,15 @@ private struct SourceList: View {
     let done: () -> Void
 
     var body: some View {
-        let cards = model.cards.filter { $0.lastPathComponent != model.connectedName || model.sourceKind != .card }
+        let open = Set(([model.cardRoot].compactMap { $0 } + model.extraSources.map(\.root)).map(\.standardizedFileURL))
+        let cards = model.cards.filter { !open.contains($0.standardizedFileURL) }
         let cameras = model.knownCameras.filter { $0.fingerprint != model.currentFingerprint }
         VStack(alignment: .leading, spacing: 0) {
             Divider().padding(.horizontal, 10)
             VStack(spacing: 2) {
+                // 再插一张卡：和当前的来源同时打开（多机位一起导）。
                 ForEach(cards, id: \.self) { url in
-                    row(icon: "sdcard", title: url.lastPathComponent, detail: "读卡器") { model.switchTo(card: url) }
+                    row(icon: "plus.circle", title: url.lastPathComponent, detail: "同时打开此存储卡") { model.addCard(url) }
                 }
                 ForEach(cameras) { k in
                     row(icon: "camera", title: k.name,
@@ -168,7 +198,7 @@ private struct SourceList: View {
                         model.switchTo(known: k)
                     }
                 }
-                if model.sourceKind == .card {
+                if model.sourceKind == .card, !model.isMultiSource {
                     row(icon: "eject", title: "推出存储卡", detail: nil) { model.ejectCard() }
                 }
                 row(icon: "magnifyingglass", title: "搜索相机或选择存储卡…", detail: nil) { model.disconnect() }
@@ -206,6 +236,79 @@ private struct SourceListRow: View {
         }
         .buttonStyle(.plain)
         .onHover { hover = $0 }
+    }
+}
+
+/// 同时打开几个来源时，卡片里的一行：名字、读卡器 / Wi-Fi、能不能格式化；右边推出或关闭。
+private struct SourceRow: View {
+    @Environment(AppModel.self) private var model
+    let source: SourceSummary
+
+    var body: some View {
+        let c = model.cardSafety(source: source.id)
+        HStack(spacing: 8) {
+            Image(systemName: source.isCard ? "sdcard" : "camera").font(.system(size: 13)).foregroundStyle(.secondary).frame(width: 24)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(source.name).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                HStack(spacing: 4) {
+                    if source.id == AppModel.primarySource, model.offline {
+                        Circle().fill(Color.orange).frame(width: 6, height: 6)
+                        Text("正在重新连接…")
+                    } else {
+                        Image(systemName: c.canFormat ? "checkmark.shield.fill" : "exclamationmark.shield")
+                            .foregroundStyle(c.canFormat ? .green : .orange)
+                        Text(source.detail)
+                    }
+                }
+                .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
+                .help(c.canFormat ? "可格式化：全部文件均已存有两份" : "暂不可格式化：\((c.one + c.none).formatted()) 个文件尚未存有两份")
+            }
+            Spacer(minLength: 0)
+            Button {
+                if source.isCard, source.id != AppModel.primarySource { model.ejectExtra(source.id) }
+                else if source.isCard { model.ejectCard() }
+                else { model.removeSource(source.id) }
+            } label: {
+                Image(systemName: source.isCard ? "eject" : "xmark").font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary).frame(width: 24, height: 24).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(model.progress != nil)
+            .help(source.isCard ? "推出 \(source.detail.replacingOccurrences(of: "读卡器 · ", with: ""))" : "断开此相机")
+            .accessibilityLabel(source.isCard ? "推出存储卡" : "断开相机")
+        }
+        .padding(.horizontal, 6).padding(.vertical, 4)
+    }
+}
+
+/// 几个来源时的筛选条：全部 / 每个来源，下面是张数。和卡槽切换条同一个样子。
+private struct SourcePicker: View {
+    @Environment(AppModel.self) private var model
+    @Namespace private var thumb
+
+    var body: some View {
+        HStack(spacing: 2) {
+            segment("全部", count: model.allShots.count, on: model.sourceFilter == nil) { model.sourceFilter = nil }
+            ForEach(model.sources) { s in
+                segment(model.sourceLabel(s.id), count: model.shotCount(source: s.id), on: model.sourceFilter == s.id) { model.sourceFilter = s.id }
+            }
+        }
+        .padding(3)
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.primary.opacity(0.06)))
+    }
+
+    private func segment(_ title: String, count: Int, on: Bool, action: @escaping () -> Void) -> some View {
+        Button { withAnimation(.snappy(duration: 0.28)) { action() } } label: {
+            VStack(spacing: 1) {
+                Text(title).font(.system(size: 12, weight: on ? .semibold : .regular)).lineLimit(1)
+                Text(count.formatted()).font(.system(size: 11).monospacedDigit()).foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity).padding(.vertical, 5).padding(.horizontal, 2)
+            .background { if on { SlotThumb().matchedGeometryEffect(id: "thumb", in: thumb) } }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(on ? .isSelected : [])
     }
 }
 
@@ -856,7 +959,9 @@ struct ThumbCell: View {
             HStack(spacing: 6) {
                 Text(item?.baseName ?? "").lineLimit(1).truncationMode(.tail)
                 Spacer(minLength: 0)
-                Text(Self.time(item)).monospacedDigit().foregroundStyle(.secondary)
+                // 几个来源时标出是哪台相机 / 哪张卡。
+                Text((model.isMultiSource ? model.sourceLabel(model.source(of: shotID)) + " · " : "") + Self.time(item))
+                    .monospacedDigit().foregroundStyle(.secondary).lineLimit(1)
             }
             .font(.system(size: 11))
             .padding(.horizontal, 1)
@@ -1026,6 +1131,7 @@ struct FloatingBar: View {
         if model.backupEnabled {
             s += model.backupAvailable ? " · 备份至“\(model.backupFolder!.lastPathComponent)”" : " · ⚠︎ 备份磁盘未连接"
         }
+        if model.isMultiSource { s += " · 按来源分子文件夹" }
         if model.willDeleteFromSource { s += " · 完成后删除存储卡上的照片" }
         return s
     }
@@ -1252,7 +1358,8 @@ struct PreviewOverlay: View {
     }
 
     private func metaText(shot: Shot?, item: CameraContentItem?) -> String {
-        [shot.map(model.badge(of:)) ?? "", ThumbCell.time(item)].filter { !$0.isEmpty }.joined(separator: " · ")
+        [model.isMultiSource ? model.sourceLabel(model.source(of: model.previewShot ?? 0)) : "",
+         shot.map(model.badge(of:)) ?? "", ThumbCell.time(item)].filter { !$0.isEmpty }.joined(separator: " · ")
             + (model.previewLoaded ? "" : " · 正在加载大图…")
     }
 

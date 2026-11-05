@@ -8,37 +8,61 @@ extension AppModel {
     // MARK: 读取存储卡
 
     func loadAll(restoring keep: Set<String>? = nil, days keepDays: Set<String> = []) async {
-        guard let library else { return }
+        let sources = openSources
+        guard !sources.isEmpty else { return }
         phase = .loading
         thumbnails = [:]; thumbOrder = []; pendingThumbs = []   // 句柄会变，旧缩略图不能再用
         do {
-            let folders = try await library.folders()
+            // 几个来源的句柄会重复：界面上统一重新编号（全局句柄），origins 记着它在哪个来源、原来是几号。
             var all: [UInt32: CameraContentItem] = [:]
-            var ord: [UInt32] = []
-            for f in folders {
-                status = "正在读取\(f.name)…"
-                let hs = try await library.handles(in: f)
-                for (i, h) in hs.enumerated() {
-                    if i % 200 == 0 && i > 0 { status = "正在读取\(f.name)：\(i)/\(hs.count)" }
-                    guard let item = try? await library.item(h), item.kind != .other else { continue }
-                    all[h] = item
-                    ord.append(h)
+            var map: [UInt32: Origin] = [:]
+            var next: UInt32 = 1
+            var grouped: [Shot] = []
+            for (sid, lib) in sources {
+                let folders = try await lib.folders()
+                var ord: [UInt32] = []
+                var localHandles: [UInt32] = []
+                for f in folders {
+                    status = "正在读取\(f.name)…"
+                    let hs = try await lib.handles(in: f)
+                    for (i, h) in hs.enumerated() {
+                        if i % 200 == 0 && i > 0 { status = "正在读取\(f.name)：\(i)/\(hs.count)" }
+                        guard let item = try? await lib.item(h), item.kind != .other else { continue }
+                        let g = next; next += 1
+                        all[g] = item.withID(g)
+                        map[g] = Origin(source: sid, local: h)
+                        ord.append(g)
+                        localHandles.append(h)
+                    }
                 }
+                for n in await lib.listingNotes { log.add("读卡：\(n)") }
+                if let card = lib as? LocalCardLibrary, cardCameraNames[sid] == nil {
+                    await readCardCameraName(sid, library: card, handles: localHandles)
+                }
+                // RAW 和 JPG 只在同一个来源里配对：两台相机都有 DSC00001，不能合成一格。
+                ord.sort { (all[$0]?.captureDateRaw ?? "") > (all[$1]?.captureDateRaw ?? "") }
+                grouped += ShotBuilder.group(ord.compactMap { all[$0] })
             }
-            for n in await library.listingNotes { log.add("读卡：\(n)") }
             items = all
-            ord.sort { (all[$0]?.captureDateRaw ?? "") > (all[$1]?.captureDateRaw ?? "") }
-            allShots = ShotBuilder.group(ord.compactMap { all[$0] })
+            origins = map
+            // 几个来源的拍摄按时间合在一起排（新的在前）。
+            if sources.count > 1 {
+                grouped.sort { (all[$0.primary]?.captureDateRaw ?? "") > (all[$1.primary]?.captureDateRaw ?? "") }
+            }
+            allShots = grouped
             shots = Dictionary(uniqueKeysWithValues: allShots.map { ($0.id, $0) })
             shotOfFile = [:]
             for s in allShots { for h in s.handles { shotOfFile[h] = s.id } }
-            slots = Array(Set(all.values.map { $0.storageID >> 16 })).sorted()
+            // 几个来源时按来源筛（卡槽号在不同相机之间没有意义）。
+            slots = sources.count > 1 ? [] : Array(Set(all.values.map { $0.storageID >> 16 })).sorted()
+            if sources.count > 1, slotFilter != nil { slotFilter = nil }
+            if let f = sourceFilter, !sources.contains(where: { $0.id == f }) { sourceFilter = nil }
             grid = GridSelection()
             refreshCopies()
             rebuild()
             if let keep {
                 // 重连后：按文件身份找回原来的选择和查看的日期。
-                let ids = allShots.filter { s in s.handles.contains { items[$0].map { keep.contains(Self.stableKey($0)) } ?? false } }.map(\.id)
+                let ids = allShots.filter { s in s.handles.contains { items[$0].map { keep.contains(stableKey($0)) } ?? false } }.map(\.id)
                 grid.set(ids, selected: true)
                 let valid = keepDays.intersection(viewIDs)
                 if !valid.isEmpty { shownDays = valid }
@@ -46,7 +70,7 @@ extension AppModel {
                 selectDefault()
             }
             phase = .ready
-            log.add("读卡完成：\(all.count) 个文件，\(allShots.count) 次拍摄，\(days.count) 天")
+            log.add("读卡完成：\(all.count) 个文件，\(allShots.count) 次拍摄，\(days.count) 天" + (sources.count > 1 ? "，\(sources.count) 个来源" : ""))
         } catch {
             log.add("读取存储卡失败：\(error.localizedDescription)")
             errorMessage = "读取存储卡失败：\(error.localizedDescription)"
@@ -83,6 +107,7 @@ extension AppModel {
 
     /// 文件类型 / 卡槽筛选（不含「只看未导入」）。
     private func kindAccepted(_ item: CameraContentItem) -> Bool {
+        if let sourceFilter, source(of: item.id) != sourceFilter { return false }
         if let slotFilter, item.storageID >> 16 != slotFilter { return false }
         switch item.kind {
         case .jpeg, .heif: return showPhotos
@@ -105,7 +130,7 @@ extension AppModel {
         Shot.badge(importFiles(of: shot).compactMap { items[$0]?.kind })
     }
 
-    func isFileImported(_ h: UInt32) -> Bool { items[h].map { ImportHistory.shared.contains($0, camera: cameraID) } ?? false }
+    func isFileImported(_ h: UInt32) -> Bool { items[h].map { ImportHistory.shared.contains($0, camera: camera(of: h)) } ?? false }
 
     /// 这次拍摄要导入的文件都导过了。
     func isImported(shot id: UInt32) -> Bool {
@@ -219,9 +244,9 @@ extension AppModel {
     func refreshCopies() {
         let history = ImportHistory.shared
         var map: [UInt32: Int] = [:]
-        for (h, item) in items where history.contains(item, camera: cameraID) {
-            let local = history.localFile(item, camera: cameraID) != nil
-            let backup = history.backupFile(item, camera: cameraID) != nil
+        for (h, item) in items where history.contains(item, camera: camera(of: h)) {
+            let local = history.localFile(item, camera: camera(of: h)) != nil
+            let backup = history.backupFile(item, camera: camera(of: h)) != nil
             map[h] = (local ? 1 : 0) + (backup ? 1 : 0)
         }
         fileCopies = map
@@ -243,9 +268,12 @@ extension AppModel {
         var canFormat: Bool { total > 0 && two == total }
     }
 
-    var cardSafety: CardSafety {
+    var cardSafety: CardSafety { cardSafety(source: nil) }
+
+    /// 某个来源（nil = 全部）上的文件的备份情况。
+    func cardSafety(source id: Int?) -> CardSafety {
         var c = CardSafety()
-        for h in items.keys {
+        for h in items.keys where id == nil || source(of: h) == id {
             switch fileCopies[h] ?? 0 {
             case 2...: c.two += 1
             case 1: c.one += 1
@@ -313,7 +341,7 @@ extension AppModel {
     /// 这次拍摄的文件已经在本地的位置（用来「在访达中显示」）。
     func localFile(of shot: UInt32) -> URL? {
         guard let s = shots[shot] else { return nil }
-        for h in s.handles { if let i = items[h], let u = ImportHistory.shared.localFile(i, camera: cameraID) { return u } }
+        for h in s.handles { if let i = items[h], let u = ImportHistory.shared.localFile(i, camera: camera(of: h)) { return u } }
         return nil
     }
 
@@ -330,10 +358,10 @@ extension AppModel {
     private func runThumbLoader() async {
         thumbLoaderRunning = true
         defer { thumbLoaderRunning = false }
-        while let library, let h = pendingThumbs.popLast() {
+        while !openSources.isEmpty, let h = pendingThumbs.popLast() {
             // 下载时让出通道，优先传文件。
             if progress != nil { try? await Task.sleep(for: .milliseconds(300)) }
-            guard let data = try? await library.thumbnail(h), let img = NSImage(data: data) else { continue }
+            guard let r = route(h), let data = try? await r.library.thumbnail(r.local), let img = NSImage(data: data) else { continue }
             thumbnails[h] = img
             thumbOrder.append(h)
             if thumbOrder.count > 1500 {
@@ -357,11 +385,11 @@ extension AppModel {
         previewExif = nil
         previewImage = shots[id].flatMap { thumbnails[$0.primary] }
         previewTask?.cancel()
-        guard let library, let s = shots[id] else { return }
+        guard let s = shots[id], let r = route(s.primary) else { return }
         previewTask = Task {
-            let fromFile = await library.exif(s.primary)
+            let fromFile = await r.library.exif(r.local)
             if previewShot == id, let fromFile { previewExif = fromFile }
-            guard let data = try? await library.preview(s.primary), !Task.isCancelled, let img = NSImage(data: data) else { return }
+            guard let data = try? await r.library.preview(r.local), !Task.isCancelled, let img = NSImage(data: data) else { return }
             guard previewShot == id else { return }
             previewImage = img; previewLoaded = true
             if fromFile == nil {
