@@ -62,15 +62,13 @@ private struct ImportSettings: View {
                 }
             } header: {
                 Text("备份")
-            } footer: {
-                Text("两份文件均以 xxHash64 校验，校验一致后方视为导入完成。").font(.caption).foregroundStyle(.secondary)
             }
             Section {
                 Toggle("删除存储卡上已导入的照片", isOn: $model.deleteAfterImport)
             } header: {
                 Text("导入完成后")
             } footer: {
-                Text("仅删除校验通过的照片；启用备份时，须两份均校验通过。视频文件不予删除。此项仅适用于读卡器。")
+                Text("仅适用于读卡器，且只删除校验通过的照片。")
                     .font(.caption).foregroundStyle(.secondary)
             }
             NamingSection()
@@ -81,7 +79,7 @@ private struct ImportSettings: View {
             } header: {
                 Text("场次")
             } footer: {
-                Text("默认不分场次。选择间隔后，同一天内相邻两张照片的拍摄时间间隔超过所选值，即划分为两场，可按场次查看、选择和导入。也可在侧栏的日期上右键设置。")
+                Text("同一天内相邻照片的间隔超过所选时间，即分为两场。")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("同时存在 RAW 与 JPG/HIF 时") {
@@ -123,11 +121,11 @@ private struct ImportSettings: View {
 
     static func detail(_ m: CaptureOneMode) -> String {
         switch m {
-        case .newSession: "每次导入时新建会话，照片存入该会话的 Capture 文件夹。"
-        case .c1Settings: "交由当前打开的文档，按其导入设置处理。"
-        case .inPlace: "下载至下方的存储位置，再直接添加到当前文档。"
-        case .lightroom: "下载至下方的存储位置，再由 MiniDiT 插件添加到 Lightroom Classic 当前目录，每次导入时新建收藏夹（须在“软件”中安装插件）。"
-        case .off: "仅存储至电脑，不使用 Capture One。"
+        case .newSession: "照片存入新会话的 Capture 文件夹"
+        case .c1Settings: "按当前文档的导入设置处理"
+        case .inPlace: "下载后直接添加到当前文档"
+        case .lightroom: "下载后添加到当前目录，须安装插件"
+        case .off: "仅存储至电脑"
         }
     }
 
@@ -163,7 +161,7 @@ private struct ConnectSettings: View {
             } header: {
                 Text("已连接过的相机")
             } footer: {
-                Text("移除后，再次连接时须重新核对指纹并输入账户信息。").font(.caption).foregroundStyle(.secondary)
+                Text("移除后，再次连接时须重新核对指纹。").font(.caption).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
@@ -190,7 +188,6 @@ private struct RecordSettings: View {
                     Button("清除记录…") { confirmClear = true }.disabled(count == 0)
                 } label: {
                     Text(count > 0 ? "已记录 \(count.formatted()) 条" : "无导入记录")
-                    Text("清除后，所有照片将重新显示为未导入。")
                 }
             }
             Section("诊断") {
@@ -202,7 +199,6 @@ private struct RecordSettings: View {
                     }
                 } label: {
                     Text("诊断日志")
-                    Text("反馈问题时可附上此日志。")
                 }
             }
         }
@@ -233,7 +229,7 @@ private struct NamingSection: View {
         } header: {
             Text("命名")
         } footer: {
-            Text("可用标记：{YYYY} 年，{MM} {DD} 两位月日，{M} {D} 不补零的月日，{事件}，{场次}。未填写的标记自动省略；仅下载文件夹可用“/”分层。留空即恢复默认。")
+            Text("可用标记：{YYYY} {MM} {DD} {M} {D} {事件} {场次}。留空即恢复默认。")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }

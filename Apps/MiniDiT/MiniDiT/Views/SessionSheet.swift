@@ -127,10 +127,8 @@ struct SessionSheet: View {
                     }
                 }
             }
-            Text(isLightroom
-                 ? "收藏夹按命名模板“\(NameTemplate.current(.session))”命名，置于收藏夹集“MiniDiT”中；照片存储至 \(model.destination.path(percentEncoded: false))，按“\(NameTemplate.current(.folder))”分目录存放。"
-                 : "会话按命名模板“\(NameTemplate.current(.session))”命名，存放于 \(model.sessionsFolder.path(percentEncoded: false))。模板可在“设置 › 导入 › 命名”中修改。")
-                .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(2).truncationMode(.middle)
+            Text("存放于 " + (isLightroom ? model.destination : model.sessionsFolder).path(percentEncoded: false))
+                .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
         }
     }
 

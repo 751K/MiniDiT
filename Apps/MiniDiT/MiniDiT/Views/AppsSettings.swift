@@ -21,9 +21,6 @@ struct AppsSettings: View {
                 }
             } header: {
                 Text("正在使用")
-            } footer: {
-                Text("Capture One 通过 AppleScript 新建会话并导入照片，须在“自动化”中授权。Lightroom Classic 不支持 AppleScript，由 MiniDiT 插件将照片添加到目录。")
-                    .font(.caption).foregroundStyle(.secondary)
             }
             Section {
                 ForEach(apps.filter { $0.kind != .captureOne && $0.kind != .lightroom }) { app in
@@ -32,7 +29,7 @@ struct AppsSettings: View {
             } header: {
                 Text("计划支持")
             } footer: {
-                Text("Bridge 与 DxO PhotoLab 按文件夹管理照片，目前可使用“只下载”，并配合命名模板整理文件夹。")
+                Text("目前可使用“只下载”。")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
