@@ -168,6 +168,11 @@ public actor LocalCardLibrary: CameraLibrary {
 
     public func preview(_ handle: UInt32) async throws -> Data? { try image(handle, maxPixel: 1800) }
 
+    public func exif(_ handle: UInt32) async -> ShotExif? {
+        guard let e = try? entry(handle), e.item.kind != .video else { return nil }
+        return ShotExif(url: e.url)
+    }
+
     private func image(_ handle: UInt32, maxPixel: Int) throws -> Data? {
         let e = try entry(handle)
         var source = e.url

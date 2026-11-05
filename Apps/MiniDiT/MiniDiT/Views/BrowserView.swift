@@ -1058,6 +1058,13 @@ struct PreviewOverlay: View {
                             }
                         }
                         .font(.system(size: 12)).foregroundStyle(.white.opacity(0.72))
+                        if let x = model.previewExif {
+                            Text(x.exposureText).font(.system(size: 12, weight: .medium).monospacedDigit())
+                                .foregroundStyle(.white.opacity(0.9)).padding(.top, 4)
+                            if !x.gearText.isEmpty {
+                                Text(x.gearText).font(.system(size: 11)).foregroundStyle(.white.opacity(0.6)).lineLimit(1)
+                            }
+                        }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     Text("← → 翻页 · P 选中 · Esc 关闭").font(.system(size: 11)).foregroundStyle(.white.opacity(0.72))

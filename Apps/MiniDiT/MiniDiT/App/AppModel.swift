@@ -154,6 +154,10 @@ final class AppModel {
     var previewShot: UInt32?
     var previewImage: NSImage?
     var previewLoaded = false
+    /// 预览中这张的拍摄参数。
+    var previewExif: ShotExif?
+    /// Wi-Fi 相机的预览图里有没有 EXIF，只记一次日志。
+    var exifNoted = false
     var previewTask: Task<Void, Never>?
 
     // MARK: 导入

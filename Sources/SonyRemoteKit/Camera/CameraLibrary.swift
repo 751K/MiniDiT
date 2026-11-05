@@ -89,6 +89,8 @@ public protocol CameraLibrary: AnyObject, Sendable {
     func thumbnail(_ handle: UInt32) async throws -> Data?
     /// 大图预览（约 1600 px）；没有时返回缩略图。
     func preview(_ handle: UInt32) async throws -> Data?
+    /// 拍摄参数。能直接读原文件的（读卡器）读原文件；做不到的返回 nil，上层从预览图里读。
+    func exif(_ handle: UInt32) async -> ShotExif?
     /// 型号、序列号；拿不到时为 nil。
     var deviceInfo: CameraDeviceInfo? { get async }
     /// 用「按格式列文件」一次性得到文件夹里每个文件的类型；相机不支持时返回 nil。
@@ -377,4 +379,8 @@ public actor PTPCameraLibrary: CameraLibrary {
     public func close() async {
         await onClose()
     }
+}
+
+public extension CameraLibrary {
+    func exif(_ handle: UInt32) async -> ShotExif? { nil }
 }

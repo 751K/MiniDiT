@@ -354,12 +354,21 @@ extension AppModel {
     private func showPreview(_ id: UInt32) {
         previewShot = id
         previewLoaded = false
+        previewExif = nil
         previewImage = shots[id].flatMap { thumbnails[$0.primary] }
         previewTask?.cancel()
         guard let library, let s = shots[id] else { return }
         previewTask = Task {
+            let fromFile = await library.exif(s.primary)
+            if previewShot == id, let fromFile { previewExif = fromFile }
             guard let data = try? await library.preview(s.primary), !Task.isCancelled, let img = NSImage(data: data) else { return }
-            if previewShot == id { previewImage = img; previewLoaded = true }
+            guard previewShot == id else { return }
+            previewImage = img; previewLoaded = true
+            if fromFile == nil {
+                // Wi-Fi：相机给的预览图（screennail）里带着 EXIF 时从这里读。
+                previewExif = ShotExif(imageData: data)
+                if !exifNoted { exifNoted = true; log.add("预览图 EXIF：\(previewExif == nil ? "没有" : "有")") }
+            }
         }
     }
 
@@ -381,5 +390,6 @@ extension AppModel {
         previewTask?.cancel()
         previewShot = nil
         previewImage = nil
+        previewExif = nil
     }
 }
