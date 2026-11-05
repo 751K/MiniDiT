@@ -24,6 +24,23 @@ struct AppsSettings: View {
                 Text("正在使用")
             }
             Section {
+                Toggle("按拍摄时的创意外观设置 ICC 配置文件", isOn: Bindable(model).applyCreativeLook)
+                let looks = InstalledLooks.scan()
+                if looks.isEmpty {
+                    Text("未找到 Look 配置文件（应位于“~/Library/ColorSync/Profiles”，文件名如“SonyA7M5-Look-ST.icc”）。")
+                        .font(.callout).foregroundStyle(.orange)
+                } else {
+                    ForEach(looks, id: \.body) { l in
+                        LabeledContent(l.body, value: l.codes.joined(separator: " · "))
+                    }
+                }
+            } header: {
+                Text("Capture One 会话")
+            } footer: {
+                Text("导入到 Capture One 会话后，读取 RAW 文件中记录的创意外观（ST、FL、IN 等），将 ICC 配置文件设为对应的“… Look-ST”等，曲线设为“Linear Response”。未安装对应 Look 的照片保持原样。仅处理 RAW 文件。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section {
                 ForEach(apps.filter { $0.kind != .captureOne && $0.kind != .lightroom }) { app in
                     FolderAppRow(app: app, inUse: model.captureOneMode == .off && model.openAfterImport.appKind == app.kind)
                 }
@@ -344,5 +361,28 @@ private struct AppIconView: View {
             }
         }
         .frame(width: 32, height: 32)
+    }
+}
+
+/// 装在 ColorSync 文件夹里的 Look 配置文件（「SonyA7M5-Look-ST.icc」），按机身列出有哪些外观。
+enum InstalledLooks {
+    struct Body { let body: String; let codes: [String] }
+
+    static func scan() -> [Body] {
+        let dirs = [FileManager.default.homeDirectoryForCurrentUser.appending(path: "Library/ColorSync/Profiles"),
+                    URL(filePath: "/Library/ColorSync/Profiles")]
+        var map: [String: Set<String>] = [:]
+        for d in dirs {
+            for f in (try? FileManager.default.contentsOfDirectory(atPath: d.path)) ?? [] {
+                let base = (f as NSString).deletingPathExtension
+                guard ["icc", "icm"].contains((f as NSString).pathExtension.lowercased()),
+                      let r = base.range(of: "-Look-") else { continue }
+                map[String(base[..<r.lowerBound]), default: []].insert(String(base[r.upperBound...]))
+            }
+        }
+        let order = CreativeLook.all
+        return map.keys.sorted().map { k in
+            Body(body: k, codes: map[k]!.sorted { (order.firstIndex(of: $0) ?? 99, $0) < (order.firstIndex(of: $1) ?? 99, $1) })
+        }
     }
 }

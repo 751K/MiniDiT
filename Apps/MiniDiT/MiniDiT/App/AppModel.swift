@@ -444,6 +444,10 @@ final class AppModel {
     var launchAtLogin: Bool = SMAppService.mainApp.status == .enabled {
         didSet { applyLaunchAtLogin() }
     }
+    /// 导入到 C1 会话后，按拍摄时的创意外观设 ICC 配置文件（自己装的「… Look-ST」）和 Linear Response 曲线。
+    var applyCreativeLook: Bool = UserDefaults.standard.bool(forKey: "applyCreativeLook") {
+        didSet { UserDefaults.standard.set(applyCreativeLook, forKey: "applyCreativeLook") }
+    }
     /// 连过的相机开机、连上同一网络时发通知。
     var notifyCameraOnline: Bool = UserDefaults.standard.object(forKey: "notifyCameraOnline") as? Bool ?? true {
         didSet {

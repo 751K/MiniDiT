@@ -377,6 +377,7 @@ extension AppModel {
             if mode == .newSession {
                 if let sessionText { summary += "，已存入会话“\(sessionText)”" }
                 if !saved.isEmpty { for n in Set(sessionNames) { CaptureOneBridge.refreshCapture(session: n) } }
+                if applyCreativeLook, !saved.isEmpty, let t = await applyLooks(saved, sessions: Array(Set(sessionNames))) { summary += t }
             } else if mode == .lightroom {
                 if !lightroomJobs.isEmpty {
                     summary += "，已交由 Lightroom Classic 导入" + (lightroomText.map { "（收藏夹“\($0)”）" } ?? "")
@@ -547,5 +548,36 @@ extension AppModel {
             errorMessage = "文件已下载至文件夹，但交由 Capture One 导入失败：\(error.localizedDescription)"
             return "，Capture One 导入失败"
         }
+    }
+}
+
+extension AppModel {
+    /// 按创意外观设 C1 的 ICC 配置文件和曲线（只看 RAW：HIF / JPG 已经带着相机的外观）。
+    /// C1 刚收到文件时可能还没建好变体，找不到的隔一会儿再试几次。返回加在导入结果后面的说明。
+    func applyLooks(_ saved: [URL], sessions: [String]) async -> String? {
+        let raws = saved.filter { ["ARW", "SR2", "SRF"].contains($0.pathExtension.uppercased()) }
+        guard !raws.isEmpty else { return nil }
+        var applied = 0, unknown = 0, missingProfiles = Set<String>(), notFound = 0
+        for name in sessions {
+            let mine = raws.filter { $0.path.contains("/\(name)/Capture/") }
+            var pairs: [(variant: String, look: String)] = []
+            for u in mine {
+                if let c = CreativeLook.code(ofRaw: u) { pairs.append((u.deletingPathExtension().lastPathComponent, c)) }
+                else { unknown += 1; log.add("创意外观：\(u.lastPathComponent) 读到「\(CreativeLook.raw(u) ?? "无")」，不认识，保持原样") }
+            }
+            for attempt in 0..<6 where !pairs.isEmpty {
+                if attempt > 0 { try? await Task.sleep(for: .seconds(1.5)) }
+                let r = CaptureOneBridge.applyLooks(session: name, pairs)
+                applied += r.applied
+                missingProfiles.formUnion(r.noProfile)
+                pairs = pairs.filter { r.notFound.contains($0.variant) }
+            }
+            notFound += pairs.count
+        }
+        log.add("创意外观：已设 \(applied) 张" + (missingProfiles.isEmpty ? "" : "，未安装 \(missingProfiles.sorted().joined(separator: "、"))")
+                + (unknown > 0 ? "，\(unknown) 张不认识" : "") + (notFound > 0 ? "，\(notFound) 张在 C1 里没找到" : ""))
+        var s = "，已按创意外观设置 \(applied) 张"
+        if !missingProfiles.isEmpty { s += "（未安装：\(missingProfiles.sorted().joined(separator: "、"))）" }
+        return applied > 0 || !missingProfiles.isEmpty ? s : nil
     }
 }

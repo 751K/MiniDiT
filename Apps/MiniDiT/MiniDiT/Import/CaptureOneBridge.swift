@@ -93,6 +93,61 @@ enum CaptureOneBridge {
         """)
     }
 
+    struct LookResult { var applied = 0; var notFound: [String] = []; var noProfile: Set<String> = [] }
+
+    /// 按创意外观给会话里的照片设 ICC 配置文件和曲线：「Sony A7 M5 ProStandard」→「Sony A7 M5 Look-FL」，曲线改为 Linear Response。
+    /// 配置文件名的前半段取这张图当前的配置文件（C1 按机型给的名字），所以不同机身各用各的 Look 文件。
+    /// 没装这个 Look 的（C1 报「Unrecognized color profile name」）保持原样，曲线也不改。
+    static func applyLooks(session name: String, _ pairs: [(variant: String, look: String)]) -> LookResult {
+        var r = LookResult()
+        guard isRunning, !pairs.isEmpty else { return r }
+        let list = pairs.map { "{\(quote($0.variant)), \(quote($0.look))}" }.joined(separator: ", ")
+        let src = """
+        tell application "Capture One"
+            tell document \(quote(name + ".cosessiondb"))
+                set c to (first collection whose name is "Capture")
+                set out to {}
+                repeat with p in {\(list)}
+                    set n to item 1 of p
+                    set code to item 2 of p
+                    try
+                        set v to (first variant of c whose name is n)
+                        set cp to color profile of adjustments of v
+                        set AppleScript's text item delimiters to " Look-"
+                        if (count of text items of cp) > 1 then
+                            set base to text item 1 of cp
+                        else
+                            set AppleScript's text item delimiters to " "
+                            set parts to text items of cp
+                            set base to (items 1 thru -2 of parts) as text
+                        end if
+                        set AppleScript's text item delimiters to ""
+                        try
+                            set color profile of adjustments of v to (base & " Look-" & code)
+                            set film curve of adjustments of v to "Linear Response"
+                            set end of out to "ok"
+                        on error
+                            set end of out to ("noprofile:" & base & " Look-" & code)
+                        end try
+                    on error
+                        set AppleScript's text item delimiters to ""
+                        set end of out to ("missing:" & n)
+                    end try
+                end repeat
+                return out
+            end tell
+        end tell
+        """
+        guard let res = try? run(src) else { r.notFound = pairs.map(\.variant); return r }
+        for i in stride(from: 1, through: res.numberOfItems, by: 1) {
+            guard let s = res.atIndex(i)?.stringValue else { continue }
+            if s == "ok" { r.applied += 1 }
+            else if s.hasPrefix("missing:") { r.notFound.append(String(s.dropFirst(8))) }
+            else if s.hasPrefix("noprofile:") { r.noProfile.insert(String(s.dropFirst(10))) }
+        }
+        return r
+    }
+
     /// C1 里打开着的文档名（不带扩展名）。C1 没在运行时为空。
     static func openDocumentNames() -> Set<String> {
         guard isRunning, let list = try? run("tell application \"Capture One\" to return name of every document") else { return [] }
