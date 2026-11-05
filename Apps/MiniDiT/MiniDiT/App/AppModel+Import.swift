@@ -27,7 +27,11 @@ extension AppModel {
             spaceProblem = p
             return
         }
-        if captureOneMode == .newSession {
+        if captureOneMode == .lightroom {
+            let st = LightroomBridge.status()
+            guard st.canImport else { lightroomPrompt = st; return }
+            sessionRequest = SessionRequest(existing: [], resume: resume)
+        } else if captureOneMode == .newSession {
             refreshCaptureOne()
             sessionRequest = SessionRequest(existing: Array(CaptureOneBridge.sessions(in: sessionsFolder).prefix(15)),
                                             resume: resume)
@@ -146,6 +150,9 @@ extension AppModel {
             var sessionNames: [String] = []
             var opened: [String: ResumeSession] = [:]
             var stop = false
+            var lightroomJobs: [String] = []
+            var lightroomCollections: [String] = []
+            var wokeLightroom = false
 
             for job in jobs {
                 if Task.isCancelled || stop { break }
@@ -187,13 +194,40 @@ extension AppModel {
                 }
                 let importer = FileImporter(library: library, root: root, camera: camera, backupRoot: backupRoot, event: event,
                                             scene: job.scene, checkSource: deleteRequested)
+                // 导入到 LrC：收藏夹名就是这一组的名字；RAW 先导，同名的 JPG/HIF 叠到它下面。
+                var collection: String?
+                if mode == .lightroom, case .new(let name) = job.session {
+                    collection = name
+                    lightroomCollections.append(name)
+                    rememberEvent(job.event)
+                    opened[job.key] = ResumeSession(captureDir: nil, name: name, event: event)
+                }
+                // RAW + JPG/HIF 成对时要叠在一起，插件得先有 RAW 才能叠。下载顺序不一定是 RAW 在前，
+                // 所以 RAW 还没导完的 JPG/HIF 先留着，等 RAW 交出去后紧跟着交。
+                @MainActor func pairKey(_ item: CameraContentItem) -> String {
+                    let dir = captureDir ?? FileImporter.folder(for: item, root: root, event: event, scene: job.scene)
+                    return dir.path + "/" + (item.filename as NSString).deletingPathExtension.lowercased()
+                }
+                let rawKeys = mode == .lightroom ? Set(job.files.filter { $0.kind == .raw }.map(pairKey)) : []
+                var rawByKey: [String: URL] = [:]
+                var waiting: [String: [URL]] = [:]
+                var firstInCollection = true
+                @MainActor func sendToLightroom(_ photos: [LightroomBridge.Photo]) {
+                    do {
+                        lightroomJobs.append(try LightroomBridge.enqueue(collection: collection, select: firstInCollection, photos: photos))
+                        firstInCollection = false
+                        if !wokeLightroom { LightroomBridge.wake(); wokeLightroom = true }
+                    } catch {
+                        log.add("交给 Lightroom Classic 失败 \(photos.map(\.url.lastPathComponent).joined(separator: "、"))：\(error.localizedDescription)")
+                    }
+                }
                 // 写 MHL 校验清单用：第一份（这个会话 / 保存位置），备份盘（整次导入一份）。
                 var mhlPrimary: [MHLWriter.Entry] = []
                 for item in job.files {
                     if Task.isCancelled { break }
                     progress?.current = "导入 \(item.filename)"
                     progress?.resumingFrom = nil
-                    let dir = captureDir ?? FileImporter.folder(for: item, root: root)
+                    let dir = captureDir ?? FileImporter.folder(for: item, root: root, event: event, scene: job.scene)
                     let base = progress?.bytesDone ?? 0
                     do {
                         let r = try await importer.importItem(item, into: dir, progress: { d in
@@ -224,6 +258,20 @@ extension AppModel {
                             mhlPrimary.append(.init(url: r.outcome.url, xxh64: r.xxh64, action: .original))
                         }
                         if let backupURL { mhlBackup.append(.init(url: backupURL, xxh64: r.xxh64, action: .original)) }
+                        if mode == .lightroom {
+                            let url = r.outcome.url
+                            let key = pairKey(item)
+                            if item.kind == .raw {
+                                rawByKey[key] = url
+                                sendToLightroom([.init(url: url)] + (waiting.removeValue(forKey: key) ?? []).map { .init(url: $0, stackWith: url) })
+                            } else if let raw = rawByKey[key] {
+                                sendToLightroom([.init(url: url, stackWith: raw)])
+                            } else if rawKeys.contains(key) {
+                                waiting[key, default: []].append(url)
+                            } else {
+                                sendToLightroom([.init(url: url)])
+                            }
+                        }
                     } catch is CancellationError {
                         break
                     } catch {
@@ -243,6 +291,8 @@ extension AppModel {
                     }
                     consecutiveFailures = 0
                 }
+                // RAW 没导成（失败或取消）的 JPG/HIF：不叠了，单独交。
+                for urls in waiting.values { sendToLightroom(urls.map { .init(url: $0) }) }
                 // 导入报告：ASC MHL 清单。会话模式写在 Capture 文件夹里（C1 自己的 CaptureOne/ 子文件夹不算），其他模式写在保存位置根目录。
                 if !mhlPrimary.isEmpty {
                     do {
@@ -264,7 +314,7 @@ extension AppModel {
                 var dir = opened[job.key]?.captureDir
                 if dir == nil, case .resolved(let d, _) = job.session { dir = d }
                 for f in job.files where !finishedIDs.contains(f.id) {
-                    savedBytes += FileImporter.savedPartBytes(f, in: dir ?? FileImporter.folder(for: f, root: root))
+                    savedBytes += FileImporter.savedPartBytes(f, in: dir ?? FileImporter.folder(for: f, root: root, event: job.event, scene: job.scene))
                 }
             }
             var deleted: Int?
@@ -299,16 +349,22 @@ extension AppModel {
             if Task.isCancelled { summary += "（已取消）" }
             lastBatch = saved
             let sessionText = sessionNames.isEmpty ? nil : sessionNames.joined(separator: "」「")
+            let lightroomText = lightroomCollections.isEmpty ? nil : lightroomCollections.joined(separator: "」「")
             if mode == .newSession {
                 if let sessionText { summary += "，已存入会话「\(sessionText)」" }
+            } else if mode == .lightroom {
+                if !lightroomJobs.isEmpty {
+                    summary += "，已交给 Lightroom Classic" + (lightroomText.map { "（收藏夹「\($0)」）" } ?? "")
+                    watchLightroom(lightroomJobs)
+                }
             } else if mode != .off && !saved.isEmpty {
                 summary += await sendToCaptureOne(saved, inPlace: mode == .inPlace)
             }
             var c1Failed = false
-            if mode != .newSession && mode != .off && !saved.isEmpty { c1Failed = summary.contains("Capture One 导入失败") }
+            if mode != .newSession && mode != .off && mode != .lightroom && !saved.isEmpty { c1Failed = summary.contains("Capture One 导入失败") }
             lastSummary = summary
             if wasLost {
-                interrupted = Interrupted(done: done.count, total: picked.count, sessions: mode == .newSession ? opened : [:],
+                interrupted = Interrupted(done: done.count, total: picked.count, sessions: mode.namesGroups ? opened : [:],
                                           grouping: grouping, savedBytes: savedBytes)
             } else {
                 lastResult = ImportResult(files: done.count, reused: progress?.reused ?? 0, failed: progress?.failed.count ?? 0,
@@ -318,7 +374,8 @@ extension AppModel {
                                           backupFailed: progress?.backupFailed.count ?? 0,
                                           deleted: deleted, keptOnCard: deleted.map { picked.count - $0 } ?? 0,
                                           deleteFailed: deleteFailed, cardReadOnly: cardReadOnly,
-                                          resumed: progress?.resumedFiles ?? 0, savedBytes: savedBytes, reports: reports)
+                                          resumed: progress?.resumedFiles ?? 0, savedBytes: savedBytes, reports: reports,
+                                          lightroom: mode == .lightroom ? lightroomText : nil)
             }
             log.add("导入结束：\(summary)")
             // 全部文件都导好的拍摄取消选中。
@@ -345,17 +402,52 @@ extension AppModel {
     /// 中断后继续：导到原来的会话，不再问名字。有的分组上次还没来得及建会话时，再问一次（已建好的那些不用再填）。
     func continueImport() {
         guard !offline, let i = interrupted else { return }
-        guard captureOneMode == .newSession else { startImport(session: nil); return }
+        guard captureOneMode.namesGroups else { startImport(session: nil); return }
         let groups = importGroups(i.grouping)
         if !groups.isEmpty, groups.allSatisfy({ i.sessions[$0.id] != nil }) {
             startImport(jobs: groups.map { g in
                 let r = i.sessions[g.id]!
-                return ImportJob(key: g.id, files: g.files, session: .resolved(captureDir: r.captureDir, name: r.name),
-                                 event: r.event, scene: g.scene)
+                return ImportJob(key: g.id, files: g.files, session: r.session, event: r.event, scene: g.scene)
             }, grouping: i.grouping)
         } else {
             sessionGrouping = i.grouping
             beginImport(resume: i.sessions)
+        }
+    }
+
+    /// 导入完以后看 LrC 插件的回执，更新「已添加 n/N」。LrC 没开时它会被打开，可能要等一会儿。
+    func watchLightroom(_ names: [String]) {
+        lightroomWatch?.cancel()
+        let total = names.count
+        lightroomStatus = "等待 Lightroom Classic 添加 \(total) 个文件…"
+        lightroomWatch = Task {
+            var remaining = Set(names)
+            var sum = LightroomBridge.Results()
+            var lastProgress = Date()
+            while !remaining.isEmpty, !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                let r = LightroomBridge.collect(Array(remaining))
+                if !r.done.isEmpty { lastProgress = Date() }
+                remaining.subtract(r.done)
+                sum.added += r.added; sum.skipped += r.skipped; sum.failed += r.failed; sum.failures += r.failures
+                let done = total - remaining.count
+                if remaining.isEmpty { break }
+                let fresh = LightroomBridge.heartbeat()?.isFresh ?? false
+                if !fresh, Date().timeIntervalSince(lastProgress) > 45 {
+                    lightroomStatus = "Lightroom Classic 没有响应（已添加 \(done)/\(total)）：请打开 Lightroom Classic，确认 MiniDiT 插件已启用，照片会接着加进去"
+                } else {
+                    lightroomStatus = "Lightroom Classic 已添加 \(done)/\(total)"
+                }
+            }
+            guard !Task.isCancelled else { return }
+            var s = "Lightroom Classic 已添加 \(sum.added + sum.skipped) 个文件"
+            if sum.skipped > 0 { s += "（\(sum.skipped) 个目录里本来就有）" }
+            if sum.failed > 0 {
+                s += "，\(sum.failed) 个失败"
+                log.add("Lightroom Classic 添加失败：" + sum.failures.joined(separator: "；"))
+            }
+            lightroomStatus = s
+            log.add(s)
         }
     }
 

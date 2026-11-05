@@ -206,7 +206,9 @@ LrC 没开怎么办：任务单留在任务文件夹里，用户下次打开 LrC
 | 项目 | 结果 |
 |---|---|
 | AppleScript 字典 | **没有**（App 包里没有 `.sdef`），和调研结论一致。注册了 `lightroom://` URL |
-| 放进 `~/Library/Application Support/Adobe/Lightroom/Modules/` 自动加载 | ✅ 不用在增效工具管理器里手动添加；`LrForceInitPlugin = true` 让 Init 在 LrC 启动时就运行，后台循环一直在跑 |
+| 放进 `~/Library/Application Support/Adobe/Lightroom/Modules/` 自动加载 | ✅ 不用在增效工具管理器里手动添加 |
+| `LrForceInitPlugin = true` | ❌ **15.6 不理它**：Init 不在启动时运行，第一次用到插件（收到 `lightroom://` 链接、点它的菜单）才运行。用链接把没开的 LrC 启动起来时也会触发 Init。所以 App 发现 LrC 开着、没有心跳时先发一次唤醒链接，40 秒还没心跳才提示重启 LrC |
+| Init 里的错误 | LrC 不报告。正式插件的 Init.lua 只是个外壳，用 `pcall` 加载 Worker，结果写进 `/tmp/minidit-lightroom.log` |
 | 在 LrC 运行时删掉重建插件文件夹 | ❌ 之后插件里的脚本都找不到（「No script by the name …」），Init 也不执行；**要完整重启 LrC**。只改文件内容、不重建文件夹时，增效工具管理器里的「Reload Plug-in」可以生效 |
 | `addPhoto` 速度 | **每张约 1.1 秒**，和文件大小无关（300 KB 的 HIF 和 41 MB 的 ARW 一样）；10 张放进同一个写事务也还是每张 1.1 秒，开销在 `addPhoto` 本身。一组 RAW+HIF 2.2 秒，比 Wi-Fi 下载一组（约 4 秒）快，边下边加跟得上；读卡器会排队 |
 | 预览 | 自动生成**标准预览**（最大 5120 像素，16 张约 67 MB），没有给每张都生成 1:1 预览 |
@@ -215,10 +217,13 @@ LrC 没开怎么办：任务单留在任务文件夹里，用户下次打开 LrC
 | LrC 开着时发 `lightroom://<插件 ID>/…` | ✅ 约 25 毫秒送到插件的 URLHandler |
 | LrC 没开时发 URL | LrC 被启动（加载目录约 20 秒），**这条 URL 本身丢了**（和 2024 年报的 bug 一致），但插件启动后扫任务文件夹，照常处理（3 张 3.3 秒）。所以「任务文件夹为主、URL 只用来叫醒」是对的 |
 | LrC 的 Lua 环境 | 没有 `os.rename`，要用 `LrFileUtils.move`；`io.open` 可以用 |
-| ARW + HIF 成对 | `addPhoto` 把它们当成两张照片分别加入（导入对话框会把 JPEG 当附属文件）。正式插件要决定：成对时只加 RAW，或用 `stackWithPhoto` 叠起来 |
+| ARW + HIF 成对 | `addPhoto` 把它们当成两张照片分别加入（导入对话框会把 JPEG 当附属文件）。正式插件用 `addPhoto(path, rawPhoto, 'below')` 叠到 RAW 下面 ✅。RAW 必须先在目录里：卡上 HIF 常常先于 ARW 下载，所以 App 让 JPG/HIF 等它的 RAW 交出去后再交 |
+| 插上存储卡 | LrC 默认会**自己弹出导入对话框**，和 MiniDiT 抢。插件在对话框开着时照常工作，但要提醒读卡器用户关掉「检测到存储卡时显示导入对话框」 |
+| 发 URL 会不会把 LrC 拉到前台 | 用 `NSWorkspace.open`（`activates = false`）不会 |
+| 从 MiniDiT 界面端到端 | ✅ 测试卡 4 张（6 个文件）→ 收藏夹「10.17-叠放」，两对 RAW+HIF 叠好，提示条显示「Lightroom Classic 已添加 6 个文件」 |
 | 用 AppleEvent 退出 LrC | 会弹「Do you really want to quit?」，所以 App 不能随意替用户重启 LrC，要提示用户自己重启 |
 
-还没测：外置盘 / 多目录、视频、预设 UUID、去重（`findPhotoByPath`）、大批量（几百张）时界面是否卡顿、发 URL 时会不会把 LrC 拉到前台。
+还没测：外置盘 / 多目录、视频、预设 UUID、大批量（几百张）时界面是否卡顿。去重用 `findPhotoByPath`：已在目录里的照片只加进收藏夹（回执里记为 skip）。
 
 ---
 

@@ -15,6 +15,10 @@ struct SessionSheet: View {
     @State private var lastRow: String?
     /// C1 里开着的文档：同名会话建不了。
     @State private var openInC1: Set<String> = []
+    /// 导入到 Lightroom Classic：每组是一个收藏夹，没有「加入已有会话」。
+    private var isLightroom: Bool { model.captureOneMode == .lightroom }
+    private var unit: String { isLightroom ? "收藏夹" : "会话" }
+    @State private var lrc: LightroomBridge.Heartbeat?
 
     private var groups: [AppModel.ImportGroup] { model.importGroups(model.sessionGrouping) }
 
@@ -36,12 +40,14 @@ struct SessionSheet: View {
                 Text("\(model.selectedFiles().count) 个文件 · \(FloatingBar.bytes(model.selectionBytes))")
                     .font(.system(size: 12)).foregroundStyle(.secondary)
             }
-            Picker("导入方式", selection: $useExisting) {
-                Text("新建会话").tag(false)
-                Text("加入已有会话").tag(true)
+            if !isLightroom {
+                Picker("导入方式", selection: $useExisting) {
+                    Text("新建会话").tag(false)
+                    Text("加入已有会话").tag(true)
+                }
+                .pickerStyle(.segmented).labelsHidden()
+                .disabled(request.existing.isEmpty || !request.resume.isEmpty)
             }
-            .pickerStyle(.segmented).labelsHidden()
-            .disabled(request.existing.isEmpty || !request.resume.isEmpty)
 
             Group {
                 if !useExisting {
@@ -58,13 +64,13 @@ struct SessionSheet: View {
             .fixedSize(horizontal: false, vertical: !useExisting)
 
             HStack(spacing: 8) {
-                Text("下载到会话的 Capture 文件夹").font(.system(size: 12)).foregroundStyle(.secondary)
+                Text(footerText).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(2)
                 Spacer()
                 Button("取消") { model.sessionRequest = nil }
                     .buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.large)
                     .keyboardShortcut(.cancelAction)
                 Button { start() } label: {
-                    Text(!useExisting && groups.count > 1 ? "导入到 \(groups.count) 个会话" : "开始导入")
+                    Text(!useExisting && groups.count > 1 ? "导入到 \(groups.count) 个\(unit)" : "开始导入")
                         .fontWeight(.semibold).padding(.horizontal, 4)
                 }
                 .buttonStyle(.borderedProminent).buttonBorderShape(.capsule).controlSize(.large)
@@ -75,7 +81,7 @@ struct SessionSheet: View {
         .padding(20)
         .frame(width: 520)
         .onAppear {
-            openInC1 = CaptureOneBridge.openDocumentNames()
+            if isLightroom { lrc = LightroomBridge.heartbeat() } else { openInC1 = CaptureOneBridge.openDocumentNames() }
             if !groupings.contains(model.sessionGrouping) { model.sessionGrouping = .single }
             focusedRow = groups.first { request.resume[$0.id] == nil }?.id
         }
@@ -121,7 +127,9 @@ struct SessionSheet: View {
                     }
                 }
             }
-            Text("会话按命名模板“\(NameTemplate.current(.session))”命名，放在 \(model.sessionsFolder.path(percentEncoded: false))。模板可在“设置 › 导入 › 命名”中修改。")
+            Text(isLightroom
+                 ? "收藏夹按命名模板“\(NameTemplate.current(.session))”命名，放在收藏夹集“MiniDiT”里；照片存到 \(model.destination.path(percentEncoded: false))，按“\(NameTemplate.current(.folder))”分文件夹。"
+                 : "会话按命名模板“\(NameTemplate.current(.session))”命名，放在 \(model.sessionsFolder.path(percentEncoded: false))。模板可在“设置 › 导入 › 命名”中修改。")
                 .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(2).truncationMode(.middle)
         }
     }
@@ -150,7 +158,7 @@ struct SessionSheet: View {
                         Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange)
                         Text(problem)
                     } else {
-                        Text("会话：\(name)").foregroundStyle(.secondary)
+                        Text("\(unit)：\(name)").foregroundStyle(.secondary)
                     }
                 }
                 .font(.system(size: 11))
@@ -176,6 +184,10 @@ struct SessionSheet: View {
     /// 这一行的名字不能用的原因：磁盘上已有，或和别的行重名。
     private func problem(_ g: AppModel.ImportGroup) -> String? {
         let name = sessionName(g)
+        if isLightroom {
+            // 同名收藏夹已经有了就加进去，不算问题；只提醒这一批里重名（会合进同一个收藏夹）。
+            return groups.filter({ sessionName($0) == name }).count > 1 ? "和其他收藏夹重名（\(name)），会合并成一个，请填写不同的事件名" : nil
+        }
         if FileManager.default.fileExists(atPath: model.sessionsFolder.appending(path: name).path) {
             return "已有同名会话「\(name)」，请填写或修改事件名"
         }
@@ -188,6 +200,12 @@ struct SessionSheet: View {
         return nil
     }
 
+    private var footerText: String {
+        guard isLightroom else { return "下载到会话的 Capture 文件夹" }
+        guard let lrc, lrc.isFresh else { return "Lightroom Classic 会自动打开，照片加进它当前的目录" }
+        return "加入 Lightroom Classic 目录“\(lrc.catalogName)”"
+    }
+
     private var canStart: Bool {
         if useExisting { return existing != nil }
         return !groups.isEmpty && groups.allSatisfy { request.resume[$0.id] != nil || problem($0) == nil }
@@ -197,8 +215,7 @@ struct SessionSheet: View {
         if useExisting, let existing { model.startImport(session: .existing(existing)); return }
         let jobs = groups.map { g -> AppModel.ImportJob in
             if let r = request.resume[g.id] {
-                return .init(key: g.id, files: g.files, session: .resolved(captureDir: r.captureDir, name: r.name),
-                             event: r.event, scene: g.scene)
+                return .init(key: g.id, files: g.files, session: r.session, event: r.event, scene: g.scene)
             }
             return .init(key: g.id, files: g.files, session: .new(sessionName(g)), event: event(g), scene: g.scene)
         }

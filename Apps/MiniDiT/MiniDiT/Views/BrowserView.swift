@@ -874,6 +874,7 @@ struct FloatingBar: View {
     private var importLabel: String {
         switch model.captureOneMode {
         case .newSession: "导入到新会话…"
+        case .lightroom: "导入到 Lightroom…"
         case .off: "下载"
         default: "导入到 Capture One"
         }
@@ -895,6 +896,7 @@ struct FloatingBar: View {
     private func resultText(_ r: AppModel.ImportResult) -> String {
         var s = "导入了 \(r.files) 个文件"
         if let session = r.session { s += "，已存入会话「\(session)」" }
+        if let c = r.lightroom { s += "，收藏夹「\(c)」" + (model.lightroomStatus.map { "：" + $0 } ?? "") }
         if r.resumed > 0 { s += "，其中 \(r.resumed) 个从断点续传" }
         if r.failed > 0 { s += "，\(r.failed) 个失败" }
         if let b = r.backedUp {

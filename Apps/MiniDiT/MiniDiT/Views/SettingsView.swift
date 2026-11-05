@@ -24,7 +24,7 @@ private struct ImportSettings: View {
         Form {
             Section("导入方式") {
                 Picker("导入方式", selection: $model.captureOneMode) {
-                    ForEach([CaptureOneMode.newSession, .c1Settings, .inPlace, .off]) { m in
+                    ForEach([CaptureOneMode.newSession, .c1Settings, .inPlace, .lightroom, .off]) { m in
                         VStack(alignment: .leading, spacing: 1) {
                             Text(Self.title(m))
                             Text(Self.detail(m)).font(.caption).foregroundStyle(.secondary)
@@ -108,7 +108,7 @@ private struct ImportSettings: View {
             let explicit = UserDefaults.standard.url(forKey: "sessionsFolder") != nil
             return (explicit ? "" : "跟随 Capture One 当前的会话 · ") + model.sessionsFolder.path(percentEncoded: false)
         }
-        return model.destination.path(percentEncoded: false) + "，按「年/年-月-日」分文件夹"
+        return model.destination.path(percentEncoded: false) + "，按“\(NameTemplate.current(.folder))”分文件夹"
     }
 
     static func title(_ m: CaptureOneMode) -> String {
@@ -116,6 +116,7 @@ private struct ImportSettings: View {
         case .newSession: "新建会话"
         case .c1Settings: "按 Capture One 的导入设置"
         case .inPlace: "就地添加"
+        case .lightroom: "导入到 Lightroom Classic"
         case .off: "只下载"
         }
     }
@@ -125,6 +126,7 @@ private struct ImportSettings: View {
         case .newSession: "每次导入新建一个会话，照片存进它的 Capture 文件夹。"
         case .c1Settings: "交给当前打开的文档，按它的导入设置处理。"
         case .inPlace: "下载到下面的位置，再直接加入当前文档。"
+        case .lightroom: "下载到下面的位置，再由 MiniDiT 插件加入 Lightroom Classic 当前的目录，每次导入建一个收藏夹（需在“软件”里安装插件）。"
         case .off: "只存到电脑，不打开 Capture One。"
         }
     }

@@ -219,8 +219,8 @@ struct FileImporter {
     }
 
     /// 下载文件夹：「保存位置/」+ 模板（默认「年/年-月-日」）。
-    static func folder(for item: CameraContentItem, root: URL) -> URL {
-        NameTemplate.folder(.folder, root: root, day: AppModel.dayKey(item), event: nil)
+    static func folder(for item: CameraContentItem, root: URL, event: String? = nil, scene: Int? = nil) -> URL {
+        NameTemplate.folder(.folder, root: root, day: AppModel.dayKey(item), event: event, scene: scene)
     }
 
     /// 备份盘上：「备份位置/」+ 模板（默认「年-月-日-事件」，没有事件名就是「年-月-日」）。

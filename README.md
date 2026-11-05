@@ -35,6 +35,7 @@ Mac 上的「小号 DIT」：通过 Wi-Fi 连接索尼 α 相机（或者插读�
 | 导入后删除存储卡上的照片（仅读卡器；只删和卡上数据核对过、且备份成功的照片；视频不删；写保护的卡会提示） | ✅ v0.3 |
 | 一次导入分成多个 C1 会话：合并为一个 / 每天一个 / 每场一个，每个会话单独填事件名；同名会话（磁盘上已有或 C1 里已打开）会提示 | ✅ v0.4 |
 | 命名模板：会话名、下载文件夹、备份文件夹各一个模板（`{YYYY}` `{MM}` `{DD}` `{M}` `{D}` `{事件}` `{场次}`），在「设置 › 导入 › 命名」里改 | ✅ v0.4 |
+| 导入到 Lightroom Classic：照片下载、校验后由 MiniDiT 插件逐张加入 LrC 当前目录，每组一个收藏夹（收藏夹集「MiniDiT」），RAW+JPG/HIF 自动叠放；插件在「设置 › 软件」里一键安装 | ✅ v0.4，LrC 15.6 实测 |
 | 按时间间隔分场次（默认不分，可在设置或侧栏右键里打开）：同一天相邻两张隔得比设定久就分成两场，场次可以单独查看和勾选 | ✅ v0.4 |
 
 ## 项目结构
@@ -45,7 +46,7 @@ Apps/MiniDiT/MiniDiT/
   AppIcon.icon                  App 图标（Icon Composer 文档）
   App/                          入口、日志、AppModel（按职责拆成 +Source / +Library / +Import）
   Camera/                       搜索相机、钥匙串账号、连过的相机
-  Import/                       单个文件的导入（FileImporter）、导入记录、Capture One（AppleScript）
+  Import/                       单个文件的导入（FileImporter）、导入记录、Capture One（AppleScript）、Lightroom Classic（插件 + 任务文件夹）
   Views/                        连接、浏览、设置、会话、身份验证界面
 Sources/SonyRemoteKit/          协议层（无界面）
   Transport/ SSH/ PTP/ PTPIP/   字节流、SSH 隧道、PTP 和 PTP/IP
@@ -107,7 +108,11 @@ Scripts/build-libssh2-xcframework.sh
 
    每个文件先存第一份，再复制到备份盘，两份都读回来比对 xxHash64，通过了才算导好；哈希和两份的位置记在导入记录里。备份盘没接上时会先提醒，可以只存一份继续；接上以后对这些照片再导入一次，会补上第二份。
 
-   设置里可以改会话存放位置，也可以换成其他模式：导入到 C1 当前打开的目录，或者只下载到文件夹。「设置 › 软件」显示 Capture One 有没有装、在不在运行、有没有允许 MiniDiT 控制，以及当前打开的会话。
+   设置里可以改会话存放位置，也可以换成其他模式：导入到 C1 当前打开的目录、导入到 Lightroom Classic，或者只下载到文件夹。
+
+   **Lightroom Classic**：先在「设置 › 软件」里点「安装插件」（LrC 开着时装完要重启一次 LrC），再在「设置 › 导入」里选「导入到 Lightroom Classic」。照片按下载文件夹模板存到下载位置，每张校验完就加进 LrC 当前目录（相当于导入对话框里的「添加」），放进收藏夹集「MiniDiT」下的收藏夹，名字按会话模板生成。LrC 没开时会自动打开。用读卡器时，建议在 LrC 的「偏好设置 › 常规」里关掉「检测到存储卡时显示导入对话框」，免得 LrC 自己也弹出导入。
+
+  「设置 › 软件」显示 Capture One 有没有装、在不在运行、有没有允许 MiniDiT 控制，以及当前打开的会话。
 
 ## 不用相机联调
 

@@ -30,11 +30,14 @@ struct ShootingScene: Identifiable, Hashable {
 }
 
 enum CaptureOneMode: String, CaseIterable, Identifiable {
-    case newSession, c1Settings, inPlace, off
+    case newSession, c1Settings, inPlace, lightroom, off
     var id: String { rawValue }
+    /// 导入时要给每组照片起名字（C1 会话 / LrC 收藏夹）。
+    var namesGroups: Bool { self == .newSession || self == .lightroom }
     var title: String {
         switch self {
         case .newSession: "新建 C1 会话（日期 + 内容），直接存进 Capture"
+        case .lightroom: "导入到 Lightroom Classic（按收藏夹整理）"
         case .off: "不导入，只下载到文件夹"
         case .c1Settings: "按 Capture One 的导入设置导入"
         case .inPlace: "就地添加（不再复制，仅目录）"
@@ -236,6 +239,8 @@ final class AppModel {
         var reports: [URL] = []
         /// 结果里有需要注意的（只有一份、备份失败、没删成功）。
         var needsAttention: Bool { backedUp == nil || backupFailed > 0 || cardReadOnly || deleteFailed > 0 }
+        /// 交给 Lightroom Classic 的收藏夹名（「A」「B」）。
+        var lightroom: String? = nil
     }
     /// 导入中断（相机掉线）：没导完的仍然选中，重连后可以继续。
     struct Interrupted {
@@ -332,10 +337,16 @@ final class AppModel {
         var resume: [String: ResumeSession] = [:]
     }
     var sessionRequest: SessionRequest?
+    /// 导入到 LrC 前发现插件没装好 / 要重启 LrC。
+    var lightroomPrompt: LightroomBridge.Status?
+    /// 导入后 LrC 那边的进度（「Lightroom Classic 已添加 12/30」）。
+    var lightroomStatus: String?
+    var lightroomWatch: Task<Void, Never>?
 
     /// 一个分组已经在用的会话（中断后继续用）。
     struct ResumeSession {
-        var captureDir: URL
+        /// C1 会话的 Capture 文件夹；LrC 收藏夹没有。
+        var captureDir: URL?
         var name: String
         var event: String?
     }
@@ -402,5 +413,12 @@ final class AppModel {
         recentContents = [content] + recentContents.filter { $0 != content }
         recentContents = Array(recentContents.prefix(12))
         UserDefaults.standard.set(recentContents, forKey: "recentContents")
+    }
+}
+
+extension AppModel.ResumeSession {
+    /// 继续导入时用：C1 会话直接用原来的 Capture 文件夹；LrC 收藏夹按名字找回（已有就加进去）。
+    var session: AppModel.SessionChoice {
+        captureDir.map { .resolved(captureDir: $0, name: name) } ?? .new(name)
     }
 }

@@ -16,20 +16,23 @@ struct AppsSettings: View {
                                   request: { Task { await checkPermission(ask: true) } },
                                   launch: { Task { await launchCaptureOne() } })
                 }
+                if let lr = apps.first(where: { $0.kind == .lightroom }) {
+                    LightroomRow(app: lr, inUse: model.captureOneMode == .lightroom)
+                }
             } header: {
                 Text("正在使用")
             } footer: {
-                Text("导入时 MiniDiT 通过 AppleScript 让 Capture One 新建会话、导入照片，需要在「自动化」里允许。")
+                Text("Capture One 通过 AppleScript 新建会话、导入照片，需要在「自动化」里允许。Lightroom Classic 没有 AppleScript，通过 MiniDiT 插件把照片加进目录。")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section {
-                ForEach(apps.filter { $0.kind != .captureOne }) { app in
+                ForEach(apps.filter { $0.kind != .captureOne && $0.kind != .lightroom }) { app in
                     PlannedRow(app: app)
                 }
             } header: {
                 Text("以后支持")
             } footer: {
-                Text("计划在 v0.4 支持：导完以后交给 Lightroom Classic 导入，或在 Bridge / DxO PhotoLab 里打开导入的文件夹。")
+                Text("Bridge / DxO PhotoLab 按文件夹管理照片，可先用「只下载」，配合命名模板整理文件夹。")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
@@ -163,6 +166,77 @@ enum AutomationPermission {
 }
 
 // MARK: - 行
+
+/// Lightroom Classic：插件装没装、在不在跑、当前目录；安装 / 更新插件。
+private struct LightroomRow: View {
+    let app: AppInfo
+    let inUse: Bool
+    @State private var status: LightroomBridge.Status = .appMissing
+    @State private var heartbeat: LightroomBridge.Heartbeat?
+    @State private var message: String?
+    private let timer = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            AppIconView(url: app.url)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    Text(app.kind.title).fontWeight(.semibold)
+                    if let v = app.version { Text(v).foregroundStyle(.secondary) }
+                }
+                switch status {
+                case .appMissing:
+                    StatusLine(color: .secondary, text: "没有安装")
+                case .pluginMissing:
+                    StatusLine(color: .orange, text: "还没有安装 MiniDiT 插件")
+                case .pluginOutdated(let v):
+                    StatusLine(color: .orange, text: "插件 \(v) 需要更新到 \(LightroomPlugin.version)")
+                case .starting:
+                    StatusLine(color: .secondary, text: "正在唤醒 Lightroom Classic 里的插件…")
+                case .needsRestart:
+                    StatusLine(color: .orange, text: "插件已安装，但没有在运行：请重新打开 Lightroom Classic，并确认在“增效工具管理器”里已启用")
+                case .notRunning:
+                    StatusLine(color: .green, text: "插件 \(LightroomPlugin.version) 已安装")
+                    StatusLine(color: .secondary, text: "没有运行，导入时会自动打开")
+                case .ready(let catalog):
+                    StatusLine(color: .green, text: "插件 \(LightroomPlugin.version) 正在运行")
+                    StatusLine(color: .secondary, text: "当前目录：\(catalog)")
+                }
+                let pending = LightroomBridge.pendingJobs
+                if pending > 0 { StatusLine(color: .secondary, text: "还有 \(pending) 个文件等着加进 Lightroom Classic") }
+                if let message { Text(message).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
+            }
+            Spacer(minLength: 8)
+            switch status {
+            case .pluginMissing:
+                Button("安装插件") { install() }
+            case .pluginOutdated:
+                Button("更新插件") { install() }
+            default:
+                EmptyView()
+            }
+        }
+        .padding(.vertical, 4)
+        .onAppear(perform: refresh)
+        .onReceive(timer) { _ in refresh() }
+    }
+
+    private func refresh() {
+        status = LightroomBridge.status()
+        heartbeat = LightroomBridge.heartbeat()
+    }
+
+    private func install() {
+        do {
+            let restart = try LightroomBridge.installPlugin()
+            message = restart ? "插件已安装。请退出并重新打开 Lightroom Classic，插件才会生效。"
+                              : "插件已安装，下次打开 Lightroom Classic 时自动加载。"
+        } catch {
+            message = "安装失败：\(error.localizedDescription)"
+        }
+        refresh()
+    }
+}
 
 private struct CaptureOneRow: View {
     let app: AppInfo
