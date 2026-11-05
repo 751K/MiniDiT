@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// 设置 › 软件：和后期软件的连接情况（装没装、在不在运行、有没有授权自动化）。
 struct AppsSettings: View {
@@ -104,7 +105,8 @@ struct AppInfo: Identifiable {
     var id: Kind { kind }
     var isInstalled: Bool { url != nil }
 
-    /// 先看正在运行的，再到「应用程序」文件夹（含一层子文件夹，Adobe 的软件装在子文件夹里）找。
+    /// 先看正在运行的，再到各个「应用程序」文件夹（本机和外置硬盘上的，含一层子文件夹，Adobe 的软件装在子文件夹里）找，
+    /// 最后再问系统哪些软件能打开文件夹（软件装在别处时也能找到，比如 DxO PhotoLab）。
     static func find(_ kind: Kind) -> AppInfo {
         func matches(_ id: String?) -> Bool { id.map { i in kind.bundlePrefixes.contains { i.hasPrefix($0) } } ?? false }
         var info = AppInfo(kind: kind)
@@ -115,7 +117,12 @@ struct AppInfo: Identifiable {
         } else {
             let fm = FileManager.default
             var candidates: [URL] = []
-            for root in [URL(filePath: "/Applications"), fm.homeDirectoryForCurrentUser.appending(path: "Applications")] {
+            var roots = [URL(filePath: "/Applications"), fm.homeDirectoryForCurrentUser.appending(path: "Applications")]
+            for v in fm.mountedVolumeURLs(includingResourceValuesForKeys: nil, options: [.skipHiddenVolumes]) ?? [] where v.path != "/" {
+                roots.append(v.appending(path: "Applications"))
+            }
+            candidates += NSWorkspace.shared.urlsForApplications(toOpen: .folder)
+            for root in roots {
                 for u in (try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? [] {
                     if u.pathExtension == "app" { candidates.append(u) }
                     else if (try? u.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
