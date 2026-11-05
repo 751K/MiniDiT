@@ -143,6 +143,10 @@ final class AppModel {
         var current = ""
         var backedUp = 0
         var backupFailed: [String] = []
+        /// 当前文件是续传的：从这个字节数接着传。
+        var resumingFrom: UInt64?
+        /// 这次导入里续传了几个文件。
+        var resumedFiles = 0
         var fraction: Double { bytesTotal == 0 ? 0 : min(1, Double(bytesDone) / Double(bytesTotal)) }
 
         // 速度按最近 10 秒算：下载（Wi-Fi）和写备份（本地盘）快慢不同，太短的窗口会跳得厉害。
@@ -201,6 +205,10 @@ final class AppModel {
         var deleteFailed = 0
         /// 存储卡是只读的（写保护开关，或文件系统不能写），没有删。
         var cardReadOnly = false
+        /// 其中从断点接着传的文件数。
+        var resumed = 0
+        /// 没传完、留着下次接着传的字节数（取消时）。
+        var savedBytes: UInt64 = 0
         /// 结果里有需要注意的（只有一份、备份失败、没删成功）。
         var needsAttention: Bool { backedUp == nil || backupFailed > 0 || cardReadOnly || deleteFailed > 0 }
     }
@@ -209,6 +217,8 @@ final class AppModel {
         var done: Int
         var total: Int
         var session: SessionChoice?
+        /// 没传完、已经保存下来的字节数，继续时从这里接着传。
+        var savedBytes: UInt64 = 0
     }
 
     var progress: ImportProgress?

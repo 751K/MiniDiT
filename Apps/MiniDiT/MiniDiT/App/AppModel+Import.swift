@@ -131,6 +131,7 @@ extension AppModel {
             for item in picked {
                 if Task.isCancelled { break }
                 progress?.current = "导入 \(item.filename)"
+                progress?.resumingFrom = nil
                 let dir = captureDir ?? FileImporter.folder(for: item, root: root)
                 let base = progress?.bytesDone ?? 0
                 do {
@@ -138,7 +139,8 @@ extension AppModel {
                         Task { @MainActor in
                             if let cur = self.progress?.bytesDone, base + d > cur { self.progress?.bytesDone = base + d }
                         }
-                    }, stage: { self.progress?.current = $0 }, skipped: { self.progress?.credit($0) })
+                    }, stage: { self.progress?.current = $0 }, skipped: { self.progress?.credit($0) },
+                       resumed: { self.progress?.resumingFrom = $0; self.progress?.resumedFiles += 1 })
                     progress?.bytesDone = base + importer.weight(of: item)
                     switch r.outcome {
                     case .alreadyThere: progress?.skipped += 1
@@ -174,6 +176,10 @@ extension AppModel {
                 consecutiveFailures = 0
             }
             ImportHistory.shared.record(done, camera: camera)
+            // 没导完的文件里，已经传了一部分、留着续传的有多少。
+            let finishedIDs = Set(done.map(\.item.id))
+            let savedBytes = picked.filter { !finishedIDs.contains($0.id) }
+                .reduce(UInt64(0)) { $0 + FileImporter.savedPartBytes($1, in: captureDir ?? FileImporter.folder(for: $1, root: root)) }
             var deleted: Int?
             var deleteFailed = 0
             var cardReadOnly = false
@@ -215,7 +221,8 @@ extension AppModel {
             lastSummary = summary
             if wasLost {
                 let resume: SessionChoice? = captureDir.map { .resolved(captureDir: $0, name: sessionName) }
-                interrupted = Interrupted(done: done.count, total: picked.count, session: mode == .newSession ? resume : nil)
+                interrupted = Interrupted(done: done.count, total: picked.count, session: mode == .newSession ? resume : nil,
+                                          savedBytes: savedBytes)
             } else {
                 lastResult = ImportResult(files: done.count, reused: progress?.reused ?? 0, failed: progress?.failed.count ?? 0,
                                           session: mode == .newSession && !sessionName.isEmpty ? sessionName : nil,
@@ -223,7 +230,8 @@ extension AppModel {
                                           backedUp: backupRoot == nil ? nil : progress?.backedUp ?? 0,
                                           backupFailed: progress?.backupFailed.count ?? 0,
                                           deleted: deleted, keptOnCard: deleted.map { picked.count - $0 } ?? 0,
-                                          deleteFailed: deleteFailed, cardReadOnly: cardReadOnly)
+                                          deleteFailed: deleteFailed, cardReadOnly: cardReadOnly,
+                                          resumed: progress?.resumedFiles ?? 0, savedBytes: savedBytes)
             }
             log.add("导入结束：\(summary)")
             // 全部文件都导好的拍摄取消选中。

@@ -70,8 +70,10 @@ struct FileImporter {
     func importItem(_ item: CameraContentItem, into dir: URL,
                     progress: @escaping @Sendable (UInt64) -> Void,
                     stage: (String) -> Void,
-                    skipped: (UInt64) -> Void = { _ in }) async throws -> Result {
-        let (outcome, hash, fromCard) = try await primary(item, into: dir, progress: progress, stage: stage, skipped: skipped)
+                    skipped: (UInt64) -> Void = { _ in },
+                    resumed: (UInt64) -> Void = { _ in }) async throws -> Result {
+        let (outcome, hash, fromCard) = try await primary(item, into: dir, progress: progress, stage: stage,
+                                                          skipped: skipped, resumed: resumed)
         var matchesSource = fromCard
         if !matchesSource, checkSource, let card = library as? LocalCardLibrary, let src = await card.fileURL(item.id) {
             stage("核对 \(item.filename)")
@@ -99,7 +101,8 @@ struct FileImporter {
     private func primary(_ item: CameraContentItem, into dir: URL,
                          progress: @escaping @Sendable (UInt64) -> Void,
                          stage: (String) -> Void,
-                         skipped: (UInt64) -> Void) async throws -> (Outcome, UInt64, fromCard: Bool) {
+                         skipped: (UInt64) -> Void,
+                         resumed: (UInt64) -> Void) async throws -> (Outcome, UInt64, fromCard: Bool) {
         let fm = FileManager.default
         let target = dir.appending(path: item.filename)
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -140,6 +143,7 @@ struct FileImporter {
             if resume > 0 {
                 log.add("续传 \(item.filename)：已有 \(resume)/\(item.size) 字节")
                 stage("续传 \(item.filename)")
+                resumed(resume)
                 skipped(resume)
             }
             if resume < item.size {
@@ -201,6 +205,12 @@ struct FileImporter {
     }
 
     // MARK: 路径
+
+    /// 这个文件没传完、留着等续传的字节数。
+    static func savedPartBytes(_ item: CameraContentItem, in dir: URL) -> UInt64 {
+        let part = dir.appending(path: partName(item))
+        return (try? FileManager.default.attributesOfItem(atPath: part.path))?[.size] as? UInt64 ?? 0
+    }
 
     /// 没传完的文件：「.文件名.大小.拍摄时间.part」。名字里带上大小和时间，换了一张同名的照片不会接错。
     static func partName(_ item: CameraContentItem) -> String {

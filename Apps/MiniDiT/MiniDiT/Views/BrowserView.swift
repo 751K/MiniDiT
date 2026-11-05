@@ -677,9 +677,17 @@ struct FloatingBar: View {
                     VStack(alignment: .leading, spacing: 5) {
                         // 第一行：进度（左）和剩余时间（右）。
                         HStack(alignment: .firstTextBaseline) {
-                            Text("正在导入").font(.system(size: 14, weight: .semibold))
+                            Text(p.resumingFrom == nil ? "正在导入" : "正在续传").font(.system(size: 14, weight: .semibold))
                             Text("\(p.done + p.skipped + p.reused + p.failed.count) / \(p.total)")
                                 .font(.system(size: 14)).foregroundStyle(.secondary).monospacedDigit()
+                            if let from = p.resumingFrom {
+                                // 续传：明确告诉用户这个文件不是从头来的。
+                                Label("从 \(Self.bytes(from)) 处接着传", systemImage: "arrow.clockwise")
+                                    .font(.system(size: 12, weight: .medium)).foregroundStyle(.tint)
+                                    .padding(.horizontal, 8).padding(.vertical, 2)
+                                    .background(Capsule().fill(Color.accentColor.opacity(0.12)))
+                                    .fixedSize()
+                            }
                             Spacer(minLength: 12)
                             Text(Self.timeLeft(p.secondsLeft))
                                 .font(.system(size: 12)).foregroundStyle(.secondary).monospacedDigit()
@@ -700,7 +708,8 @@ struct FloatingBar: View {
             } else if let i = model.interrupted {
                 capsule {
                     twoLines("导入中断，完成了 \(i.done)/\(i.total) 个文件",
-                             (model.offline ? "相机已断开，" : "") + "没导完的 \(i.total - i.done) 个仍然选中")
+                             (model.offline ? "相机已断开，" : "") + "没导完的 \(i.total - i.done) 个仍然选中"
+                             + (i.savedBytes > 0 ? "；已保存 \(Self.bytes(i.savedBytes))，继续时从断点接着传" : ""))
                     mainButton("继续导入", disabled: model.offline) { model.continueImport() }
                 }
             } else if let r = model.lastResult, r.c1Failed, model.grid.selected.isEmpty {
@@ -710,7 +719,17 @@ struct FloatingBar: View {
                 }
             } else if !model.grid.selected.isEmpty {
                 capsule {
-                    twoLines("已选 \(model.selectedShotCount) 张 · \(Self.bytes(model.selectionBytes))", pickedDetail)
+                    if let r = model.lastResult, r.cancelled, r.savedBytes > 0, !model.offline {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("已选 \(model.selectedShotCount) 张 · \(Self.bytes(model.selectionBytes))")
+                                .font(.system(size: 15, weight: .semibold)).lineLimit(1)
+                            Label("已保存未传完的 \(Self.bytes(r.savedBytes))，再次导入时从断点接着传", systemImage: "arrow.clockwise")
+                                .font(.system(size: 11, weight: .medium)).foregroundStyle(.tint).lineLimit(1)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        twoLines("已选 \(model.selectedShotCount) 张 · \(Self.bytes(model.selectionBytes))", pickedDetail)
+                    }
                     ImportOptions()
                     mainButton(importLabel, disabled: model.offline) { model.beginImport() }
                         .keyboardShortcut(.return, modifiers: .command)
@@ -752,6 +771,7 @@ struct FloatingBar: View {
     private func resultText(_ r: AppModel.ImportResult) -> String {
         var s = "导入了 \(r.files) 个文件"
         if let session = r.session { s += "，已存入会话「\(session)」" }
+        if r.resumed > 0 { s += "，其中 \(r.resumed) 个从断点续传" }
         if r.failed > 0 { s += "，\(r.failed) 个失败" }
         if let b = r.backedUp {
             s += r.backupFailed > 0 ? "，\(r.backupFailed) 个没备份成功" : (b > 0 ? "，两份都已校验" : "")
@@ -767,7 +787,7 @@ struct FloatingBar: View {
         } else if let d = r.deleted {
             s += "，从卡上删除 \(d) 个" + (r.keptOnCard > 0 ? "（\(r.keptOnCard) 个保留）" : "")
         }
-        if r.cancelled { s += "（已取消）" }
+        if r.cancelled { s += r.savedBytes > 0 ? "（已取消；已保存 \(Self.bytes(r.savedBytes))，下次从断点接着传）" : "（已取消）" }
         return s
     }
 
