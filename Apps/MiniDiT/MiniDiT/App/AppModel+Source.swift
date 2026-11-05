@@ -1,0 +1,407 @@
+import AppKit
+import Foundation
+import MiniDiTCore
+import SonyRemoteKit
+
+extension AppModel {
+
+    // MARK: 搜索
+
+    func search() {
+        guard phase == .idle else { return }
+        phase = .searching
+        errorMessage = nil
+        notice = nil
+        log.add("搜索相机：\(CameraFinder.networkSummary())")
+        let known = knownCameras
+        connectTask = Task {
+            let result = await CameraFinder.search(known: known) { s in
+                Task { @MainActor in self.status = s }
+            }
+            found = result
+            searched = true
+            networkBlocked = result.isEmpty ? await CameraFinder.localNetworkBlocked() : false
+            if networkBlocked { log.add("搜索：看起来没有本地网络权限") }
+            log.add("搜索结果：\(result.map { "\($0.host)\($0.knownName.map { "（\($0)）" } ?? "")" })")
+            if phase == .searching { phase = .idle }
+            status = ""
+        }
+    }
+
+    /// 启动时连上次的相机：先试上次的地址，不行再搜一遍子网找认识的相机。
+    func autoConnectLast() async {
+        guard let last = knownCameras.first else { return }
+        phase = .searching
+        status = "正在找上次的相机「\(last.name)」…"
+        log.add("自动连接：先试 \(last.host)")
+        if let cam = await probe(host: last.host), cam.fingerprint == last.fingerprint {
+            await connect(FoundCamera(host: cam.host, kind: cam.kind, knownName: last.name))
+            return
+        }
+        if Task.isCancelled { phase = .idle; status = ""; return }
+        status = "上次的地址连不上，正在搜索…"
+        let result = await CameraFinder.search(known: knownCameras) { s in Task { @MainActor in self.status = s } }
+        found = result
+        searched = true
+        if Task.isCancelled { phase = .idle; status = ""; return }
+        if let cam = result.first(where: { $0.knownName != nil }) {
+            await connect(cam)
+        } else {
+            log.add("自动连接：没找到连过的相机")
+            phase = .idle
+            status = ""
+        }
+    }
+
+    /// 检查某个地址上有没有相机（先 PTP/IP 直连，再 SSH）。
+    private func probe(host: String) async -> FoundCamera? {
+        if await CameraDiscovery.probe(host: host, port: PTPIPClient.defaultPort, timeout: 1.5) {
+            return FoundCamera(host: host, kind: .direct)
+        }
+        if let (key, _) = try? await CameraSSHTunnel.probe(host: host, timeout: 4) {
+            return FoundCamera(host: host, kind: .ssh(fingerprint: key.sha256Base64))
+        }
+        return nil
+    }
+
+    func connect(host: String) {
+        let h = host.trimmingCharacters(in: .whitespaces)
+        guard !h.isEmpty else { return }
+        connectTask = Task {
+            phase = .connecting
+            status = "正在检查 \(h)…"
+            if let cam = await probe(host: h) {
+                let name = knownCameras.first { $0.fingerprint == cam.fingerprint }?.name
+                await connect(FoundCamera(host: cam.host, kind: cam.kind, knownName: name))
+                return
+            }
+            phase = .idle
+            errorMessage = "\(h) 上没有找到相机（22 和 15740 端口都连不上）。请确认相机开着、打开了「遥控拍摄」，并且和这台 Mac 在同一个网络。"
+        }
+    }
+
+    /// 当前连着的相机的指纹（读卡器为 nil）。
+    var currentFingerprint: String? { sourceKind == .camera ? lastCamera?.fingerprint : nil }
+
+
+    func switchTo(known k: KnownCamera) {
+        guard progress == nil, switchingTo == nil else { return }
+        switchingTo = k.fingerprint
+        Task {
+            defer { switchingTo = nil }
+            guard let cam = await probe(host: k.host), cam.fingerprint == k.fingerprint else {
+                errorMessage = "「\(k.name)」不在线（上次的地址是 \(k.host)），没有切换。如果相机换了地址，可以用「文件 › 切换来源…」重新搜索。"
+                return
+            }
+            let target = FoundCamera(host: cam.host, kind: cam.kind, knownName: k.name)
+            disconnect()
+            connectTask = Task { await self.connect(target) }
+        }
+    }
+
+    func switchTo(card url: URL) {
+        guard progress == nil else { return }
+        disconnect()
+        openCard(url)
+    }
+
+    /// 连过的相机：只认指纹相同的设备（同一个地址上可能换成了别的机器）。
+    func connect(known k: KnownCamera) {
+        connectTask = Task {
+            phase = .connecting
+            connectingHost = k.host
+            status = "正在找「\(k.name)」…"
+            if let cam = await probe(host: k.host), cam.fingerprint == k.fingerprint {
+                await connect(FoundCamera(host: cam.host, kind: cam.kind, knownName: k.name))
+                return
+            }
+            connectingHost = nil
+            phase = .idle
+            status = ""
+            errorMessage = "「\(k.name)」不在线（上次的地址是 \(k.host)）。请确认相机开着并打开了遥控拍摄；如果相机换了地址，点「搜索相机」。"
+        }
+    }
+
+    func connect(_ cam: FoundCamera) {
+        connectTask = Task { await connect(cam) }
+    }
+
+    private func connect(_ cam: FoundCamera) async {
+        phase = .connecting
+        connectingHost = cam.host
+        defer { connectingHost = nil }
+        errorMessage = nil
+        notice = nil
+        log.add("连接 \(cam.host)")
+        do {
+            let lib = try await openLibrary(cam)
+            sourceKind = .camera
+            deviceInfo = await lib.deviceInfo
+            cameraID = deviceInfo?.cameraID
+            let modelName = deviceInfo.map(\.displayName) ?? ""
+            // 用户起过的名字优先；名字还是 IP（以前没读到型号）就换成机型名。
+            let known = knownCameras.first { $0.fingerprint == cam.fingerprint }
+            let keepName = cam.knownName.flatMap { n in (known?.nameIsAddress ?? false) || n == cam.host ? nil : n }
+            let name = keepName ?? (modelName.isEmpty ? (cam.knownName ?? cam.host) : modelName)
+            attach(lib, name: name, host: cam.host)
+            lastCamera = FoundCamera(host: cam.host, kind: cam.kind, knownName: name)
+            KnownCamera.remember(KnownCamera(fingerprint: cam.fingerprint, host: cam.host, name: name, lastSeen: Date(),
+                                             model: deviceInfo?.model ?? known?.model, firmware: deviceInfo?.version ?? known?.firmware))
+            knownCameras = KnownCamera.load()
+            if let deviceInfo { log.add("相机：\(deviceInfo.model) 固件 \(deviceInfo.version)，机身 ID \(cameraID ?? "无")") }
+            await loadAll()
+            refreshCaptureOne()
+        } catch is CancellationError {
+            log.add("已取消连接")
+            phase = .idle
+        } catch {
+            log.add("连接失败：\(error.localizedDescription) ｜ \(String(reflecting: error))")
+            errorMessage = "连接失败：\(error.localizedDescription)"
+            phase = .idle
+        }
+        status = ""
+    }
+
+    private func attach(_ lib: any CameraLibrary, name: String, host: String?) {
+        library = lib
+        connectedHost = host
+        connectedName = name
+        let lost = lib.connectionLost
+        watchTask = Task { [weak self] in
+            for await _ in lost {
+                self?.handleLost()
+                return
+            }
+        }
+    }
+
+    private func openLibrary(_ cam: FoundCamera, interactive: Bool = true) async throws -> any CameraLibrary {
+        let step: @Sendable (String) -> Void = { s in Task { @MainActor in self.status = s; self.log.add(s) } }
+        do {
+            let tunnel = try await prepareTunnel(cam, interactive: interactive)
+            let lib = try await SonyRemoteTransferLibrary.open(host: cam.host, identity: HostIdentityStore.identity,
+                                                               tunnel: tunnel, progress: step)
+            usesRemoteTransfer = true
+            log.add("使用远程传输（相机界面不锁，可读两个卡槽）")
+            return lib
+        } catch let e where e is SonyRemoteTransferError || e is PTPError {
+            log.add("远程传输不可用（\(e.localizedDescription)），改用内容传输模式")
+            try? await Task.sleep(for: .milliseconds(800))
+            let tunnel = try await prepareTunnel(cam, interactive: interactive)
+            usesRemoteTransfer = false
+            return try await SonyContentsTransfer.openLibrary(host: cam.host, identity: HostIdentityStore.identity,
+                                                              tunnel: tunnel, progress: step)
+        }
+    }
+
+    private func prepareTunnel(_ cam: FoundCamera, interactive: Bool = true) async throws -> CameraSSHTunnel? {
+        guard case .ssh(let fingerprint) = cam.kind else { return nil }
+        var creds = CredentialStore.load(fingerprint)
+        if creds == nil {
+            guard interactive else { throw CancellationError() }
+            creds = await askCredentials(host: cam.host, message: nil, prefillUser: nil)
+        }
+        while true {
+            guard var current = creds else { throw CancellationError() }
+            try Task.checkCancellation()
+            status = "正在建立加密连接…"
+            do {
+                let trusted = current.trustedFingerprint
+                let tunnel = try await CameraSSHTunnel.open(host: cam.host, credentials: current) { key in
+                    if let trusted, trusted == key.sha256Base64 { return true }
+                    guard interactive else { return false }
+                    return await self.confirmFingerprint(host: cam.host, key: key)
+                }
+                current.trustedFingerprint = tunnel.hostKey.sha256Base64
+                CredentialStore.save(current, tunnel.hostKey.sha256Base64)
+                log.add("加密连接成功：\(tunnel.hostKey.keyType) \(tunnel.hostKey.sha256Base64)；\(tunnel.negotiated?.description ?? "")")
+                return tunnel
+            } catch SSHTunnelError.authenticationFailed(let detail) {
+                guard interactive else { throw CancellationError() }
+                log.add("访问身份验证失败：用户名「\(current.username)」，密码 \(current.password.count) 个字符；\(detail)")
+                creds = await askCredentials(host: cam.host, message: "用户名或密码不对，请对照相机上的「访问身份验证信息」重新输入。",
+                                             prefillUser: current.username)
+            } catch SSHTunnelError.hostKeyRejected {
+                throw CancellationError()
+            }
+        }
+    }
+
+    private func askCredentials(host: String, message: String?, prefillUser: String?) async -> SSHCredentials? {
+        await withCheckedContinuation { cont in
+            credentialContinuation = cont
+            credentialRequest = CredentialRequest(host: host, message: message, prefillUser: prefillUser)
+        }
+    }
+
+    func submitCredentials(_ creds: SSHCredentials?) {
+        credentialRequest = nil
+        credentialContinuation?.resume(returning: creds)
+        credentialContinuation = nil
+    }
+
+    private func confirmFingerprint(host: String, key: SSHHostKeyInfo) async -> Bool {
+        await withCheckedContinuation { cont in
+            fingerprintContinuation = cont
+            fingerprintRequest = FingerprintRequest(host: host, key: key)
+        }
+    }
+
+    func answerFingerprint(_ ok: Bool) {
+        fingerprintRequest = nil
+        fingerprintContinuation?.resume(returning: ok)
+        fingerprintContinuation = nil
+    }
+
+    func cancelConnect() {
+        connectTask?.cancel()
+        if credentialRequest != nil { submitCredentials(nil) }
+        if fingerprintRequest != nil { answerFingerprint(false) }
+        if phase == .searching { phase = .idle; status = "" }
+    }
+
+    func disconnect() {
+        importTask?.cancel()
+        connectTask?.cancel()
+        watchTask?.cancel()
+        reconnectTask?.cancel()
+        offline = false
+        lastCamera = nil
+        interrupted = nil
+        let lib = library
+        library = nil
+        Task { await lib?.close() }
+        resetContent()
+        phase = .idle
+        log.add("已断开")
+    }
+
+    func forget(_ cam: KnownCamera) {
+        KnownCamera.forget(cam.fingerprint)
+        knownCameras = KnownCamera.load()
+    }
+
+    private func handleLost() {
+        guard library != nil else { return }
+        // 相机掉线：保留内容和选择，后台自动重连。
+        if sourceKind == .camera, lastCamera != nil, !items.isEmpty {
+            log.add("和相机的连接断开了，开始自动重连")
+            lostDuringImport = progress != nil
+            importTask?.cancel()
+            library = nil
+            offline = true
+            startReconnect()
+            return
+        }
+        let wasCard = sourceKind == .card
+        log.add(wasCard ? "存储卡被移除了" : "和相机的连接断开了")
+        importTask?.cancel()
+        library = nil
+        resetContent()
+        phase = .idle
+        errorMessage = wasCard ? "存储卡被移除了。" : "和相机的连接断开了（相机关机、离开 Wi-Fi，或者被别的设备连上了）。"
+    }
+
+    // MARK: 自动重连
+
+    private func startReconnect() {
+        reconnectTask?.cancel()
+        reconnectTask = Task {
+            var attempt = 0
+            while !Task.isCancelled, offline {
+                attempt += 1
+                if await reconnectOnce() { return }
+                try? await Task.sleep(for: .seconds(attempt < 5 ? 3 : 8))
+            }
+        }
+    }
+
+    /// 「重新连接」按钮：马上再试一次。
+    func reconnectNow() {
+        guard offline else { return }
+        startReconnect()
+    }
+
+    private func reconnectOnce() async -> Bool {
+        guard let cam = lastCamera else { return false }
+        status = "正在重新连接 \(cam.host)…"
+        guard await probe(host: cam.host)?.fingerprint == cam.fingerprint else { return false }
+        do {
+            let lib = try await openLibrary(cam, interactive: false)
+            guard offline else { await lib.close(); return true }
+            let keep = selectedKeys()
+            let keepDays = shownDays
+            deviceInfo = await lib.deviceInfo
+            cameraID = deviceInfo?.cameraID ?? cameraID
+            attach(lib, name: connectedName ?? cam.host, host: cam.host)
+            offline = false
+            log.add("已重新连上相机")
+            await loadAll(restoring: keep, days: keepDays)
+            status = ""
+            return true
+        } catch {
+            log.add("重连失败：\(error.localizedDescription)")
+            return false
+        }
+    }
+
+    /// 选择的「身份」：卡槽 + 文件名 + 拍摄时间。重新列目录后句柄会变，用它把选择找回来。
+    static func stableKey(_ i: CameraContentItem) -> String { "\(i.storageID >> 16)|\(i.filename)|\(i.captureDateRaw)" }
+
+    private func selectedKeys() -> Set<String> {
+        Set(grid.selected.compactMap { shots[$0] }.flatMap(\.handles).compactMap { items[$0].map(Self.stableKey) })
+    }
+
+    func resetContent() {
+        items = [:]; allShots = []; shots = [:]; shotOfFile = [:]; slots = []; days = []
+        grid = GridSelection(); shownDays = []
+        thumbnails = [:]; thumbOrder = []; pendingThumbs = []
+        connectedName = nil; connectedHost = nil; cameraID = nil; deviceInfo = nil; cardRoot = nil
+        previewShot = nil; previewImage = nil
+        progress = nil; lastResult = nil; interrupted = nil; offline = false
+    }
+
+    // MARK: 存储卡
+
+    func refreshCards() {
+        let vols = FileManager.default.mountedVolumeURLs(includingResourceValuesForKeys: [.volumeIsRemovableKey],
+                                                         options: [.skipHiddenVolumes]) ?? []
+        cards = vols.filter { $0.path != "/" && LocalCardLibrary.looksLikeCard($0) }
+    }
+
+    func volumesChanged(unmounted: URL?) {
+        refreshCards()
+        if let unmounted, let cardRoot, unmounted.standardizedFileURL == cardRoot.standardizedFileURL,
+           let lib = library as? LocalCardLibrary {
+            lib.markLost()
+        }
+    }
+
+    func openCard(_ url: URL) {
+        guard phase == .idle else { return }
+        connectTask?.cancel()
+        errorMessage = nil
+        notice = nil
+        lastCamera = nil
+        let lib = LocalCardLibrary(root: url)
+        sourceKind = .card
+        usesRemoteTransfer = false
+        cameraID = nil
+        deviceInfo = nil
+        cardRoot = url
+        attach(lib, name: url.lastPathComponent, host: nil)
+        log.add("打开存储卡 \(url.path)")
+        connectTask = Task { await loadAll() }
+    }
+
+    func ejectCard() {
+        guard let root = cardRoot else { return }
+        disconnect()
+        do {
+            try NSWorkspace.shared.unmountAndEjectDevice(at: root)
+            notice = "已推出 \(root.lastPathComponent)，可以拔卡了"
+        } catch {
+            errorMessage = "推出存储卡失败：\(error.localizedDescription)"
+        }
+    }
+}

@@ -35,9 +35,9 @@ Mac 上的「小号 DIT」：通过 Wi-Fi 连接索尼 α 相机（或者插读�
 Apps/MiniDiT/MiniDiT.xcodeproj  Mac 工程（SwiftUI）
 Apps/MiniDiT/MiniDiT/
   AppIcon.icon                  App 图标（Icon Composer 文档）
-  App/                          入口、AppModel、日志
+  App/                          入口、日志、AppModel（按职责拆成 +Source / +Library / +Import）
   Camera/                       搜索相机、钥匙串账号、连过的相机
-  Import/                       导入记录、Capture One（AppleScript）
+  Import/                       单个文件的导入（FileImporter）、导入记录、Capture One（AppleScript）
   Views/                        连接、浏览、设置、会话、身份验证界面
 Sources/SonyRemoteKit/          协议层（无界面）
   Transport/ SSH/ PTP/ PTPIP/   字节流、SSH 隧道、PTP 和 PTP/IP
