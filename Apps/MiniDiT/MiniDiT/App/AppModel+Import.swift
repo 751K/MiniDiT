@@ -376,6 +376,7 @@ extension AppModel {
             var openedText: String?
             if mode == .newSession {
                 if let sessionText { summary += "，已存入会话“\(sessionText)”" }
+                if !saved.isEmpty { for n in Set(sessionNames) { CaptureOneBridge.refreshCapture(session: n) } }
             } else if mode == .lightroom {
                 if !lightroomJobs.isEmpty {
                     summary += "，已交由 Lightroom Classic 导入" + (lightroomText.map { "（收藏夹“\($0)”）" } ?? "")

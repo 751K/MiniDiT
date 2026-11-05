@@ -77,6 +77,22 @@ enum CaptureOneBridge {
         return returned
     }
 
+    /// 让 C1 重新读一遍会话的 Capture 文件夹：切到别的收藏夹再切回来。
+    /// 照片是直接写进 Capture 文件夹的；C1 正忙（比如它自己弹出的导入窗口开着）时，可能不会察觉新文件。
+    static func refreshCapture(session name: String) {
+        guard isRunning else { return }
+        _ = try? run("""
+        tell application "Capture One"
+            tell document \(quote(name + ".cosessiondb"))
+                set c to (first collection whose name is "Capture")
+                set current collection to (first collection whose name is "Selects")
+                delay 0.3
+                set current collection to c
+            end tell
+        end tell
+        """)
+    }
+
     /// C1 里打开着的文档名（不带扩展名）。C1 没在运行时为空。
     static func openDocumentNames() -> Set<String> {
         guard isRunning, let list = try? run("tell application \"Capture One\" to return name of every document") else { return [] }
