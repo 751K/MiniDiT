@@ -32,14 +32,14 @@ extension AppModel {
     func autoConnectLast() async {
         guard let last = knownCameras.first else { return }
         phase = .searching
-        status = "正在找上次的相机「\(last.name)」…"
+        status = "正在查找上次使用的相机“\(last.name)”…"
         log.add("自动连接：先试 \(last.host)")
         if let cam = await probe(host: last.host), cam.fingerprint == last.fingerprint {
             await connect(FoundCamera(host: cam.host, kind: cam.kind, knownName: last.name))
             return
         }
         if Task.isCancelled { endCancelled(); return }
-        status = "上次的地址连不上，正在搜索…"
+        status = "无法连接上次的地址，正在搜索…"
         let result = await CameraFinder.search(known: knownCameras) { s in Task { @MainActor in self.status = s } }
         found = result
         searched = true
@@ -77,7 +77,7 @@ extension AppModel {
             }
             if Task.isCancelled { endCancelled(); return }
             phase = .idle
-            errorMessage = "\(h) 上没有找到相机（22 和 15740 端口都连不上）。请确认相机开着、打开了「遥控拍摄」，并且和这台 Mac 在同一个网络。"
+            errorMessage = "在 \(h) 上未找到相机（端口 22 和 15740 均无法连接）。请确认相机已开机并开启“遥控拍摄”，且与本机处于同一网络。"
         }
     }
 
@@ -91,7 +91,7 @@ extension AppModel {
         Task {
             defer { switchingTo = nil }
             guard let cam = await probe(host: k.host), cam.fingerprint == k.fingerprint else {
-                errorMessage = "「\(k.name)」不在线（上次的地址是 \(k.host)），没有切换。如果相机换了地址，可以用「文件 › 切换来源…」重新搜索。"
+                errorMessage = "“\(k.name)”离线（上次地址为 \(k.host)），未切换。若相机地址已变更，可通过“文件 › 切换来源…”重新搜索。"
                 return
             }
             let target = FoundCamera(host: cam.host, kind: cam.kind, knownName: k.name)
@@ -111,7 +111,7 @@ extension AppModel {
         connectTask = Task {
             phase = .connecting
             connectingHost = k.host
-            status = "正在找「\(k.name)」…"
+            status = "正在查找“\(k.name)”…"
             if let cam = await probe(host: k.host), cam.fingerprint == k.fingerprint {
                 await connect(FoundCamera(host: cam.host, kind: cam.kind, knownName: k.name))
                 return
@@ -120,7 +120,7 @@ extension AppModel {
             if Task.isCancelled { endCancelled(); return }
             phase = .idle
             status = ""
-            errorMessage = "「\(k.name)」不在线（上次的地址是 \(k.host)）。请确认相机开着并打开了遥控拍摄；如果相机换了地址，点「搜索相机」。"
+            errorMessage = "“\(k.name)”离线（上次地址为 \(k.host)）。请确认相机已开机并开启遥控拍摄；若相机地址已变更，请点按“搜索相机”。"
         }
     }
 
@@ -228,7 +228,7 @@ extension AppModel {
             } catch SSHTunnelError.authenticationFailed(let detail) {
                 guard interactive else { throw CancellationError() }
                 log.add("访问身份验证失败：用户名「\(current.username)」，密码 \(current.password.count) 个字符；\(detail)")
-                creds = await askCredentials(host: cam.host, message: "用户名或密码不对，请对照相机上的「访问身份验证信息」重新输入。",
+                creds = await askCredentials(host: cam.host, message: "用户名或密码不正确，请对照相机上的“访问身份验证信息”重新输入。",
                                              prefillUser: current.username)
             } catch SSHTunnelError.hostKeyRejected {
                 throw CancellationError()
@@ -317,7 +317,7 @@ extension AppModel {
         library = nil
         resetContent()
         phase = .idle
-        errorMessage = wasCard ? "存储卡被移除了。" : "和相机的连接断开了（相机关机、离开 Wi-Fi，或者被别的设备连上了）。"
+        errorMessage = wasCard ? "存储卡已被移除。" : "与相机的连接已断开（相机可能已关机、离开 Wi-Fi 网络，或已被其他设备连接）。"
     }
 
     // MARK: 自动重连
@@ -418,7 +418,7 @@ extension AppModel {
         disconnect()
         do {
             try NSWorkspace.shared.unmountAndEjectDevice(at: root)
-            notice = "已推出 \(root.lastPathComponent)，可以拔卡了"
+            notice = "已推出 \(root.lastPathComponent)，可安全取出存储卡"
         } catch {
             errorMessage = "推出存储卡失败：\(error.localizedDescription)"
         }

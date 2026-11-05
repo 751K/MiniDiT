@@ -22,7 +22,7 @@ struct AppsSettings: View {
             } header: {
                 Text("正在使用")
             } footer: {
-                Text("Capture One 通过 AppleScript 新建会话、导入照片，需要在「自动化」里允许。Lightroom Classic 没有 AppleScript，通过 MiniDiT 插件把照片加进目录。")
+                Text("Capture One 通过 AppleScript 新建会话并导入照片，须在“自动化”中授权。Lightroom Classic 不支持 AppleScript，由 MiniDiT 插件将照片添加到目录。")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section {
@@ -30,9 +30,9 @@ struct AppsSettings: View {
                     PlannedRow(app: app)
                 }
             } header: {
-                Text("以后支持")
+                Text("计划支持")
             } footer: {
-                Text("Bridge / DxO PhotoLab 按文件夹管理照片，可先用「只下载」，配合命名模板整理文件夹。")
+                Text("Bridge 与 DxO PhotoLab 按文件夹管理照片，目前可使用“只下载”，并配合命名模板整理文件夹。")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
@@ -186,24 +186,24 @@ private struct LightroomRow: View {
                 }
                 switch status {
                 case .appMissing:
-                    StatusLine(color: .secondary, text: "没有安装")
+                    StatusLine(color: .secondary, text: "未安装")
                 case .pluginMissing:
-                    StatusLine(color: .orange, text: "还没有安装 MiniDiT 插件")
+                    StatusLine(color: .orange, text: "尚未安装 MiniDiT 插件")
                 case .pluginOutdated(let v):
-                    StatusLine(color: .orange, text: "插件 \(v) 需要更新到 \(LightroomPlugin.version)")
+                    StatusLine(color: .orange, text: "插件 \(v) 须更新至 \(LightroomPlugin.version)")
                 case .starting:
-                    StatusLine(color: .secondary, text: "正在唤醒 Lightroom Classic 里的插件…")
+                    StatusLine(color: .secondary, text: "正在唤醒 Lightroom Classic 中的插件…")
                 case .needsRestart:
-                    StatusLine(color: .orange, text: "插件已安装，但没有在运行：请重新打开 Lightroom Classic，并确认在“增效工具管理器”里已启用")
+                    StatusLine(color: .orange, text: "插件已安装但未运行。请重新打开 Lightroom Classic，并确认已在“增效工具管理器”中启用该插件")
                 case .notRunning:
                     StatusLine(color: .green, text: "插件 \(LightroomPlugin.version) 已安装")
-                    StatusLine(color: .secondary, text: "没有运行，导入时会自动打开")
+                    StatusLine(color: .secondary, text: "未运行，导入时将自动打开")
                 case .ready(let catalog):
                     StatusLine(color: .green, text: "插件 \(LightroomPlugin.version) 正在运行")
                     StatusLine(color: .secondary, text: "当前目录：\(catalog)")
                 }
                 let pending = LightroomBridge.pendingJobs
-                if pending > 0 { StatusLine(color: .secondary, text: "还有 \(pending) 个文件等着加进 Lightroom Classic") }
+                if pending > 0 { StatusLine(color: .secondary, text: "尚有 \(pending) 个文件等待添加到 Lightroom Classic") }
                 if let message { Text(message).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
             }
             Spacer(minLength: 8)
@@ -229,8 +229,8 @@ private struct LightroomRow: View {
     private func install() {
         do {
             let restart = try LightroomBridge.installPlugin()
-            message = restart ? "插件已安装。请退出并重新打开 Lightroom Classic，插件才会生效。"
-                              : "插件已安装，下次打开 Lightroom Classic 时自动加载。"
+            message = restart ? "插件已安装。请退出并重新打开 Lightroom Classic，插件方可生效。"
+                              : "插件已安装，下次打开 Lightroom Classic 时将自动加载。"
         } catch {
             message = "安装失败：\(error.localizedDescription)"
         }
@@ -255,25 +255,25 @@ private struct CaptureOneRow: View {
                     if let v = app.version { Text(v).foregroundStyle(.secondary) }
                 }
                 if !app.isInstalled {
-                    StatusLine(color: .orange, text: "没有安装。导入方式只能选「只下载」。")
+                    StatusLine(color: .orange, text: "未安装。导入方式仅可选择“只下载”。")
                 } else {
                     StatusLine(color: app.isRunning ? .green : .secondary,
-                               text: app.isRunning ? "正在运行" : "没有运行，导入时会自动打开")
+                               text: app.isRunning ? "正在运行" : "未运行，导入时将自动打开")
                     if app.isRunning {
                         switch permission {
                         case .granted: StatusLine(color: .green, text: "已允许 MiniDiT 控制")
-                        case .denied: StatusLine(color: .red, text: "没有允许 MiniDiT 控制，导入后 C1 里不会出现照片")
-                        case .notAsked: StatusLine(color: .orange, text: "还没有授权，第一次导入时系统会询问")
+                        case .denied: StatusLine(color: .red, text: "未允许 MiniDiT 控制，导入的照片将不会出现在 C1 中")
+                        case .notAsked: StatusLine(color: .orange, text: "尚未授权，首次导入时系统将请求授权")
                         case .unknown: StatusLine(color: .secondary, text: "无法检查授权")
                         }
                         if let d = document {
                             StatusLine(color: .secondary, text: "当前打开的\(d.kind)：\(d.name)")
                         }
                     } else {
-                        StatusLine(color: .secondary, text: "打开以后才能检查授权")
+                        StatusLine(color: .secondary, text: "打开后方可检查授权")
                     }
                     if !inUse {
-                        StatusLine(color: .secondary, text: "导入方式现在是「只下载」，不会用到 Capture One")
+                        StatusLine(color: .secondary, text: "当前导入方式为“只下载”，不使用 Capture One")
                     }
                 }
             }
@@ -305,11 +305,11 @@ private struct PlannedRow: View {
                     Text(app.kind.title)
                     if let v = app.version { Text(v).foregroundStyle(.secondary) }
                 }
-                Text(app.isInstalled ? (app.isRunning ? "已安装 · 正在运行" : "已安装") : "没有安装")
+                Text(app.isInstalled ? (app.isRunning ? "已安装 · 正在运行" : "已安装") : "未安装")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
-            Text("还不支持").font(.caption).foregroundStyle(.secondary)
+            Text("暂不支持").font(.caption).foregroundStyle(.secondary)
         }
     }
 }

@@ -45,7 +45,7 @@ struct FileImporter {
         case verifyFailed(String)
         var errorDescription: String? {
             switch self {
-            case .verifyFailed(let name): "\(name) 校验不通过（写到盘上的数据和读到的不一致）"
+            case .verifyFailed(let name): "\(name) 校验未通过（写入磁盘的数据与读取的数据不一致）"
             }
         }
     }

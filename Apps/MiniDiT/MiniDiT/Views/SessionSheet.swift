@@ -103,7 +103,7 @@ struct SessionSheet: View {
                 .pickerStyle(.segmented).labelsHidden()
                 .disabled(!request.resume.isEmpty)
             }
-            Text(groups.count > 1 ? "事件名" : "事件名（可不填）").font(.system(size: 12, weight: .semibold))
+            Text(groups.count > 1 ? "事件名" : "事件名（选填）").font(.system(size: 12, weight: .semibold))
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     ForEach(groups) { g in row(g) }
@@ -128,8 +128,8 @@ struct SessionSheet: View {
                 }
             }
             Text(isLightroom
-                 ? "收藏夹按命名模板“\(NameTemplate.current(.session))”命名，放在收藏夹集“MiniDiT”里；照片存到 \(model.destination.path(percentEncoded: false))，按“\(NameTemplate.current(.folder))”分文件夹。"
-                 : "会话按命名模板“\(NameTemplate.current(.session))”命名，放在 \(model.sessionsFolder.path(percentEncoded: false))。模板可在“设置 › 导入 › 命名”中修改。")
+                 ? "收藏夹按命名模板“\(NameTemplate.current(.session))”命名，置于收藏夹集“MiniDiT”中；照片存储至 \(model.destination.path(percentEncoded: false))，按“\(NameTemplate.current(.folder))”分目录存放。"
+                 : "会话按命名模板“\(NameTemplate.current(.session))”命名，存放于 \(model.sessionsFolder.path(percentEncoded: false))。模板可在“设置 › 导入 › 命名”中修改。")
                 .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(2).truncationMode(.middle)
         }
     }
@@ -141,10 +141,10 @@ struct SessionSheet: View {
                 Text(g.title).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
                     .frame(width: 170, alignment: .leading)
                 if let r = request.resume[g.id] {
-                    Text("继续导入到「\(r.name)」").font(.system(size: 13)).lineLimit(1)
+                    Text("继续导入至“\(r.name)”").font(.system(size: 13)).lineLimit(1)
                     Spacer(minLength: 0)
                 } else {
-                    TextField("事件名", text: binding(g.id), prompt: Text("例如 公园"))
+                    TextField("事件名", text: binding(g.id), prompt: Text("例如：公园"))
                         .textFieldStyle(.roundedBorder).controlSize(.large).labelsHidden()
                         .focused($focusedRow, equals: g.id)
                         .onSubmit { if canStart { start() } }
@@ -186,24 +186,24 @@ struct SessionSheet: View {
         let name = sessionName(g)
         if isLightroom {
             // 同名收藏夹已经有了就加进去，不算问题；只提醒这一批里重名（会合进同一个收藏夹）。
-            return groups.filter({ sessionName($0) == name }).count > 1 ? "和其他收藏夹重名（\(name)），会合并成一个，请填写不同的事件名" : nil
+            return groups.filter({ sessionName($0) == name }).count > 1 ? "与其他收藏夹重名（\(name)），将合并为同一收藏夹，请填写不同的事件名" : nil
         }
         if FileManager.default.fileExists(atPath: model.sessionsFolder.appending(path: name).path) {
-            return "已有同名会话「\(name)」，请填写或修改事件名"
+            return "已存在同名会话“\(name)”，请填写或修改事件名"
         }
         if openInC1.contains(name) {
-            return "Capture One 里已打开同名会话「\(name)」，请换个事件名"
+            return "Capture One 中已打开同名会话“\(name)”，请更换事件名"
         }
         if groups.filter({ sessionName($0) == name }).count > 1 {
-            return "和其他会话重名（\(name)），请填写不同的事件名"
+            return "与其他会话重名（\(name)），请填写不同的事件名"
         }
         return nil
     }
 
     private var footerText: String {
-        guard isLightroom else { return "下载到会话的 Capture 文件夹" }
-        guard let lrc, lrc.isFresh else { return "Lightroom Classic 会自动打开，照片加进它当前的目录" }
-        return "加入 Lightroom Classic 目录“\(lrc.catalogName)”"
+        guard isLightroom else { return "下载至会话的 Capture 文件夹" }
+        guard let lrc, lrc.isFresh else { return "Lightroom Classic 将自动打开，照片将添加到其当前目录" }
+        return "添加到 Lightroom Classic 目录“\(lrc.catalogName)”"
     }
 
     private var canStart: Bool {

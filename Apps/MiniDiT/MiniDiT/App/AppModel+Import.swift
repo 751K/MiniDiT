@@ -183,7 +183,7 @@ extension AppModel {
                             .appending(path: "Capture", directoryHint: .isDirectory)
                         captureDir = dir
                         log.add("新建会话失败：\(error.localizedDescription)，改存到 \(dir.path)")
-                        errorMessage = "Capture One 新建会话失败：\(error.localizedDescription)\n照片会先存到 \(dir.path)。"
+                        errorMessage = "Capture One 新建会话失败：\(error.localizedDescription)\n照片将先存储至 \(dir.path)。"
                     }
                     status = ""
                     refreshCaptureOne()
@@ -337,24 +337,24 @@ extension AppModel {
             }
             let wasLost = lostDuringImport || (progress.map { !$0.failed.isEmpty } ?? false) && offline
             var summary = "导入 \(done.count) 个文件"
-            if let p = progress, p.reused > 0 { summary += "，其中 \(p.reused) 个用了本地已有的" }
-            if let p = progress, p.skipped > 0 { summary += "，\(p.skipped) 个目标文件夹里已有" }
+            if let p = progress, p.reused > 0 { summary += "，其中 \(p.reused) 个使用本地已有文件" }
+            if let p = progress, p.skipped > 0 { summary += "，\(p.skipped) 个已存在于目标文件夹" }
             if let p = progress, !p.failed.isEmpty { summary += "，\(p.failed.count) 个失败" }
-            if let deleted { summary += "，从存储卡删除了 \(deleted) 个" }
+            if let deleted { summary += "，已从存储卡删除 \(deleted) 个" }
             if let p = progress, backupRoot != nil {
                 summary += "，备份 \(p.backedUp) 个" + (p.backupFailed.isEmpty ? "" : "（\(p.backupFailed.count) 个备份失败）")
             } else {
-                summary += "，没有备份"
+                summary += "，未备份"
             }
             if Task.isCancelled { summary += "（已取消）" }
             lastBatch = saved
-            let sessionText = sessionNames.isEmpty ? nil : sessionNames.joined(separator: "」「")
-            let lightroomText = lightroomCollections.isEmpty ? nil : lightroomCollections.joined(separator: "」「")
+            let sessionText = sessionNames.isEmpty ? nil : sessionNames.joined(separator: "”“")
+            let lightroomText = lightroomCollections.isEmpty ? nil : lightroomCollections.joined(separator: "”“")
             if mode == .newSession {
-                if let sessionText { summary += "，已存入会话「\(sessionText)」" }
+                if let sessionText { summary += "，已存入会话“\(sessionText)”" }
             } else if mode == .lightroom {
                 if !lightroomJobs.isEmpty {
-                    summary += "，已交给 Lightroom Classic" + (lightroomText.map { "（收藏夹「\($0)」）" } ?? "")
+                    summary += "，已交由 Lightroom Classic 导入" + (lightroomText.map { "（收藏夹“\($0)”）" } ?? "")
                     watchLightroom(lightroomJobs)
                 }
             } else if mode != .off && !saved.isEmpty {
@@ -434,14 +434,14 @@ extension AppModel {
                 if remaining.isEmpty { break }
                 let fresh = LightroomBridge.heartbeat()?.isFresh ?? false
                 if !fresh, Date().timeIntervalSince(lastProgress) > 45 {
-                    lightroomStatus = "Lightroom Classic 没有响应（已添加 \(done)/\(total)）：请打开 Lightroom Classic，确认 MiniDiT 插件已启用，照片会接着加进去"
+                    lightroomStatus = "Lightroom Classic 无响应（已添加 \(done)/\(total)）。请打开 Lightroom Classic 并确认 MiniDiT 插件已启用，其余照片将继续添加"
                 } else {
                     lightroomStatus = "Lightroom Classic 已添加 \(done)/\(total)"
                 }
             }
             guard !Task.isCancelled else { return }
             var s = "Lightroom Classic 已添加 \(sum.added + sum.skipped) 个文件"
-            if sum.skipped > 0 { s += "（\(sum.skipped) 个目录里本来就有）" }
+            if sum.skipped > 0 { s += "（其中 \(sum.skipped) 个已在目录中）" }
             if sum.failed > 0 {
                 s += "，\(sum.failed) 个失败"
                 log.add("Lightroom Classic 添加失败：" + sum.failures.joined(separator: "；"))
@@ -474,12 +474,12 @@ extension AppModel {
         refreshCaptureOne()
         do {
             try CaptureOneBridge.importFiles(urls, inPlace: inPlace)
-            let target = captureOneDocument.map { "\($0.kind)「\($0.name)」" } ?? "Capture One"
+            let target = captureOneDocument.map { "\($0.kind)“\($0.name)”" } ?? "Capture One"
             log.add("已交给 \(target) 导入 \(urls.count) 个文件")
-            return "，已交给 \(target) 导入"
+            return "，已交由 \(target) 导入"
         } catch {
             log.add("Capture One 导入失败：\(error.localizedDescription)")
-            errorMessage = "文件已下载到文件夹，但交给 Capture One 失败：\(error.localizedDescription)"
+            errorMessage = "文件已下载至文件夹，但交由 Capture One 导入失败：\(error.localizedDescription)"
             return "，Capture One 导入失败"
         }
     }

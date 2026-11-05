@@ -40,7 +40,7 @@ enum CameraFinder {
             let gw = CameraDiscovery.defaultGateway(interface: i).map { "，网关 \($0)" } ?? ""
             return "\(i)：\(s)\(gw)"
         }
-        return parts.isEmpty ? "没有连接网络" : parts.joined(separator: "；")
+        return parts.isEmpty ? "未连接网络" : parts.joined(separator: "；")
     }
 
     /// 有没有被 macOS 的「本地网络」隐私设置拦住：没有权限时，连局域网地址会立刻返回「没有到主机的路由」。
@@ -90,7 +90,7 @@ enum CameraFinder {
         var found: [FoundCamera] = direct.map {
             FoundCamera(host: $0, kind: .direct, knownName: knownByFingerprint["direct:\($0)"])
         }
-        if !ssh.isEmpty { progress("正在确认 \(ssh.count) 台 SSH 设备是不是相机…") }
+        if !ssh.isEmpty { progress("正在确认 \(ssh.count) 台 SSH 设备是否为相机…") }
         let checked = await withTaskGroup(of: FoundCamera?.self) { group in
             for host in ssh where !direct.contains(host) {
                 group.addTask {

@@ -12,7 +12,7 @@ struct ConnectView: View {
             VStack(spacing: 24) {
                 VStack(spacing: 4) {
                     Text("选择来源").font(.system(size: 26, weight: .semibold))
-                    Text("选一台相机或一张存储卡，接着按日期挑选照片。").foregroundStyle(.secondary)
+                    Text("请选择相机或存储卡，然后按日期挑选照片。").foregroundStyle(.secondary)
                 }
                 HStack(spacing: 16) {
                     ForEach(tiles) { SourceTile(tile: $0) }
@@ -23,7 +23,7 @@ struct ConnectView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             HStack(spacing: 8) {
-                Text("找不到相机？手动输入 IP").foregroundStyle(.secondary)
+                Text("未找到相机？可手动输入 IP 地址").foregroundStyle(.secondary)
                 TextField("192.168.1.23", text: $manualHost)
                     .textFieldStyle(.roundedBorder).frame(width: 132)
                     .onSubmit { model.connect(host: manualHost) }
@@ -53,18 +53,18 @@ struct ConnectView: View {
         var shown = Set<String>()
         for cam in model.found {
             shown.insert(cam.fingerprint)
-            let detail = cam.host + (cam.kind == .direct ? "" : " · 访问认证")
+            let detail = cam.host + (cam.kind == .direct ? "" : " · 访问身份验证")
             out.append(.init(id: "f:" + cam.fingerprint, kind: .camera, name: cam.knownName ?? "相机", detail: detail,
                              state: .online, action: { model.connect(cam) }))
         }
         for k in model.knownCameras where !shown.contains(k.fingerprint) {
-            let detail: String = model.phase == .searching ? "正在查找…" : model.searched ? "不在线" : "上次 \(k.host)"
+            let detail: String = model.phase == .searching ? "正在查找…" : model.searched ? "离线" : "上次连接：\(k.host)"
             out.append(.init(id: "k:" + k.fingerprint, kind: .camera, name: k.name, detail: detail,
                              state: model.phase == .searching ? .busy : .quiet,
                              action: model.phase == .idle ? { model.connect(known: k) } : nil))
         }
         if out.isEmpty {
-            out.append(.init(id: "placeholder", kind: .camera, name: "相机", detail: model.phase == .searching ? "正在查找…" : "还没有连过",
+            out.append(.init(id: "placeholder", kind: .camera, name: "相机", detail: model.phase == .searching ? "正在查找…" : "尚未连接过",
                              state: model.phase == .searching ? .busy : .quiet, action: nil))
         }
         return Array(out.prefix(5))
@@ -76,7 +76,7 @@ struct ConnectView: View {
         VStack(spacing: 10) {
             switch model.phase {
             case .searching:
-                StatusText(title: model.status.isEmpty ? "正在搜索局域网" : model.status, body: "通常需要几秒钟")
+                StatusText(title: model.status.isEmpty ? "正在搜索局域网" : model.status, body: "通常需要数秒")
                 Button("取消") { model.cancelConnect() }.buttonStyle(.bordered).buttonBorderShape(.capsule)
             case .connecting, .loading:
                 StatusText(title: model.status.isEmpty ? "正在连接…" : model.status)
@@ -88,15 +88,15 @@ struct ConnectView: View {
                     StatusText(title: notice, icon: .ok)
                     primary("搜索相机") { model.search() }
                 } else if model.networkBlocked {
-                    StatusText(title: "需要本地网络权限才能搜索相机", body: "在「隐私与安全性 › 本地网络」中打开 MiniDiT。", icon: .warn)
+                    StatusText(title: "需要本地网络权限才能搜索相机", body: "请在“隐私与安全性 › 本地网络”中启用 MiniDiT。", icon: .warn)
                     primary("打开系统设置") {
                         NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork")!)
                     }
                 } else if !model.found.isEmpty {
-                    StatusText(title: "点一台相机开始连接")
+                    StatusText(title: "请选择要连接的相机")
                     Button("重新搜索") { model.search() }.buttonStyle(.bordered).buttonBorderShape(.capsule)
                 } else if model.searched {
-                    StatusText(title: "没有找到相机", body: "请确认相机和 Mac 连同一个 Wi-Fi，并在相机上打开了遥控拍摄。", icon: .warn)
+                    StatusText(title: "未找到相机", body: "请确认相机与 Mac 已连接至同一 Wi-Fi 网络，并已在相机上开启遥控拍摄。", icon: .warn)
                     primary("重新搜索") { model.search() }
                 } else {
                     primary("搜索相机") { model.search() }

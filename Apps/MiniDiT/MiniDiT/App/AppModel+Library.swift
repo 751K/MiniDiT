@@ -72,7 +72,7 @@ extension AppModel {
     }
 
     static func dayTitle(_ key: String) -> String {
-        guard key != "unknown" else { return "没有日期" }
+        guard key != "unknown" else { return "无日期" }
         let f = DateFormatter(); f.dateFormat = "yyyyMMdd"; f.locale = Locale(identifier: "en_US_POSIX")
         f.timeZone = TimeZone(identifier: "UTC")
         guard let d = f.date(from: key) else { return key }

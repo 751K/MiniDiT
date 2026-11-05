@@ -20,7 +20,7 @@ struct MiniDiTApp: App {
                     .disabled(model.progress != nil || model.connectedName == nil)
             }
             CommandMenu("选择") {
-                Button("选所有没导入过的") { model.selectNew(in: Set(model.days.map(\.id))) }
+                Button("选择所有未导入的照片") { model.selectNew(in: Set(model.days.map(\.id))) }
                     .keyboardShortcut("n", modifiers: [.command, .shift])
                 Button("反选") { model.grid.invert() }
                     .keyboardShortcut("i", modifiers: [.command, .shift])
@@ -48,7 +48,7 @@ struct RootView: View {
 
     private var lightroomTitle: String {
         switch model.lightroomPrompt {
-        case .appMissing: "没有安装 Lightroom Classic"
+        case .appMissing: "未安装 Lightroom Classic"
         case .pluginOutdated: "MiniDiT 插件需要更新"
         default: "需要安装 Lightroom Classic 插件"
         }
@@ -109,7 +109,7 @@ struct RootView: View {
                         let restart = try LightroomBridge.installPlugin()
                         model.lightroomPrompt = nil
                         if restart {
-                            model.errorMessage = "插件已安装。请退出并重新打开 Lightroom Classic，然后再导入。"
+                            model.errorMessage = "插件已安装。请退出并重新打开 Lightroom Classic，然后再进行导入。"
                         } else {
                             model.beginImport(checkBackup: false, checkSpace: false)
                         }
@@ -123,12 +123,12 @@ struct RootView: View {
             }
         } message: {
             switch model.lightroomPrompt {
-            case .appMissing: Text("没有找到 Lightroom Classic。请先安装，或在“设置 › 导入”中换一种导入方式。")
-            case .pluginOutdated(let v): Text("已安装的 MiniDiT 插件是 \(v)，需要更新到 \(LightroomPlugin.version)。更新后要重新打开 Lightroom Classic。")
-            default: Text("导入到 Lightroom Classic 需要先安装 MiniDiT 插件（放进 Lightroom 的 Modules 文件夹，自动加载）。如果 Lightroom Classic 正开着，装好后要重新打开它。")
+            case .appMissing: Text("未找到 Lightroom Classic。请先安装，或在“设置 › 导入”中更换导入方式。")
+            case .pluginOutdated(let v): Text("已安装的 MiniDiT 插件版本为 \(v)，须更新至 \(LightroomPlugin.version)。更新后须重新打开 Lightroom Classic。")
+            default: Text("导入到 Lightroom Classic 前，须先安装 MiniDiT 插件（安装至 Lightroom 的 Modules 文件夹，将自动加载）。若 Lightroom Classic 正在运行，安装后须重新打开。")
             }
         }
-        .alert("出错了", isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })) {
+        .alert("发生错误", isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })) {
             Button("好") { model.errorMessage = nil }
         } message: {
             Text(model.errorMessage ?? "")

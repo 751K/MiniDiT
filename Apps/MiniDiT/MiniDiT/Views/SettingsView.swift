@@ -37,13 +37,13 @@ private struct ImportSettings: View {
                     Text("Capture One 当前打开的文档：\(d.name)").font(.caption).foregroundStyle(.secondary)
                 }
             }
-            Section("存放位置") {
+            Section("存储位置") {
                 LabeledContent {
                     Button("更改…") {
                         if model.captureOneMode == .newSession { choose(\.sessionsFolder) } else { choose(\.destination) }
                     }
                 } label: {
-                    Text(model.captureOneMode == .newSession ? "新会话的位置" : "下载位置")
+                    Text(model.captureOneMode == .newSession ? "新会话位置" : "下载位置")
                     Text(locationText).lineLimit(1).truncationMode(.middle)
                 }
             }
@@ -81,14 +81,14 @@ private struct ImportSettings: View {
             } header: {
                 Text("场次")
             } footer: {
-                Text("默认不分。选择间隔后，同一天内相邻两张照片的拍摄时间相隔超过该间隔即分为两场，可按场次查看、选择和导入。也可在侧栏的日期上右键设置。")
+                Text("默认不分场次。选择间隔后，同一天内相邻两张照片的拍摄时间间隔超过所选值，即划分为两场，可按场次查看、选择和导入。也可在侧栏的日期上右键设置。")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            Section("同时有 RAW 和 JPG/HIF 时") {
+            Section("同时存在 RAW 与 JPG/HIF 时") {
                 Picker("配对规则", selection: $model.pairPolicy) {
-                    Text("都导入").tag(PairPolicy.both)
-                    Text("只导 RAW").tag(PairPolicy.rawOnly)
-                    Text("只导 JPG/HIF").tag(PairPolicy.jpegOnly)
+                    Text("全部导入").tag(PairPolicy.both)
+                    Text("仅导入 RAW").tag(PairPolicy.rawOnly)
+                    Text("仅导入 JPG/HIF").tag(PairPolicy.jpegOnly)
                 }
                 .pickerStyle(.segmented).labelsHidden()
             }
@@ -106,9 +106,9 @@ private struct ImportSettings: View {
     private var locationText: String {
         if model.captureOneMode == .newSession {
             let explicit = UserDefaults.standard.url(forKey: "sessionsFolder") != nil
-            return (explicit ? "" : "跟随 Capture One 当前的会话 · ") + model.sessionsFolder.path(percentEncoded: false)
+            return (explicit ? "" : "与 Capture One 当前会话相同 · ") + model.sessionsFolder.path(percentEncoded: false)
         }
-        return model.destination.path(percentEncoded: false) + "，按“\(NameTemplate.current(.folder))”分文件夹"
+        return model.destination.path(percentEncoded: false) + "，按“\(NameTemplate.current(.folder))”分目录存放"
     }
 
     static func title(_ m: CaptureOneMode) -> String {
@@ -123,11 +123,11 @@ private struct ImportSettings: View {
 
     static func detail(_ m: CaptureOneMode) -> String {
         switch m {
-        case .newSession: "每次导入新建一个会话，照片存进它的 Capture 文件夹。"
-        case .c1Settings: "交给当前打开的文档，按它的导入设置处理。"
-        case .inPlace: "下载到下面的位置，再直接加入当前文档。"
-        case .lightroom: "下载到下面的位置，再由 MiniDiT 插件加入 Lightroom Classic 当前的目录，每次导入建一个收藏夹（需在“软件”里安装插件）。"
-        case .off: "只存到电脑，不打开 Capture One。"
+        case .newSession: "每次导入时新建会话，照片存入该会话的 Capture 文件夹。"
+        case .c1Settings: "交由当前打开的文档，按其导入设置处理。"
+        case .inPlace: "下载至下方的存储位置，再直接添加到当前文档。"
+        case .lightroom: "下载至下方的存储位置，再由 MiniDiT 插件添加到 Lightroom Classic 当前目录，每次导入时新建收藏夹（须在“软件”中安装插件）。"
+        case .off: "仅存储至电脑，不使用 Capture One。"
         }
     }
 
@@ -143,11 +143,11 @@ private struct ConnectSettings: View {
         @Bindable var model = model
         Form {
             Section {
-                Toggle("启动时自动连接上次的相机", isOn: $model.autoConnect)
+                Toggle("启动时自动连接上次使用的相机", isOn: $model.autoConnect)
             }
             Section {
                 if model.knownCameras.isEmpty {
-                    Text("还没有连过相机").foregroundStyle(.secondary)
+                    Text("尚未连接过相机").foregroundStyle(.secondary)
                 }
                 ForEach(model.knownCameras) { cam in
                     HStack {
@@ -157,13 +157,13 @@ private struct ConnectSettings: View {
                             Text("上次连接：\(Self.when(cam.lastSeen)) · \(cam.host)").font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
-                        Button("忘记") { model.forget(cam) }
+                        Button("移除") { model.forget(cam) }
                     }
                 }
             } header: {
-                Text("连过的相机")
+                Text("已连接过的相机")
             } footer: {
-                Text("忘记后，下次连接要重新核对指纹并填写账号。").font(.caption).foregroundStyle(.secondary)
+                Text("移除后，再次连接时须重新核对指纹并输入账户信息。").font(.caption).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
@@ -189,8 +189,8 @@ private struct RecordSettings: View {
                 LabeledContent {
                     Button("清除记录…") { confirmClear = true }.disabled(count == 0)
                 } label: {
-                    Text(count > 0 ? "已记录 \(count.formatted()) 条" : "没有导入记录")
-                    Text("清除后，所有照片都会重新显示为未导入。")
+                    Text(count > 0 ? "已记录 \(count.formatted()) 条" : "无导入记录")
+                    Text("清除后，所有照片将重新显示为未导入。")
                 }
             }
             Section("诊断") {
@@ -202,7 +202,7 @@ private struct RecordSettings: View {
                     }
                 } label: {
                     Text("诊断日志")
-                    Text("反馈问题时可以附上这份日志。")
+                    Text("反馈问题时可附上此日志。")
                 }
             }
         }
@@ -214,7 +214,7 @@ private struct RecordSettings: View {
                 count = 0
             }
         } message: {
-            Text("清除后，所有照片都会重新显示为未导入。已经导入的文件不会被删除。")
+            Text("清除后，所有照片将重新显示为未导入。已导入的文件不会被删除。")
         }
     }
 }

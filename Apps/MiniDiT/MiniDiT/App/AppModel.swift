@@ -36,11 +36,11 @@ enum CaptureOneMode: String, CaseIterable, Identifiable {
     var namesGroups: Bool { self == .newSession || self == .lightroom }
     var title: String {
         switch self {
-        case .newSession: "新建 C1 会话（日期 + 内容），直接存进 Capture"
+        case .newSession: "新建 C1 会话（日期 + 事件），直接存入 Capture 文件夹"
         case .lightroom: "导入到 Lightroom Classic（按收藏夹整理）"
-        case .off: "不导入，只下载到文件夹"
+        case .off: "不导入，仅下载至文件夹"
         case .c1Settings: "按 Capture One 的导入设置导入"
-        case .inPlace: "就地添加（不再复制，仅目录）"
+        case .inPlace: "就地添加（不复制文件，仅添加到目录）"
         }
     }
 }

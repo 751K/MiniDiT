@@ -20,7 +20,7 @@ enum CaptureOneBridge {
 
         var errorDescription: String? {
             switch self {
-            case .notInstalled: "没有找到 Capture One。"
+            case .notInstalled: "未找到 Capture One。"
             case .script(let s): s
             }
         }
@@ -52,7 +52,7 @@ enum CaptureOneBridge {
         try await ensureRunning()
         // C1 里已经开着同名的文档时，脚本里按名字找到的会是那个旧文档，照片会存进别的会话。
         if openDocumentNames().contains(name) {
-            throw Failure.script("Capture One 里已经打开了同名的会话「\(name)」")
+            throw Failure.script("Capture One 中已打开同名会话“\(name)”")
         }
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let src = """
@@ -64,13 +64,13 @@ enum CaptureOneBridge {
             return POSIX path of (captures of d as alias)
         end tell
         """
-        guard let path = try run(src).stringValue else { throw Failure.script("Capture One 没有返回会话的 Capture 文件夹") }
+        guard let path = try run(src).stringValue else { throw Failure.script("Capture One 未返回会话的 Capture 文件夹") }
         let returned = URL(filePath: path, directoryHint: .isDirectory)
         // 只认新会话自己的 Capture 文件夹：C1 返回了别处时，用按会话结构算出来的位置。
         let expected = folder.appending(path: name, directoryHint: .isDirectory).appending(path: "Capture", directoryHint: .isDirectory)
         if returned.standardizedFileURL.path != expected.standardizedFileURL.path {
             guard FileManager.default.fileExists(atPath: expected.path) else {
-                throw Failure.script("Capture One 返回的 Capture 文件夹不是新会话的（\(returned.path)）")
+                throw Failure.script("Capture One 返回的 Capture 文件夹不属于新会话（\(returned.path)）")
             }
             return expected
         }
@@ -109,7 +109,7 @@ enum CaptureOneBridge {
             return POSIX path of (captures of d as alias)
         end tell
         """
-        guard let path = try run(src).stringValue else { throw Failure.script("打不开会话") }
+        guard let path = try run(src).stringValue else { throw Failure.script("无法打开会话") }
         return URL(filePath: path, directoryHint: .isDirectory)
     }
 
@@ -140,10 +140,10 @@ enum CaptureOneBridge {
             let code = error[NSAppleScript.errorNumber] as? Int ?? 0
             let msg = error[NSAppleScript.errorMessage] as? String ?? "未知错误"
             if code == -1743 {
-                throw Failure.script("没有权限控制 Capture One。请在「系统设置 → 隐私与安全性 → 自动化」里允许本工具控制 Capture One。")
+                throw Failure.script("无权控制 Capture One。请在“系统设置 › 隐私与安全性 › 自动化”中允许 MiniDiT 控制 Capture One。")
             }
             if code == -1728 || code == -1719 {
-                throw Failure.script("Capture One 里没有打开的目录或会话。请先在 Capture One 里打开要导入的目录。")
+                throw Failure.script("Capture One 中未打开任何目录或会话。请先在 Capture One 中打开要导入的目录。")
             }
             throw Failure.script("Capture One 返回错误（\(code)）：\(msg)")
         }

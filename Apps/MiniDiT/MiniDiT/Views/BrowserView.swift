@@ -70,14 +70,14 @@ struct Sidebar: View {
                 }
                 // 其他来源：插着的卡、连过的相机，点一下切换过去。
                 ForEach(model.cards.filter { $0.lastPathComponent != model.connectedName || model.sourceKind != .card }, id: \.self) { url in
-                    SourceRow(icon: "sdcard", name: url.lastPathComponent, detail: "读卡器 · 点一下切换", current: false, eject: nil) {
+                    SourceRow(icon: "sdcard", name: url.lastPathComponent, detail: "读卡器 · 点按以切换", current: false, eject: nil) {
                         model.switchTo(card: url)
                     }
                     .disabled(model.progress != nil)
                 }
                 ForEach(model.knownCameras.filter { $0.fingerprint != model.currentFingerprint }) { k in
                     SourceRow(icon: "camera", name: k.name,
-                              detail: model.switchingTo == k.fingerprint ? "正在检查…" : "上次 \(k.host) · 点一下切换",
+                              detail: model.switchingTo == k.fingerprint ? "正在检查…" : "上次连接：\(k.host) · 点按以切换",
                               current: false, eject: nil) {
                         model.switchTo(known: k)
                     }
@@ -90,7 +90,7 @@ struct Sidebar: View {
                     Spacer()
                     Button { model.disconnect() } label: { Image(systemName: "plus") }
                         .buttonStyle(.plain)
-                        .help("切换来源…（搜索相机、选存储卡）")
+                        .help("切换来源：搜索相机或选择存储卡")
                         .accessibilityLabel("切换来源")
                         .disabled(model.progress != nil)
                 }
@@ -204,7 +204,7 @@ private struct DayRow: View {
             .buttonStyle(.plain)
             .accessibilityLabel("导入 \(day.title)")
             .accessibilityValue(state == .on ? "已勾选" : state == .mixed ? "部分勾选" : "未勾选")
-            .help(day.newCount > 0 ? "勾选这一天没导入过的 \(day.newCount) 张" : "勾选这一天全部")
+            .help(day.newCount > 0 ? "勾选当日未导入的 \(day.newCount) 张照片" : "勾选当日全部照片")
             Text(day.title).lineLimit(1)
             Spacer(minLength: 4)
             if day.newCount > 0 {
@@ -214,15 +214,15 @@ private struct DayRow: View {
                 Image(systemName: copies >= 2 ? "checkmark.shield.fill" : copies == 1 ? "exclamationmark.shield.fill" : "checkmark")
                     .font(.system(size: copies >= 1 ? 12 : 10, weight: .semibold))
                     .foregroundStyle(model.shownDays.contains(day.id) ? .white : copies >= 2 ? .green : copies == 1 ? .orange : .secondary)
-                    .help(copies >= 2 ? "这一天的照片都有两份" : copies == 1 ? "都导入过了，但有的只有一份" : "都导入过了")
+                    .help(copies >= 2 ? "当日照片均已存有两份" : copies == 1 ? "均已导入，部分照片仅存有一份" : "均已导入")
             }
             Text("\(day.shots.count)").font(.system(size: 12).monospacedDigit()).foregroundStyle(.secondary)
                 .frame(minWidth: 18, alignment: .trailing)
         }
         .contextMenu {
-            Button("选这一天没导入过的") { model.selectNew(in: [day.id]) }
-            Button("选这一天全部") { model.selectAll(in: [day.id]) }
-            Button("取消这一天的选择") { model.deselect(in: [day.id]) }
+            Button("选择当日未导入的照片") { model.selectNew(in: [day.id]) }
+            Button("选择当日全部照片") { model.selectAll(in: [day.id]) }
+            Button("取消选择当日照片") { model.deselect(in: [day.id]) }
             Divider()
             SceneGapMenu()
         }
@@ -249,7 +249,7 @@ private struct SceneRow: View {
             .buttonStyle(.plain)
             .accessibilityLabel("导入 \(day.title) \(AppModel.sceneTitle(scene))")
             .accessibilityValue(state == .on ? "已勾选" : state == .mixed ? "部分勾选" : "未勾选")
-            .help(scene.newCount > 0 ? "勾选这一场没导入过的 \(scene.newCount) 张" : "勾选这一场全部")
+            .help(scene.newCount > 0 ? "勾选该场次未导入的 \(scene.newCount) 张照片" : "勾选该场次全部照片")
             Text(scene.timeRange.isEmpty ? "第 \(scene.number) 场" : scene.timeRange).font(.system(size: 12)).lineLimit(1)
             Spacer(minLength: 4)
             if scene.newCount > 0 {
@@ -324,17 +324,17 @@ private struct CardSafetyLine: View {
         let c = model.cardSafety
         Group {
             if c.canFormat {
-                Label("全部文件已有两份，可以格式化存储卡", systemImage: "checkmark.shield.fill")
+                Label("全部文件均已存有两份，可格式化存储卡", systemImage: "checkmark.shield.fill")
                     .foregroundStyle(.green)
             } else {
-                let newText = model.newShotCount > 0 ? "\(model.newShotCount) 张新照片" : "没有新照片"
+                let newText = model.newShotCount > 0 ? "\(model.newShotCount) 张新照片" : "无新照片"
                 let unsafe = c.one + c.none
-                Text(c.two + c.one == 0 ? newText : newText + " · \(unsafe) 个文件尚未存够两份，暂不要格式化")
+                Text(c.two + c.one == 0 ? newText : newText + " · \(unsafe) 个文件尚未存有两份，请勿格式化")
                     .foregroundStyle(.secondary)
             }
         }
         .font(.system(size: 11)).lineLimit(1)
-        .help("卡上 \(c.total) 个文件：两份 \(c.two) · 一份 \(c.one) · 未导入 \(c.none)（包括没有显示的类型，比如视频）")
+        .help("存储卡上共 \(c.total) 个文件：两份 \(c.two) · 一份 \(c.one) · 未导入 \(c.none)（含未显示的类型，如视频）")
     }
 }
 
@@ -357,7 +357,7 @@ private struct SelectAllButton: View {
         }
         .buttonStyle(.plain)
         .disabled(order.isEmpty)
-        .help(all ? "取消选择（⌘D）" : "选中右边显示的全部照片（⌘A）")
+        .help(all ? "取消选择（⌘D）" : "选择右侧显示的全部照片（⌘A）")
     }
 }
 
@@ -373,8 +373,8 @@ private struct ImportOptions: View {
             TypeToggle(label: "删除原片", on: $model.deleteAfterImport)
                 .disabled(!model.canDeleteFromSource)
                 .opacity(model.canDeleteFromSource ? 1 : 0.4)
-                .help(model.canDeleteFromSource ? "导入并校验通过后，删除存储卡上的照片（视频不删）"
-                                                : "仅适用于读卡器；经 Wi-Fi 连接相机时不能删除")
+                .help(model.canDeleteFromSource ? "导入并校验通过后，删除存储卡上的照片（视频文件不予删除）"
+                                                : "仅适用于读卡器；经 Wi-Fi 连接相机时不可用")
         }
         .fixedSize()
     }
@@ -438,7 +438,7 @@ struct OfflineBanner: View {
         HStack(spacing: 8) {
             ProgressView().controlSize(.small)
             Text("相机已断开，正在重新连接").fontWeight(.semibold)
-            Text("你的选择已保留").foregroundStyle(.secondary)
+            Text("已保留当前选择").foregroundStyle(.secondary)
             Spacer(minLength: 8)
             Button("重新连接") { model.reconnectNow() }.buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.small)
         }
@@ -612,13 +612,13 @@ private struct EmptyState: View {
     }
 
     private var title: String {
-        if !model.days.isEmpty { return "在左边选择日期" }
-        return model.onlyNew ? "这些照片都导入过了" : "没有符合筛选条件的文件"
+        if !model.days.isEmpty { return "请在左侧选择日期" }
+        return model.onlyNew ? "这些照片均已导入" : "无符合筛选条件的文件"
     }
 
     private var detail: String {
-        if !model.days.isEmpty { return "点日期查看照片，按住 ⌘ 或 ⇧ 可以选择多天。" }
-        return model.onlyNew ? "切换到「全部」可以看到它们。" : "在上面打开更多文件类型，或换一张卡。"
+        if !model.days.isEmpty { return "点按日期以查看照片；按住 ⌘ 或 ⇧ 可选择多天。" }
+        return model.onlyNew ? "切换至“全部”即可查看。" : "请在上方显示更多文件类型，或更换存储卡。"
     }
 }
 
@@ -633,11 +633,11 @@ struct DayHeader: View {
             if day.partial, day.scenes.count == 1 {
                 Text(AppModel.sceneTitle(day.scenes[0])).font(.system(size: 15, weight: .semibold)).foregroundStyle(.primary)
             }
-            Text("\(day.shots.count) 张" + (day.importedCount > 0 ? " · \(day.importedCount) 张导入过" : ""))
+            Text("\(day.shots.count) 张" + (day.importedCount > 0 ? " · \(day.importedCount) 张已导入" : ""))
                 .font(.system(size: 12))
             Spacer(minLength: 8)
             if day.newCount > 0 {
-                Button("选未导入的") { model.selectNew(in: [day.id]) }
+                Button("选择未导入的") { model.selectNew(in: [day.id]) }
             }
             Button(picked ? "取消选择" : "全选") {
                 if picked { model.deselect(in: [day.id]) } else { model.selectAll(in: [day.id]) }
@@ -661,10 +661,10 @@ struct SceneHeader: View {
         let picked = scene.shots.contains(where: model.grid.contains)
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(AppModel.sceneTitle(scene)).font(.system(size: 13, weight: .medium)).foregroundStyle(.primary)
-            Text("\(scene.shots.count) 张" + (scene.importedCount > 0 ? " · \(scene.importedCount) 张导入过" : ""))
+            Text("\(scene.shots.count) 张" + (scene.importedCount > 0 ? " · \(scene.importedCount) 张已导入" : ""))
             Spacer(minLength: 8)
             if scene.newCount > 0 {
-                Button("选未导入的") { model.grid.set(scene.shots.filter { !model.isImported(shot: $0) }, selected: true) }
+                Button("选择未导入的") { model.grid.set(scene.shots.filter { !model.isImported(shot: $0) }, selected: true) }
             }
             Button(picked ? "取消选择" : "全选") { model.grid.set(scene.shots, selected: !picked) }
         }
@@ -709,7 +709,7 @@ struct ThumbCell: View {
                     let text = copies >= 2 ? "两份" : copies == 1 ? "一份" : "已导入"
                     Badge(text: model.thumbSize >= 150 ? text : "", check: true,
                           checkColor: copies == 1 ? .orange : .green).padding(5)
-                        .help(copies >= 2 ? "电脑上有两份，都校验过" : copies == 1 ? "只有一份，还没有备份" : "导入过，但电脑上找不到这个文件了")
+                        .help(copies >= 2 ? "电脑上存有两份，均已校验" : copies == 1 ? "仅存有一份，尚未备份" : "已导入，但电脑上未找到该文件")
                 }
             }
             .overlay {
@@ -749,13 +749,13 @@ struct ThumbCell: View {
             Button("大图预览") { model.openPreview(shotID) }
             Divider()
             if let day = model.day(of: shotID) {
-                Button("选这一天没导入过的") { model.selectNew(in: [day.id]) }
-                Button("选这一天全部") { model.selectAll(in: [day.id]) }
+                Button("选择当日未导入的照片") { model.selectNew(in: [day.id]) }
+                Button("选择当日全部照片") { model.selectAll(in: [day.id]) }
             }
             Button("反选") { model.grid.invert() }
             if let url = model.localFile(of: shotID) {
                 Divider()
-                Button("在访达中显示") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+                Button("在“访达”中显示") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
             }
         }
         .accessibilityElement(children: .ignore)
@@ -806,7 +806,7 @@ struct FloatingBar: View {
                                 .font(.system(size: 14)).foregroundStyle(.secondary).monospacedDigit()
                             if let from = p.resumingFrom {
                                 // 续传：明确告诉用户这个文件不是从头来的。
-                                Label("从 \(Self.bytes(from)) 处接着传", systemImage: "arrow.clockwise")
+                                Label("从 \(Self.bytes(from)) 处继续传输", systemImage: "arrow.clockwise")
                                     .font(.system(size: 12, weight: .medium)).foregroundStyle(.tint)
                                     .padding(.horizontal, 8).padding(.vertical, 2)
                                     .background(Capsule().fill(Color.accentColor.opacity(0.12)))
@@ -831,15 +831,15 @@ struct FloatingBar: View {
                 }
             } else if let i = model.interrupted {
                 capsule {
-                    twoLines("导入中断，完成了 \(i.done)/\(i.total) 个文件",
-                             (model.offline ? "相机已断开，" : "") + "没导完的 \(i.total - i.done) 个仍然选中"
-                             + (i.savedBytes > 0 ? "；已保存 \(Self.bytes(i.savedBytes))，继续时从断点接着传" : ""))
+                    twoLines("导入已中断，已完成 \(i.done)/\(i.total) 个文件",
+                             (model.offline ? "相机已断开，" : "") + "未完成的 \(i.total - i.done) 个文件仍处于选中状态"
+                             + (i.savedBytes > 0 ? "；已保存 \(Self.bytes(i.savedBytes))，继续时将从断点续传" : ""))
                     mainButton("继续导入", disabled: model.offline) { model.continueImport() }
                 }
             } else if let r = model.lastResult, r.c1Failed, model.grid.selected.isEmpty {
                 capsule {
-                    twoLines("没能交给 Capture One", "\(r.files) 个文件已存到电脑，不用重新下载")
-                    mainButton("重新交给 C1") { model.retryCaptureOne() }
+                    twoLines("未能交由 Capture One 导入", "\(r.files) 个文件已存储至电脑，无需重新下载")
+                    mainButton("重新导入 C1") { model.retryCaptureOne() }
                 }
             } else if !model.grid.selected.isEmpty {
                 capsule {
@@ -847,7 +847,7 @@ struct FloatingBar: View {
                         VStack(alignment: .leading, spacing: 1) {
                             Text("已选 \(model.selectedShotCount) 张 · \(Self.bytes(model.selectionBytes))")
                                 .font(.system(size: 15, weight: .semibold)).lineLimit(1)
-                            Label("已保存未传完的 \(Self.bytes(r.savedBytes))，再次导入时从断点接着传", systemImage: "arrow.clockwise")
+                            Label("已保存未传输完成的 \(Self.bytes(r.savedBytes))，再次导入时将从断点续传", systemImage: "arrow.clockwise")
                                 .font(.system(size: 11, weight: .medium)).foregroundStyle(.tint).lineLimit(1)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -881,40 +881,40 @@ struct FloatingBar: View {
     }
 
     private var pickedDetail: String {
-        if model.offline { return "相机重新连上后可以导入" }
+        if model.offline { return "相机重新连接后方可导入" }
         let files = model.selectedFiles()
         let days = Set(files.map(AppModel.dayKey)).count
         let dest = model.captureOneMode == .newSession ? model.sessionsFolder : model.destination
-        var s = "\(files.count) 个文件 · \(days) 天 · 存到 \(Self.short(dest))"
+        var s = "\(files.count) 个文件 · \(days) 天 · 存储至 \(Self.short(dest))"
         if model.backupEnabled {
-            s += model.backupAvailable ? " · 备份到 \(Self.short(model.backupFolder!))" : " · ⚠︎ 备份磁盘未连接"
+            s += model.backupAvailable ? " · 备份至 \(Self.short(model.backupFolder!))" : " · ⚠︎ 备份磁盘未连接"
         }
-        if model.willDeleteFromSource { s += " · 完成后删除卡上照片" }
+        if model.willDeleteFromSource { s += " · 完成后删除存储卡上的照片" }
         return s
     }
 
     private func resultText(_ r: AppModel.ImportResult) -> String {
-        var s = "导入了 \(r.files) 个文件"
-        if let session = r.session { s += "，已存入会话「\(session)」" }
-        if let c = r.lightroom { s += "，收藏夹「\(c)」" + (model.lightroomStatus.map { "：" + $0 } ?? "") }
+        var s = "已导入 \(r.files) 个文件"
+        if let session = r.session { s += "，已存入会话“\(session)”" }
+        if let c = r.lightroom { s += "，收藏夹“\(c)”" + (model.lightroomStatus.map { "：" + $0 } ?? "") }
         if r.resumed > 0 { s += "，其中 \(r.resumed) 个从断点续传" }
         if r.failed > 0 { s += "，\(r.failed) 个失败" }
         if let b = r.backedUp {
-            s += r.backupFailed > 0 ? "，\(r.backupFailed) 个没备份成功" : (b > 0 ? "，两份都已校验" : "")
+            s += r.backupFailed > 0 ? "，\(r.backupFailed) 个备份失败" : (b > 0 ? "，两份均已校验" : "")
         } else {
-            s += "，只存了一份"
+            s += "，仅存储一份"
         }
         if r.cardReadOnly {
             s += "；存储卡为只读，未删除文件"
         } else if r.deleteFailed > 0 {
-            s += "；\(r.deleteFailed) 个文件未能从卡上删除"
+            s += "；\(r.deleteFailed) 个文件未能从存储卡上删除"
         } else if r.deleted == 0, r.keptOnCard > 0 {
-            s += r.backedUp == nil ? "；因未备份，卡上文件均已保留" : "；卡上文件均已保留"
+            s += r.backedUp == nil ? "；因未备份，存储卡上的文件均已保留" : "；存储卡上的文件均已保留"
         } else if let d = r.deleted {
-            s += "，从卡上删除 \(d) 个" + (r.keptOnCard > 0 ? "（\(r.keptOnCard) 个保留）" : "")
+            s += "，已从存储卡删除 \(d) 个" + (r.keptOnCard > 0 ? "（保留 \(r.keptOnCard) 个）" : "")
         }
         if !r.reports.isEmpty { s += "，已写入校验清单" }
-        if r.cancelled { s += r.savedBytes > 0 ? "（已取消；已保存 \(Self.bytes(r.savedBytes))，下次从断点接着传）" : "（已取消）" }
+        if r.cancelled { s += r.savedBytes > 0 ? "（已取消；已保存 \(Self.bytes(r.savedBytes))，下次将从断点续传）" : "（已取消）" }
         return s
     }
 
@@ -1016,7 +1016,7 @@ struct PreviewOverlay: View {
                                  + (model.previewLoaded ? "" : " · 正在加载大图…"))
                             if model.isImported(shot: id) {
                                 let copies = model.copyCount(shot: id)
-                                Label(copies >= 2 ? "两份" : copies == 1 ? "只有一份" : "已导入", systemImage: "checkmark")
+                                Label(copies >= 2 ? "两份" : copies == 1 ? "仅一份" : "已导入", systemImage: "checkmark")
                             }
                         }
                         .font(.system(size: 12)).foregroundStyle(.white.opacity(0.72))

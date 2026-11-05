@@ -11,7 +11,7 @@ struct CredentialSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("访问身份验证").font(.title2.bold())
-            Text("相机 \(request.host) 开启了「访问身份验证」。在相机上打开 MENU → 网络 → 网络选项 → 访问身份验证信息，输入上面显示的用户名和密码。账号只保存在这台 Mac 的钥匙串里。")
+            Text("相机 \(request.host) 已开启“访问身份验证”。请在相机上依次打开 MENU → 网络 → 网络选项 → 访问身份验证信息，并输入其中显示的用户名和密码。账户信息仅保存在本机钥匙串中。")
                 .fixedSize(horizontal: false, vertical: true)
             if let m = request.message {
                 Label(m, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
@@ -44,7 +44,7 @@ struct FingerprintSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("核对相机指纹").font(.title2.bold())
-            Text("第一次连接这台相机。请确认下面的指纹和相机上「访问身份验证信息」里显示的一致，防止连到冒充的设备。")
+            Text("首次连接此相机。请确认下方指纹与相机“访问身份验证信息”中显示的指纹一致，以免连接至冒充的设备。")
                 .fixedSize(horizontal: false, vertical: true)
             GroupBox {
                 VStack(alignment: .leading, spacing: 6) {

@@ -43,7 +43,7 @@ enum NameTemplate {
             values["{D}"] = "\(d)"
         } else {
             // 没有拍摄日期：不套模板，用「没有日期」，有事件名就接在后面。
-            return ev.isEmpty ? "没有日期" : "没有日期-" + ev
+            return ev.isEmpty ? "无日期" : "无日期-" + ev
         }
         var s = template
         for (k, v) in values { s = s.replacingOccurrences(of: k, with: v) }
