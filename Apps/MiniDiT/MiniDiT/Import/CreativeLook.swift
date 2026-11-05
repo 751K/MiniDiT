@@ -1,3 +1,4 @@
+import os
 import Foundation
 import ImageIO
 
@@ -72,7 +73,17 @@ enum LightroomLooks {
     }
 
     /// 扫一遍装好的 Look。名字以「Look 代号」结尾的才算。
-    static func installed() -> [Profile] {
+    private static let cache = OSAllocatedUnfairLock<(at: Date, list: [Profile])?>(initialState: nil)
+
+    /// 扫描结果缓存 30 秒：导入时每张 RAW 都要查一次，不必每张都把预设文件夹重读一遍。
+    static func installed(fresh: Bool = false) -> [Profile] {
+        if !fresh, let c = cache.withLock({ $0 }), Date().timeIntervalSince(c.at) < 30 { return c.list }
+        let list = scanInstalled()
+        cache.withLock { $0 = (Date(), list) }
+        return list
+    }
+
+    private static func scanInstalled() -> [Profile] {
         var out: Set<Profile> = []
         for dir in folders {
             guard let e = FileManager.default.enumerator(at: dir, includingPropertiesForKeys: nil) else { continue }

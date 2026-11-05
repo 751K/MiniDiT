@@ -7,6 +7,10 @@ struct AppsSettings: View {
     @Environment(AppModel.self) private var model
     @State private var apps: [AppInfo] = []
     @State private var c1Permission: AutomationPermission = .unknown
+    /// 已装的 Look：打开页面时在后台扫一次（Camera Raw 预设文件夹可能有上千个 XMP，放在 body 里每次刷新都要读一遍）。
+    @State private var c1Looks: [InstalledLooks.Body] = []
+    @State private var lrLooks: [LightroomLooks.Profile] = []
+    @State private var looksScanned = false
 
     var body: some View {
         Form {
@@ -25,15 +29,15 @@ struct AppsSettings: View {
             }
             Section {
                 Toggle("按拍摄时的创意外观套用 Look", isOn: Bindable(model).applyCreativeLook)
-                let looks = InstalledLooks.scan()
+                let looks = c1Looks
                 ForEach(looks, id: \.body) { l in
                     LabeledContent("Capture One · \(l.body)", value: l.codes.joined(separator: " · "))
                 }
-                let lr = Dictionary(grouping: LightroomLooks.installed(), by: \.model)
+                let lr = Dictionary(grouping: lrLooks, by: \.model)
                 ForEach(lr.keys.sorted(), id: \.self) { m in
                     LabeledContent("Lightroom · \(m)", value: lr[m]!.map(\.code).joined(separator: " · "))
                 }
-                if looks.isEmpty && lr.isEmpty {
+                if looksScanned && looks.isEmpty && lr.isEmpty {
                     Text("未找到 Look 配置文件。").font(.callout).foregroundStyle(.orange)
                 }
             } header: {
@@ -54,6 +58,10 @@ struct AppsSettings: View {
             }
         }
         .formStyle(.grouped)
+        .task {
+            let (c1, lr) = await Task.detached { (InstalledLooks.scan(), LightroomLooks.installed(fresh: true)) }.value
+            c1Looks = c1; lrLooks = lr; looksScanned = true
+        }
         // 从系统设置改完授权回来时重新检查。
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             Task { await refresh() }
