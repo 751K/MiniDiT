@@ -56,8 +56,9 @@ struct FileImporter {
     let camera: String?
     /// 备份盘上的根目录；nil = 这次不备份。
     var backupRoot: URL?
-    /// 事件名（会话「3.15-公园」里的「公园」），用在备份文件夹名里。
+    /// 事件名（会话「3.15-公园」里的「公园」）和场次号，用在备份文件夹名里。
     var event: String?
+    var scene: Int?
     /// 要删卡上的文件时，对没有重新复制的文件（目标已有 / 用了本地的）也读卡比对一遍。
     var checkSource = false
     var log: AppLog = .shared
@@ -182,7 +183,7 @@ struct FileImporter {
     private func copyToBackup(_ file: URL, item: CameraContentItem, root: URL, hash: UInt64,
                               progress: @escaping @Sendable (UInt64) -> Void) async throws -> URL {
         let fm = FileManager.default
-        let dir = Self.backupFolder(for: item, root: root, event: event)
+        let dir = Self.backupFolder(for: item, root: root, event: event, scene: scene)
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         var target = dir.appending(path: item.filename)
         if fm.fileExists(atPath: target.path) {
@@ -217,21 +218,14 @@ struct FileImporter {
         ".\(item.filename).\(item.size).\(item.captureDateRaw).part"
     }
 
-    /// 「保存位置/年/年-月-日/」。
+    /// 下载文件夹：「保存位置/」+ 模板（默认「年/年-月-日」）。
     static func folder(for item: CameraContentItem, root: URL) -> URL {
-        let key = AppModel.dayKey(item)
-        guard key != "unknown" else { return root.appending(path: "没有日期", directoryHint: .isDirectory) }
-        let y = String(key.prefix(4)), m = String(key.dropFirst(4).prefix(2)), d = String(key.suffix(2))
-        return root.appending(path: y, directoryHint: .isDirectory).appending(path: "\(y)-\(m)-\(d)", directoryHint: .isDirectory)
+        NameTemplate.folder(.folder, root: root, day: AppModel.dayKey(item), event: nil)
     }
 
-    /// 备份盘上：「备份位置/年-月-日-事件/」，没有事件名就是「年-月-日」。
-    static func backupFolder(for item: CameraContentItem, root: URL, event: String?) -> URL {
-        let key = AppModel.dayKey(item)
-        var name = key == "unknown" ? "没有日期"
-            : "\(key.prefix(4))-\(key.dropFirst(4).prefix(2))-\(key.suffix(2))"
-        if let event, !event.isEmpty { name += "-" + event.replacingOccurrences(of: "/", with: "-") }
-        return root.appending(path: name, directoryHint: .isDirectory)
+    /// 备份盘上：「备份位置/」+ 模板（默认「年-月-日-事件」，没有事件名就是「年-月-日」）。
+    static func backupFolder(for item: CameraContentItem, root: URL, event: String?, scene: Int? = nil) -> URL {
+        NameTemplate.folder(.backup, root: root, day: AppModel.dayKey(item), event: event, scene: scene)
     }
 
     /// 本地已有的同一个文件：先看导入记录里的位置，再看「保存位置/年/年-月-日/」（旧版记录没有位置）。

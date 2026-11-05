@@ -50,6 +50,10 @@ enum CaptureOneBridge {
     /// 生成的结构：<folder>/<name>/{<name>.cosessiondb, Capture, Selects, Output, Trash}
     static func createSession(name: String, in folder: URL) async throws -> URL {
         try await ensureRunning()
+        // C1 里已经开着同名的文档时，脚本里按名字找到的会是那个旧文档，照片会存进别的会话。
+        if openDocumentNames().contains(name) {
+            throw Failure.script("Capture One 里已经打开了同名的会话「\(name)」")
+        }
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let src = """
         tell application "Capture One"
@@ -61,7 +65,27 @@ enum CaptureOneBridge {
         end tell
         """
         guard let path = try run(src).stringValue else { throw Failure.script("Capture One 没有返回会话的 Capture 文件夹") }
-        return URL(filePath: path, directoryHint: .isDirectory)
+        let returned = URL(filePath: path, directoryHint: .isDirectory)
+        // 只认新会话自己的 Capture 文件夹：C1 返回了别处时，用按会话结构算出来的位置。
+        let expected = folder.appending(path: name, directoryHint: .isDirectory).appending(path: "Capture", directoryHint: .isDirectory)
+        if returned.standardizedFileURL.path != expected.standardizedFileURL.path {
+            guard FileManager.default.fileExists(atPath: expected.path) else {
+                throw Failure.script("Capture One 返回的 Capture 文件夹不是新会话的（\(returned.path)）")
+            }
+            return expected
+        }
+        return returned
+    }
+
+    /// C1 里打开着的文档名（不带扩展名）。C1 没在运行时为空。
+    static func openDocumentNames() -> Set<String> {
+        guard isRunning, let list = try? run("tell application \"Capture One\" to return name of every document") else { return [] }
+        var names: Set<String> = []
+        if list.numberOfItems == 0, let s = list.stringValue { names.insert(s) }
+        for i in stride(from: 1, through: list.numberOfItems, by: 1) {
+            if let s = list.atIndex(i)?.stringValue { names.insert(s) }
+        }
+        return Set(names.map { ($0 as NSString).deletingPathExtension })
     }
 
     /// 打开已有的会话，返回它的 Capture 文件夹。

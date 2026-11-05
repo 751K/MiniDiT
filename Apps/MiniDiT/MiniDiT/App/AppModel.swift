@@ -241,7 +241,9 @@ final class AppModel {
     struct Interrupted {
         var done: Int
         var total: Int
-        var session: SessionChoice?
+        /// 已经建好 / 打开的会话（按导入分组的 key），继续时直接用，不再问名字。
+        var sessions: [String: ResumeSession] = [:]
+        var grouping: SessionGrouping = .single
         /// 没传完、已经保存下来的字节数，继续时从这里接着传。
         var savedBytes: UInt64 = 0
     }
@@ -325,12 +327,59 @@ final class AppModel {
     enum SessionChoice { case new(String), existing(URL), resolved(captureDir: URL, name: String) }
     struct SessionRequest: Identifiable {
         let id = UUID()
-        let suggestedName: String
         let existing: [URL]
+        /// 中断后继续、但有的分组还没建会话时：已经建好的那些。
+        var resume: [String: ResumeSession] = [:]
     }
     var sessionRequest: SessionRequest?
 
-    /// 最近用过的会话内容名（「3.15-公园」里的「公园」），新的在前。
+    /// 一个分组已经在用的会话（中断后继续用）。
+    struct ResumeSession {
+        var captureDir: URL
+        var name: String
+        var event: String?
+    }
+
+    /// 一次导入分成几个会话。
+    enum SessionGrouping: String, CaseIterable, Identifiable {
+        case single, perDay, perScene
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .single: "合并为一个会话"
+            case .perDay: "每天一个"
+            case .perScene: "每场一个"
+            }
+        }
+    }
+    var sessionGrouping = SessionGrouping(rawValue: UserDefaults.standard.string(forKey: "sessionGrouping") ?? "") ?? .single {
+        didSet { UserDefaults.standard.set(sessionGrouping.rawValue, forKey: "sessionGrouping") }
+    }
+
+    /// 要导入的一组文件（一个会话）。
+    struct ImportGroup: Identifiable {
+        /// 「all」、日期 id 或场次 id。
+        let id: String
+        /// 这组最早一天（「yyyyMMdd」），会话名的日期用它。
+        let day: String
+        /// 分场次导入时是这一天的第几场。
+        let scene: Int?
+        let title: String
+        let shotCount: Int
+        /// 旧的在前。
+        let files: [CameraContentItem]
+    }
+
+    /// 一个分组的一次导入：去哪个会话、事件名。
+    struct ImportJob {
+        var key: String
+        var files: [CameraContentItem]
+        var session: SessionChoice?
+        var event: String?
+        var scene: Int?
+    }
+
+    /// 最近用过的事件名（「3.15-公园」里的「公园」），新的在前。
     var recentContents: [String] = UserDefaults.standard.stringArray(forKey: "recentContents") ?? []
 
     init() {
@@ -347,16 +396,8 @@ final class AppModel {
         }
     }
 
-    /// 会话名默认是选中内容里最早一天的日期，格式「月.日-」（如 3.15-公园），用户在后面补内容。
-    func suggestedSessionName() -> String {
-        let keys = selectedFiles().map(Self.dayKey).filter { $0 != "unknown" }.sorted()
-        guard let first = keys.first, let m = Int(first.dropFirst(4).prefix(2)), let d = Int(first.suffix(2)) else { return "" }
-        return "\(m).\(d)-"
-    }
-
-    func rememberContent(of sessionName: String) {
-        guard let dash = sessionName.firstIndex(of: "-") else { return }
-        let content = sessionName[sessionName.index(after: dash)...].trimmingCharacters(in: .whitespaces)
+    func rememberEvent(_ event: String?) {
+        let content = NameTemplate.sanitize(event ?? "")
         guard !content.isEmpty else { return }
         recentContents = [content] + recentContents.filter { $0 != content }
         recentContents = Array(recentContents.prefix(12))

@@ -2,25 +2,34 @@ import AppKit
 import SonyRemoteKit
 import SwiftUI
 
-/// 给这批照片定一个去处：新建会话，或加入已有会话。
+/// 给这批照片定去处：新建会话（可以按天 / 按场分成几个），或加入已有会话。
 struct SessionSheet: View {
     @Environment(AppModel.self) private var model
     let request: AppModel.SessionRequest
-    @State private var name = ""
+    /// 各分组填的事件名（按分组 key 记，切换分法时同一天的不会丢）。
+    @State private var events: [String: String] = [:]
     @State private var useExisting = false
     @State private var existing: URL?
-    @FocusState private var focused: Bool
+    @FocusState private var focusedRow: String?
+    /// 点「最近」里的事件名时填到哪一行。
+    @State private var lastRow: String?
+    /// C1 里开着的文档：同名会话建不了。
+    @State private var openInC1: Set<String> = []
 
-    private var cleanName: String {
-        name.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
+    private var groups: [AppModel.ImportGroup] { model.importGroups(model.sessionGrouping) }
+
+    /// 能选的分法：分出来不止一组的才列出来。
+    private var groupings: [AppModel.SessionGrouping] {
+        let perDay = model.importGroups(.perDay).count
+        let perScene = model.importGroups(.perScene).count
+        var out: [AppModel.SessionGrouping] = [.single]
+        if perDay > 1 { out.append(.perDay) }
+        if perScene > perDay { out.append(.perScene) }
+        return out
     }
-    private var nameTaken: Bool {
-        !cleanName.isEmpty && FileManager.default.fileExists(atPath: model.sessionsFolder.appending(path: cleanName).path)
-    }
-    /// 只有日期前缀（「11.4-」）还不算填好。
-    private var nameReady: Bool { !cleanName.isEmpty && !cleanName.hasSuffix("-") }
 
     var body: some View {
+        @Bindable var model = model
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("导入 \(model.selectedShotCount) 张照片").font(.system(size: 17, weight: .semibold))
@@ -32,44 +41,11 @@ struct SessionSheet: View {
                 Text("加入已有会话").tag(true)
             }
             .pickerStyle(.segmented).labelsHidden()
-            .disabled(request.existing.isEmpty)
+            .disabled(request.existing.isEmpty || !request.resume.isEmpty)
 
             Group {
                 if !useExisting {
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text("会话名称").font(.system(size: 12, weight: .semibold))
-                        TextField("会话名称", text: $name, prompt: Text("例如 11.4-公园"))
-                            .textFieldStyle(.roundedBorder).controlSize(.large)
-                            .labelsHidden()
-                            .focused($focused)
-                            .onSubmit { if canStart { start() } }
-                            .padding(.top, 6)
-                        HStack(alignment: .top, spacing: 6) {
-                            if nameTaken {
-                                Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange)
-                                Text("这个位置已有同名文件夹。请换个名字，或改用「加入已有会话」。")
-                            } else {
-                                Text("放在 " + model.sessionsFolder.appending(path: cleanName.isEmpty ? "…" : cleanName).path(percentEncoded: false))
-                                    .foregroundStyle(.secondary).lineLimit(2).truncationMode(.middle)
-                            }
-                        }
-                        .font(.system(size: 12))
-                        .padding(.top, 10)
-                        Spacer(minLength: 8)
-                        if !model.recentContents.isEmpty {
-                            HStack(spacing: 6) {
-                                Text("最近").font(.system(size: 12)).foregroundStyle(.secondary)
-                                ForEach(model.recentContents.prefix(6), id: \.self) { c in
-                                    Button { name = datePrefix + c } label: {
-                                        Text(c).font(.system(size: 12)).padding(.horizontal, 10).frame(height: 24)
-                                            .background(Capsule().fill(Color.primary.opacity(0.08)))
-                                            .contentShape(Capsule())
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            }
-                        }
-                    }
+                    newSessions
                 } else {
                     List(request.existing, id: \.self, selection: $existing) { f in
                         Text(f.deletingPathExtension().lastPathComponent)
@@ -78,7 +54,8 @@ struct SessionSheet: View {
                     .accessibilityLabel("最近 15 个会话")
                 }
             }
-            .frame(height: 168, alignment: .top)
+            .frame(minHeight: 168, maxHeight: 360, alignment: .top)
+            .fixedSize(horizontal: false, vertical: !useExisting)
 
             HStack(spacing: 8) {
                 Text("下载到会话的 Capture 文件夹").font(.system(size: 12)).foregroundStyle(.secondary)
@@ -86,27 +63,145 @@ struct SessionSheet: View {
                 Button("取消") { model.sessionRequest = nil }
                     .buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.large)
                     .keyboardShortcut(.cancelAction)
-                Button { start() } label: { Text("开始导入").fontWeight(.semibold).padding(.horizontal, 4) }
-                    .buttonStyle(.borderedProminent).buttonBorderShape(.capsule).controlSize(.large)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(!canStart)
+                Button { start() } label: {
+                    Text(!useExisting && groups.count > 1 ? "导入到 \(groups.count) 个会话" : "开始导入")
+                        .fontWeight(.semibold).padding(.horizontal, 4)
+                }
+                .buttonStyle(.borderedProminent).buttonBorderShape(.capsule).controlSize(.large)
+                .keyboardShortcut(.defaultAction)
+                .disabled(!canStart)
             }
         }
         .padding(20)
-        .frame(width: 480)
-        .onAppear { name = request.suggestedName; focused = true }
+        .frame(width: 520)
+        .onAppear {
+            openInC1 = CaptureOneBridge.openDocumentNames()
+            if !groupings.contains(model.sessionGrouping) { model.sessionGrouping = .single }
+            focusedRow = groups.first { request.resume[$0.id] == nil }?.id
+        }
+        .onChange(of: model.sessionGrouping) { _, _ in
+            focusedRow = groups.first { request.resume[$0.id] == nil }?.id
+        }
+        .onChange(of: focusedRow) { _, row in if let row { lastRow = row } }
     }
 
-    /// 名字里「-」之前的日期部分（没有就用建议的日期）。
-    private var datePrefix: String {
-        if let dash = name.firstIndex(of: "-") { return String(name[...dash]) }
-        return request.suggestedName
+    // MARK: 新建会话
+
+    private var newSessions: some View {
+        @Bindable var model = model
+        return VStack(alignment: .leading, spacing: 10) {
+            if groupings.count > 1 {
+                Picker("分成", selection: $model.sessionGrouping) {
+                    ForEach(groupings) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented).labelsHidden()
+                .disabled(!request.resume.isEmpty)
+            }
+            Text(groups.count > 1 ? "事件名" : "事件名（可不填）").font(.system(size: 12, weight: .semibold))
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(groups) { g in row(g) }
+                }
+                .padding(.vertical, 2)
+            }
+            .frame(maxHeight: groups.count > 3 ? 230 : nil)
+            .fixedSize(horizontal: false, vertical: groups.count <= 3)
+            if !model.recentContents.isEmpty {
+                HStack(spacing: 6) {
+                    Text("最近").font(.system(size: 12)).foregroundStyle(.secondary)
+                    ForEach(model.recentContents.prefix(6), id: \.self) { c in
+                        Button {
+                            if let row = lastRow ?? groups.first(where: { request.resume[$0.id] == nil })?.id { events[row] = c }
+                        } label: {
+                            Text(c).font(.system(size: 12)).padding(.horizontal, 10).frame(height: 24)
+                                .background(Capsule().fill(Color.primary.opacity(0.08)))
+                                .contentShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            Text("会话按命名模板“\(NameTemplate.current(.session))”命名，放在 \(model.sessionsFolder.path(percentEncoded: false))。模板可在“设置 › 导入 › 命名”中修改。")
+                .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(2).truncationMode(.middle)
+        }
     }
 
-    private var canStart: Bool { useExisting ? existing != nil : (nameReady && !nameTaken) }
+    @ViewBuilder private func row(_ g: AppModel.ImportGroup) -> some View {
+        let name = sessionName(g)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Text(g.title).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
+                    .frame(width: 170, alignment: .leading)
+                if let r = request.resume[g.id] {
+                    Text("继续导入到「\(r.name)」").font(.system(size: 13)).lineLimit(1)
+                    Spacer(minLength: 0)
+                } else {
+                    TextField("事件名", text: binding(g.id), prompt: Text("例如 公园"))
+                        .textFieldStyle(.roundedBorder).controlSize(.large).labelsHidden()
+                        .focused($focusedRow, equals: g.id)
+                        .onSubmit { if canStart { start() } }
+                }
+                Text("\(g.shotCount) 张").font(.system(size: 12).monospacedDigit()).foregroundStyle(.secondary)
+                    .frame(minWidth: 44, alignment: .trailing)
+            }
+            if request.resume[g.id] == nil {
+                HStack(spacing: 4) {
+                    if let problem = problem(g) {
+                        Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange)
+                        Text(problem)
+                    } else {
+                        Text("会话：\(name)").foregroundStyle(.secondary)
+                    }
+                }
+                .font(.system(size: 11))
+                .padding(.leading, 178)
+            }
+        }
+    }
+
+    private func binding(_ key: String) -> Binding<String> {
+        Binding(get: { events[key] ?? "" }, set: { events[key] = $0 })
+    }
+
+    private func event(_ g: AppModel.ImportGroup) -> String? {
+        let e = NameTemplate.sanitize(events[g.id] ?? "")
+        return e.isEmpty ? nil : e
+    }
+
+    private func sessionName(_ g: AppModel.ImportGroup) -> String {
+        if let r = request.resume[g.id] { return r.name }
+        return AppModel.sessionName(for: g, event: event(g))
+    }
+
+    /// 这一行的名字不能用的原因：磁盘上已有，或和别的行重名。
+    private func problem(_ g: AppModel.ImportGroup) -> String? {
+        let name = sessionName(g)
+        if FileManager.default.fileExists(atPath: model.sessionsFolder.appending(path: name).path) {
+            return "已有同名会话「\(name)」，请填写或修改事件名"
+        }
+        if openInC1.contains(name) {
+            return "Capture One 里已打开同名会话「\(name)」，请换个事件名"
+        }
+        if groups.filter({ sessionName($0) == name }).count > 1 {
+            return "和其他会话重名（\(name)），请填写不同的事件名"
+        }
+        return nil
+    }
+
+    private var canStart: Bool {
+        if useExisting { return existing != nil }
+        return !groups.isEmpty && groups.allSatisfy { request.resume[$0.id] != nil || problem($0) == nil }
+    }
 
     private func start() {
-        if useExisting, let existing { model.startImport(session: .existing(existing)) }
-        else { model.startImport(session: .new(cleanName)) }
+        if useExisting, let existing { model.startImport(session: .existing(existing)); return }
+        let jobs = groups.map { g -> AppModel.ImportJob in
+            if let r = request.resume[g.id] {
+                return .init(key: g.id, files: g.files, session: .resolved(captureDir: r.captureDir, name: r.name),
+                             event: r.event, scene: g.scene)
+            }
+            return .init(key: g.id, files: g.files, session: .new(sessionName(g)), event: event(g), scene: g.scene)
+        }
+        model.startImport(jobs: jobs, grouping: model.sessionGrouping)
     }
 }

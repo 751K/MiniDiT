@@ -13,7 +13,7 @@ extension AppModel {
 
     /// 点「导入」：没有备份盘、空间不够先提醒；新建会话模式先问会话名，其他模式直接开始。
     /// 界面上点按钮时用默认参数；提醒里点「继续」时跳过已经确认过的检查。
-    func beginImport(checkBackup: Bool = true, checkSpace: Bool = true) {
+    func beginImport(checkBackup: Bool = true, checkSpace: Bool = true, resume: [String: ResumeSession] = [:]) {
         guard progress == nil, !grid.selected.isEmpty else { return }
         if checkBackup {
             noBackupThisTime = false
@@ -29,8 +29,8 @@ extension AppModel {
         }
         if captureOneMode == .newSession {
             refreshCaptureOne()
-            sessionRequest = SessionRequest(suggestedName: suggestedSessionName(),
-                                            existing: Array(CaptureOneBridge.sessions(in: sessionsFolder).prefix(15)))
+            sessionRequest = SessionRequest(existing: Array(CaptureOneBridge.sessions(in: sessionsFolder).prefix(15)),
+                                            resume: resume)
         } else {
             startImport(session: nil)
         }
@@ -67,13 +67,58 @@ extension AppModel {
         return v.volumeAvailableCapacity.map { UInt64($0) }
     }
 
+    // MARK: 分组
+
+    /// 选中的照片按会话分组（旧的在前）。只有一天 / 一场时，各种分法都只有一组。
+    func importGroups(_ grouping: SessionGrouping) -> [ImportGroup] {
+        func files(_ ids: [UInt32]) -> [CameraContentItem] {
+            Array(allShots.filter { ids.contains($0.id) && grid.contains($0.id) }.flatMap(importFiles).compactMap { items[$0] }.reversed())
+        }
+        let selectedDays = days.filter { $0.shots.contains(where: grid.contains) }.reversed()
+        switch grouping {
+        case .single:
+            let all = Array(selectedFiles().reversed())
+            guard !all.isEmpty else { return [] }
+            let day = all.map(Self.dayKey).filter { $0 != "unknown" }.min() ?? "unknown"
+            let title = selectedDays.count == 1 ? selectedDays.first!.title : "\(selectedDays.count) 天"
+            return [ImportGroup(id: "all", day: day, scene: nil, title: title, shotCount: grid.selected.count, files: all)]
+        case .perDay:
+            return selectedDays.map { d in
+                ImportGroup(id: d.id, day: d.id, scene: nil, title: d.title,
+                            shotCount: d.shots.filter(grid.contains).count, files: files(d.shots))
+            }
+        case .perScene:
+            return selectedDays.flatMap { d in
+                d.scenes.reversed().filter { $0.shots.contains(where: grid.contains) }.map { sc in
+                    ImportGroup(id: d.scenes.count > 1 ? sc.id : d.id, day: d.id, scene: d.scenes.count > 1 ? sc.number : nil,
+                                title: d.scenes.count > 1 ? "\(d.title) · \(Self.sceneTitle(sc))" : d.title,
+                                shotCount: sc.shots.filter(grid.contains).count, files: files(sc.shots))
+                }
+            }
+        }
+    }
+
+    /// 分组的会话名：按会话命名模板。
+    static func sessionName(for group: ImportGroup, event: String?) -> String {
+        NameTemplate.render(.session, day: group.day, event: event, scene: group.scene)
+    }
+
+    // MARK: 导入
+
+    /// 不分会话的导入（下载到文件夹，或加入一个已有会话）。
     func startImport(session: SessionChoice?) {
+        startImport(jobs: [ImportJob(key: "all", files: Array(selectedFiles().reversed()), session: session)],
+                    grouping: .single)
+    }
+
+    func startImport(jobs: [ImportJob], grouping: SessionGrouping) {
         sessionRequest = nil
         interrupted = nil
         lastResult = nil
         lostDuringImport = false
         guard let library, progress == nil else { return }
-        let picked = Array(selectedFiles().reversed())  // 旧的先导
+        let jobs = jobs.filter { !$0.files.isEmpty }
+        let picked = jobs.flatMap(\.files)  // 旧的先导
         guard !picked.isEmpty else { return }
         let pickedShots = grid.selected
         let root = destination
@@ -87,112 +132,126 @@ extension AppModel {
         progress = ImportProgress(total: picked.count, bytesTotal: picked.reduce(0) { $0 + $1.size } * weight)
         lastSummary = nil
         log.add("开始导入 \(picked.count) 个文件到 \(root.path)，Capture One：\(mode.title)，"
-                + (backupRoot.map { "备份到 \($0.path)" } ?? "没有备份"))
+                + (backupRoot.map { "备份到 \($0.path)" } ?? "没有备份")
+                + (jobs.count > 1 ? "，分成 \(jobs.count) 个会话" : ""))
         let sessionsFolder = self.sessionsFolder
         importTask = Task {
-            // 新建 / 打开会话，文件直接下载到它的 Capture 文件夹（C1 会自动显示，不用再导入）。
-            var captureDir: URL?
-            var sessionName = ""
-            if mode == .newSession, let session {
-                status = "正在准备 Capture One 会话…"
-                do {
-                    switch session {
-                    case .new(let name):
-                        sessionName = name
-                        rememberContent(of: name)
-                        captureDir = try await CaptureOneBridge.createSession(name: name, in: sessionsFolder)
-                    case .existing(let file):
-                        sessionName = file.deletingPathExtension().lastPathComponent
-                        captureDir = try await CaptureOneBridge.openSession(file)
-                    case .resolved(let dir, let name):
-                        sessionName = name
-                        captureDir = dir
-                    }
-                    log.add("会话「\(sessionName)」，Capture 文件夹：\(captureDir!.path)")
-                } catch {
-                    // C1 用不了时仍然建同样的文件夹结构，文件不会丢。
-                    let dir = sessionsFolder.appending(path: sessionName.isEmpty ? "未命名" : sessionName, directoryHint: .isDirectory)
-                        .appending(path: "Capture", directoryHint: .isDirectory)
-                    captureDir = dir
-                    log.add("新建会话失败：\(error.localizedDescription)，改存到 \(dir.path)")
-                    errorMessage = "Capture One 新建会话失败：\(error.localizedDescription)\n照片会先存到 \(dir.path)。"
-                }
-                status = ""
-                refreshCaptureOne()
-            }
             var saved: [URL] = []
             var done: [ImportHistory.Entry] = []
-            let event = sessionName.isEmpty ? nil : Self.eventName(of: sessionName)
-            let importer = FileImporter(library: library, root: root, camera: camera, backupRoot: backupRoot, event: event,
-                                        checkSource: deleteRequested)
             // 可以从卡上删的：和卡上数据核对过；要求备份时备份也成功了；不是视频（删视频会让相机的数据库对不上）。
             var deletable: [UInt32] = []
             var consecutiveFailures = 0
-            // 写 MHL 校验清单用：第一份、备份各一组。
-            var mhlPrimary: [MHLWriter.Entry] = []
             var mhlBackup: [MHLWriter.Entry] = []
-            for item in picked {
-                if Task.isCancelled { break }
-                progress?.current = "导入 \(item.filename)"
-                progress?.resumingFrom = nil
-                let dir = captureDir ?? FileImporter.folder(for: item, root: root)
-                let base = progress?.bytesDone ?? 0
-                do {
-                    let r = try await importer.importItem(item, into: dir, progress: { d in
-                        Task { @MainActor in
-                            if let cur = self.progress?.bytesDone, base + d > cur { self.progress?.bytesDone = base + d }
+            var reports: [URL] = []
+            var sessionNames: [String] = []
+            var opened: [String: ResumeSession] = [:]
+            var stop = false
+
+            for job in jobs {
+                if Task.isCancelled || stop { break }
+                // 新建 / 打开会话，文件直接下载到它的 Capture 文件夹（C1 会自动显示，不用再导入）。
+                var captureDir: URL?
+                var sessionName = ""
+                var event = job.event
+                if mode == .newSession, let session = job.session {
+                    status = "正在准备 Capture One 会话…"
+                    do {
+                        switch session {
+                        case .new(let name):
+                            sessionName = name
+                            rememberEvent(job.event)
+                            captureDir = try await CaptureOneBridge.createSession(name: name, in: sessionsFolder)
+                        case .existing(let file):
+                            sessionName = file.deletingPathExtension().lastPathComponent
+                            event = event ?? Self.eventName(of: sessionName)
+                            captureDir = try await CaptureOneBridge.openSession(file)
+                        case .resolved(let dir, let name):
+                            sessionName = name
+                            captureDir = dir
                         }
-                    }, stage: { self.progress?.current = $0 }, skipped: { self.progress?.credit($0) },
-                       resumed: { self.progress?.resumingFrom = $0; self.progress?.resumedFiles += 1 })
-                    progress?.bytesDone = base + importer.weight(of: item)
-                    switch r.outcome {
-                    case .alreadyThere: progress?.skipped += 1
-                    case .reused(let u): progress?.reused += 1; saved.append(u)
-                    case .downloaded(let u): progress?.done += 1; saved.append(u)
+                        log.add("会话「\(sessionName)」，Capture 文件夹：\(captureDir!.path)")
+                    } catch {
+                        // C1 用不了时仍然建同样的文件夹结构，文件不会丢。
+                        let dir = sessionsFolder.appending(path: sessionName.isEmpty ? "未命名" : sessionName, directoryHint: .isDirectory)
+                            .appending(path: "Capture", directoryHint: .isDirectory)
+                        captureDir = dir
+                        log.add("新建会话失败：\(error.localizedDescription)，改存到 \(dir.path)")
+                        errorMessage = "Capture One 新建会话失败：\(error.localizedDescription)\n照片会先存到 \(dir.path)。"
                     }
-                    var backupURL: URL?
-                    switch r.backup {
-                    case .none: break
-                    case .done(let u): progress?.backedUp += 1; backupURL = u
-                    case .failed: progress?.backupFailed.append(item.filename)
-                    }
-                    if deleteRequested, r.matchesSource, item.kind != .video, !wantsBackup || backupURL != nil {
-                        deletable.append(item.id)
-                    }
-                    done.append(.init(item: item, url: r.outcome.url, xxh64: r.xxh64, backup: backupURL))
-                    if case .alreadyThere = r.outcome {
-                        mhlPrimary.append(.init(url: r.outcome.url, xxh64: r.xxh64, action: .verified))
-                    } else {
-                        mhlPrimary.append(.init(url: r.outcome.url, xxh64: r.xxh64, action: .original))
-                    }
-                    if let backupURL { mhlBackup.append(.init(url: backupURL, xxh64: r.xxh64, action: .original)) }
-                } catch is CancellationError {
-                    break
-                } catch {
-                    if error is PTPIPTransportError { progress?.failed.append(item.filename); lostDuringImport = true; break }
-                    log.add("导入失败 \(item.filename)：\(error.localizedDescription)")
-                    progress?.failed.append(item.filename)
-                    // 连着几个文件都失败，多半是相机在关机 / 断开（关机前会先对所有请求回「不支持」），
-                    // 当作中断处理：停下来，等重连后继续，而不是把剩下的全标成失败。
-                    consecutiveFailures += 1
-                    if consecutiveFailures >= 3 {
-                        log.add("连续 \(consecutiveFailures) 个文件失败，当作中断处理")
-                        lostDuringImport = true
-                        break
-                    }
-                    continue
+                    status = ""
+                    refreshCaptureOne()
                 }
-                consecutiveFailures = 0
+                if let captureDir {
+                    opened[job.key] = ResumeSession(captureDir: captureDir, name: sessionName, event: event)
+                    sessionNames.append(sessionName)
+                }
+                let importer = FileImporter(library: library, root: root, camera: camera, backupRoot: backupRoot, event: event,
+                                            scene: job.scene, checkSource: deleteRequested)
+                // 写 MHL 校验清单用：第一份（这个会话 / 保存位置），备份盘（整次导入一份）。
+                var mhlPrimary: [MHLWriter.Entry] = []
+                for item in job.files {
+                    if Task.isCancelled { break }
+                    progress?.current = "导入 \(item.filename)"
+                    progress?.resumingFrom = nil
+                    let dir = captureDir ?? FileImporter.folder(for: item, root: root)
+                    let base = progress?.bytesDone ?? 0
+                    do {
+                        let r = try await importer.importItem(item, into: dir, progress: { d in
+                            Task { @MainActor in
+                                if let cur = self.progress?.bytesDone, base + d > cur { self.progress?.bytesDone = base + d }
+                            }
+                        }, stage: { self.progress?.current = $0 }, skipped: { self.progress?.credit($0) },
+                           resumed: { self.progress?.resumingFrom = $0; self.progress?.resumedFiles += 1 })
+                        progress?.bytesDone = base + importer.weight(of: item)
+                        switch r.outcome {
+                        case .alreadyThere: progress?.skipped += 1
+                        case .reused(let u): progress?.reused += 1; saved.append(u)
+                        case .downloaded(let u): progress?.done += 1; saved.append(u)
+                        }
+                        var backupURL: URL?
+                        switch r.backup {
+                        case .none: break
+                        case .done(let u): progress?.backedUp += 1; backupURL = u
+                        case .failed: progress?.backupFailed.append(item.filename)
+                        }
+                        if deleteRequested, r.matchesSource, item.kind != .video, !wantsBackup || backupURL != nil {
+                            deletable.append(item.id)
+                        }
+                        done.append(.init(item: item, url: r.outcome.url, xxh64: r.xxh64, backup: backupURL))
+                        if case .alreadyThere = r.outcome {
+                            mhlPrimary.append(.init(url: r.outcome.url, xxh64: r.xxh64, action: .verified))
+                        } else {
+                            mhlPrimary.append(.init(url: r.outcome.url, xxh64: r.xxh64, action: .original))
+                        }
+                        if let backupURL { mhlBackup.append(.init(url: backupURL, xxh64: r.xxh64, action: .original)) }
+                    } catch is CancellationError {
+                        break
+                    } catch {
+                        if error is PTPIPTransportError { progress?.failed.append(item.filename); lostDuringImport = true; stop = true; break }
+                        log.add("导入失败 \(item.filename)：\(error.localizedDescription)")
+                        progress?.failed.append(item.filename)
+                        // 连着几个文件都失败，多半是相机在关机 / 断开（关机前会先对所有请求回「不支持」），
+                        // 当作中断处理：停下来，等重连后继续，而不是把剩下的全标成失败。
+                        consecutiveFailures += 1
+                        if consecutiveFailures >= 3 {
+                            log.add("连续 \(consecutiveFailures) 个文件失败，当作中断处理")
+                            lostDuringImport = true
+                            stop = true
+                            break
+                        }
+                        continue
+                    }
+                    consecutiveFailures = 0
+                }
+                // 导入报告：ASC MHL 清单。会话模式写在 Capture 文件夹里（C1 自己的 CaptureOne/ 子文件夹不算），其他模式写在保存位置根目录。
+                if !mhlPrimary.isEmpty {
+                    do {
+                        reports.append(try MHLWriter.append(root: captureDir ?? root, entries: mhlPrimary,
+                                                            ignore: captureDir != nil ? ["CaptureOne", "CaptureOne/"] : []))
+                    } catch { log.add("写校验清单失败：\(error.localizedDescription)") }
+                }
             }
             ImportHistory.shared.record(done, camera: camera)
-            // 导入报告：ASC MHL 清单。会话模式写在 Capture 文件夹里（C1 自己的 CaptureOne/ 子文件夹不算），其他模式写在保存位置根目录。
-            var reports: [URL] = []
-            if !mhlPrimary.isEmpty {
-                do {
-                    reports.append(try MHLWriter.append(root: captureDir ?? root, entries: mhlPrimary,
-                                                        ignore: captureDir != nil ? ["CaptureOne", "CaptureOne/"] : []))
-                } catch { log.add("写校验清单失败：\(error.localizedDescription)") }
-            }
             if let backupRoot, !mhlBackup.isEmpty {
                 do { reports.append(try MHLWriter.append(root: backupRoot, entries: mhlBackup)) }
                 catch { log.add("写备份盘校验清单失败：\(error.localizedDescription)") }
@@ -200,8 +259,14 @@ extension AppModel {
             for r in reports { log.add("校验清单：\(r.path)") }
             // 没导完的文件里，已经传了一部分、留着续传的有多少。
             let finishedIDs = Set(done.map(\.item.id))
-            let savedBytes = picked.filter { !finishedIDs.contains($0.id) }
-                .reduce(UInt64(0)) { $0 + FileImporter.savedPartBytes($1, in: captureDir ?? FileImporter.folder(for: $1, root: root)) }
+            var savedBytes: UInt64 = 0
+            for job in jobs {
+                var dir = opened[job.key]?.captureDir
+                if dir == nil, case .resolved(let d, _) = job.session { dir = d }
+                for f in job.files where !finishedIDs.contains(f.id) {
+                    savedBytes += FileImporter.savedPartBytes(f, in: dir ?? FileImporter.folder(for: f, root: root))
+                }
+            }
             var deleted: Int?
             var deleteFailed = 0
             var cardReadOnly = false
@@ -233,8 +298,9 @@ extension AppModel {
             }
             if Task.isCancelled { summary += "（已取消）" }
             lastBatch = saved
+            let sessionText = sessionNames.isEmpty ? nil : sessionNames.joined(separator: "」「")
             if mode == .newSession {
-                if !sessionName.isEmpty { summary += "，已存入会话「\(sessionName)」" }
+                if let sessionText { summary += "，已存入会话「\(sessionText)」" }
             } else if mode != .off && !saved.isEmpty {
                 summary += await sendToCaptureOne(saved, inPlace: mode == .inPlace)
             }
@@ -242,12 +308,11 @@ extension AppModel {
             if mode != .newSession && mode != .off && !saved.isEmpty { c1Failed = summary.contains("Capture One 导入失败") }
             lastSummary = summary
             if wasLost {
-                let resume: SessionChoice? = captureDir.map { .resolved(captureDir: $0, name: sessionName) }
-                interrupted = Interrupted(done: done.count, total: picked.count, session: mode == .newSession ? resume : nil,
-                                          savedBytes: savedBytes)
+                interrupted = Interrupted(done: done.count, total: picked.count, sessions: mode == .newSession ? opened : [:],
+                                          grouping: grouping, savedBytes: savedBytes)
             } else {
                 lastResult = ImportResult(files: done.count, reused: progress?.reused ?? 0, failed: progress?.failed.count ?? 0,
-                                          session: mode == .newSession && !sessionName.isEmpty ? sessionName : nil,
+                                          session: mode == .newSession ? sessionText : nil,
                                           c1Failed: c1Failed, cancelled: Task.isCancelled,
                                           backedUp: backupRoot == nil ? nil : progress?.backedUp ?? 0,
                                           backupFailed: progress?.backupFailed.count ?? 0,
@@ -277,11 +342,21 @@ extension AppModel {
         return t.isEmpty ? nil : t
     }
 
-    /// 中断后继续：导到同一个会话，不再问名字。
+    /// 中断后继续：导到原来的会话，不再问名字。有的分组上次还没来得及建会话时，再问一次（已建好的那些不用再填）。
     func continueImport() {
         guard !offline, let i = interrupted else { return }
-        if i.session == nil, captureOneMode == .newSession { beginImport(); return }
-        startImport(session: i.session)
+        guard captureOneMode == .newSession else { startImport(session: nil); return }
+        let groups = importGroups(i.grouping)
+        if !groups.isEmpty, groups.allSatisfy({ i.sessions[$0.id] != nil }) {
+            startImport(jobs: groups.map { g in
+                let r = i.sessions[g.id]!
+                return ImportJob(key: g.id, files: g.files, session: .resolved(captureDir: r.captureDir, name: r.name),
+                                 event: r.event, scene: g.scene)
+            }, grouping: i.grouping)
+        } else {
+            sessionGrouping = i.grouping
+            beginImport(resume: i.sessions)
+        }
     }
 
     func dismissResult() { lastResult = nil }

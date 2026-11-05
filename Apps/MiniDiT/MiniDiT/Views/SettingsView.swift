@@ -73,6 +73,7 @@ private struct ImportSettings: View {
                 Text("仅删除校验通过的照片；启用备份时，须两份均校验通过。视频文件不予删除。此项仅适用于读卡器。")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            NamingSection()
             Section {
                 Picker("按时间分场次", selection: $model.sceneGap) {
                     ForEach(SceneGapMenu.options, id: \.1) { Text($0.0).tag($0.1) }
@@ -99,7 +100,7 @@ private struct ImportSettings: View {
     private var backupText: String {
         guard let u = model.backupFolder else { return "尚未选择" }
         let p = u.path(percentEncoded: false)
-        return model.backupAvailable ? p + "，按“年-月-日-事件”分目录" : p + "（磁盘未连接）"
+        return model.backupAvailable ? p : p + "（磁盘未连接）"
     }
 
     private var locationText: String {
@@ -212,6 +213,35 @@ private struct RecordSettings: View {
             }
         } message: {
             Text("清除后，所有照片都会重新显示为未导入。已经导入的文件不会被删除。")
+        }
+    }
+}
+
+/// 命名模板：会话、下载文件夹、备份文件夹。
+private struct NamingSection: View {
+    @AppStorage(NameTemplate.Kind.session.key) private var session = ""
+    @AppStorage(NameTemplate.Kind.folder.key) private var folder = ""
+    @AppStorage(NameTemplate.Kind.backup.key) private var backup = ""
+
+    var body: some View {
+        Section {
+            field("会话", .session, $session)
+            field("下载文件夹", .folder, $folder)
+            field("备份文件夹", .backup, $backup)
+        } header: {
+            Text("命名")
+        } footer: {
+            Text("可用标记：{YYYY} 年，{MM} {DD} 两位月日，{M} {D} 不补零的月日，{事件}，{场次}。未填写的标记自动省略；仅下载文件夹可用“/”分层。留空即恢复默认。")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private func field(_ title: String, _ kind: NameTemplate.Kind, _ text: Binding<String>) -> some View {
+        let t = text.wrappedValue.trimmingCharacters(in: .whitespaces).isEmpty ? kind.defaultValue : text.wrappedValue
+        let example = NameTemplate.render(t, allowsFolders: kind.allowsFolders, day: "20261028", event: "卢森堡", scene: 2)
+        return VStack(alignment: .leading, spacing: 3) {
+            TextField(title, text: text, prompt: Text(kind.defaultValue))
+            Text("示例：" + example).font(.caption).foregroundStyle(.secondary)
         }
     }
 }
