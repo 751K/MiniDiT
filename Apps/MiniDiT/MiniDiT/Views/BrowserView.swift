@@ -129,7 +129,7 @@ private struct SourceCard: View {
                 FormatSafety().padding(.horizontal, 12).padding(.vertical, 10)
             }
         }
-        .glassRounded(14)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.primary.opacity(0.06)))
         .accessibilityElement(children: .contain)
         .onChange(of: model.progress != nil) { _, busy in if busy { expanded = false } }
     }
@@ -209,9 +209,10 @@ private struct SourceListRow: View {
     }
 }
 
-/// 卡槽：全部 / 卡 1 / 卡 2，下面是张数。
+/// 卡槽：全部 / 卡 1 / 卡 2，下面是张数。选中的那格是一块玻璃滑块，换卡槽时滑过去。
 private struct SlotPicker: View {
     @Environment(AppModel.self) private var model
+    @Namespace private var thumb
 
     var body: some View {
         HStack(spacing: 2) {
@@ -221,21 +222,34 @@ private struct SlotPicker: View {
             }
         }
         .padding(3)
-        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.primary.opacity(0.06)))
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.primary.opacity(0.06)))
     }
 
     private func segment(_ title: String, count: Int, on: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+        Button { withAnimation(.snappy(duration: 0.28)) { action() } } label: {
             VStack(spacing: 1) {
                 Text(title).font(.system(size: 12, weight: on ? .semibold : .regular))
                 Text(count.formatted()).font(.system(size: 11).monospacedDigit()).foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity).padding(.vertical, 5)
-            .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(on ? Color.primary.opacity(0.12) : .clear))
+            .background {
+                if on { SlotThumb().matchedGeometryEffect(id: "thumb", in: thumb) }
+            }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(on ? .isSelected : [])
+    }
+}
+
+/// 卡槽切换条里的滑块：macOS 26 起是液态玻璃，更早的系统用浅色底。
+private struct SlotThumb: View {
+    var body: some View {
+        if #available(macOS 26.0, *) {
+            Color.clear.glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        } else {
+            RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.primary.opacity(0.12))
+        }
     }
 }
 
