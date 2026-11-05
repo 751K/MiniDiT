@@ -54,7 +54,7 @@ extension AppModel {
     }
 
     /// 检查某个地址上有没有相机（先 PTP/IP 直连，再 SSH）。
-    private func probe(host: String) async -> FoundCamera? {
+    func probe(host: String) async -> FoundCamera? {
         if await CameraDiscovery.probe(host: host, port: PTPIPClient.defaultPort, timeout: 1.5) {
             return FoundCamera(host: host, kind: .direct)
         }

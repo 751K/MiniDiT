@@ -444,6 +444,18 @@ final class AppModel {
     var launchAtLogin: Bool = SMAppService.mainApp.status == .enabled {
         didSet { applyLaunchAtLogin() }
     }
+    /// 连过的相机开机、连上同一网络时发通知。
+    var notifyCameraOnline: Bool = UserDefaults.standard.object(forKey: "notifyCameraOnline") as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(notifyCameraOnline, forKey: "notifyCameraOnline")
+            startCameraWatch()
+        }
+    }
+    /// 后台看连过的相机在不在线。
+    var cameraWatchTask: Task<Void, Never>?
+    /// 后台看到在线的相机（按地址）：从不在线变成在线时才通知，免得每轮都弹。
+    var watchOnline: [String: String] = [:]
+    var watchMisses: [String: Int] = [:]
     /// 主窗口开着没有（菜单栏模式下关了窗口就隐藏程序坞图标）。
     var mainWindowOpen = false
     /// 加一 = 请求把主窗口打开到最前（由一直存在的菜单栏图标去调 openWindow）。
@@ -468,6 +480,7 @@ final class AppModel {
         if autoConnect, !knownCameras.isEmpty {
             connectTask = Task { await autoConnectLast() }
         }
+        startCameraWatch()
     }
 
     func rememberEvent(_ event: String?) {

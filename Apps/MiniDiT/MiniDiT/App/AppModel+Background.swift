@@ -18,7 +18,7 @@ enum CardInsertAction: String, CaseIterable, Identifiable {
     }
 }
 
-/// v0.6 后台：菜单栏常驻、登录时打开、插卡自动打开、通知。
+/// v0.6 后台：菜单栏常驻、登录时打开、插卡自动打开、相机上线通知。
 extension AppModel {
     /// 把主窗口打开并放到最前。
     func showMainWindow() {
@@ -79,6 +79,71 @@ extension AppModel {
         showMainWindow()
     }
 
+    // MARK: 相机上线
+
+    /// 每隔一会儿试一下连过的相机的地址（只是敲一下端口，不建立会话），从不在线变成在线就发通知。
+    /// 已经打开的、正在连的相机不试。
+    func startCameraWatch() {
+        cameraWatchTask?.cancel()
+        watchOnline = [:]
+        watchMisses = [:]
+        guard notifyCameraOnline else { return }
+        cameraWatchTask = Task {
+            while !Task.isCancelled {
+                await watchCamerasOnce()
+                try? await Task.sleep(for: .seconds(30))
+            }
+        }
+    }
+
+    private func watchCamerasOnce() async {
+        // 同一个地址可能有两条记录（开 / 不开访问身份验证各连过一次），按地址只试一次。
+        var hosts: [String] = []
+        for k in knownCameras where !hosts.contains(k.host) { hosts.append(k.host) }
+        for host in hosts.prefix(8) {
+            if Task.isCancelled { return }
+            if openHosts.contains(host) || connectingHost == host || phase == .searching { continue }
+            let cam = await probe(host: host)
+            let k = cam.flatMap { c in knownCameras.first { $0.host == host && $0.fingerprint == c.fingerprint } }
+            if let k {
+                watchMisses[host] = 0
+                if watchOnline[host] == nil {
+                    watchOnline[host] = k.fingerprint
+                    // 刚好在这时自己连上了（启动时的自动连接等），就不打扰。
+                    if !openHosts.contains(host), connectingHost != host { cameraCameOnline(k) }
+                }
+            } else if watchOnline[host] != nil {
+                // Wi-Fi 偶尔丢一下：连续两次不在才算离线，下次上线再通知。
+                watchMisses[host, default: 0] += 1
+                if watchMisses[host, default: 0] >= 2 {
+                    watchOnline[host] = nil
+                    log.add("后台：\(host) 已离线")
+                }
+            }
+        }
+    }
+
+    private func cameraCameOnline(_ k: KnownCamera) {
+        log.add("后台：\(k.name)（\(k.host)）已上线")
+        Notifier.shared.post(id: "camera:" + k.fingerprint, title: "“\(k.name)”已上线",
+                             body: library == nil ? "点按以连接并导入。" : "点按以同时连接。",
+                             info: ["camera": k.fingerprint])
+    }
+
+    /// 点了「相机已上线」的通知：什么都没开就连它；已经开着别的来源就同时连。
+    func connectNotified(_ fingerprint: String) {
+        showMainWindow()
+        guard let k = knownCameras.first(where: { $0.fingerprint == fingerprint }) else { return }
+        if openHosts.contains(k.host) { return }
+        if progress != nil { errorMessage = "正在导入，完成后再连接“\(k.name)”。"; return }
+        if phase == .searching || phase == .connecting { cancelConnect() }
+        if library == nil {
+            if phase == .idle { connect(known: k) }
+        } else {
+            addCamera(known: k)
+        }
+    }
+
     // MARK: 菜单栏面板
 
     /// 菜单栏面板上一行的状态。
@@ -135,9 +200,11 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate, @unchecked Sen
 
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
-        let card = response.notification.request.content.userInfo["card"] as? String
+        let info = response.notification.request.content.userInfo
+        let card = info["card"] as? String, camera = info["camera"] as? String
         Task { @MainActor in
             if let card { self.model?.openInsertedCard(URL(filePath: card, directoryHint: .isDirectory)) }
+            else if let camera { self.model?.connectNotified(camera) }
             else { self.model?.showMainWindow() }
         }
         completionHandler()
