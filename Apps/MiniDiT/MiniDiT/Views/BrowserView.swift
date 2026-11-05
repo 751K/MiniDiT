@@ -244,11 +244,12 @@ private struct SlotPicker: View {
 
 /// 卡槽切换条里的滑块：macOS 26 起是液态玻璃，更早的系统用浅色底。
 private struct SlotThumb: View {
+    var radius: CGFloat = 8
     var body: some View {
         if #available(macOS 26.0, *) {
-            Color.clear.glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            Color.clear.glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: radius, style: .continuous))
         } else {
-            RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.primary.opacity(0.12))
+            RoundedRectangle(cornerRadius: radius, style: .continuous).fill(Color.primary.opacity(0.12))
         }
     }
 }
@@ -409,86 +410,96 @@ struct BrowseHeader: View {
 
     var body: some View {
         @Bindable var model = model
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 0) {
-                Text(title).font(.system(size: 15, weight: .semibold)).lineLimit(1)
-                CardSafetyLine()
+        HStack(spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(model.newShotCount > 0 ? "\(model.newShotCount.formatted()) 张新照片" : "无新照片")
+                    .font(.system(size: 15, weight: .semibold))
+                Text("共 \(model.days.reduce(0) { $0 + $1.shots.count }.formatted()) 张")
+                    .font(.system(size: 12)).foregroundStyle(.secondary)
             }
+            .lineLimit(1)
             Spacer(minLength: 8)
-            SelectAllButton()
-            CapsuleSegment(options: [("全部", false), ("未导入", true)], selection: $model.onlyNew)
+            SlidingSegment(options: [("全部", false), ("未导入", true)], selection: $model.onlyNew)
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel("显示范围")
-            HStack(spacing: 2) {
+            HStack(spacing: 1) {
                 TypeToggle(label: "RAW", on: $model.showRaw)
                 TypeToggle(label: "JPG/HIF", on: $model.showPhotos)
                 TypeToggle(label: "视频", on: $model.showVideo)
             }
+            .segmentTrack()
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("文件类型")
             Slider(value: $model.thumbSize, in: 110...320)
-                .frame(width: 80)
+                .frame(width: 76)
                 .accessibilityLabel("缩略图大小")
                 .help("缩略图大小（⌘+ / ⌘−）")
         }
-        .padding(.horizontal, 20)
+        .padding(.leading, 20).padding(.trailing, 16)
         .frame(minHeight: 52)
     }
+}
 
-    private var title: String {
-        var t = model.connectedName ?? "MiniDiT"
-        if let s = model.slotFilter, model.slots.count > 1 { t += " · 卡 \(s)" }
-        return t
+/// 分段控件里每一格的高度（外面的灰底再多 2 pt 边距）。
+private let segmentHeight: CGFloat = 24
+
+extension View {
+    /// 分段控件的灰色底槽。
+    func segmentTrack() -> some View {
+        padding(2).background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.primary.opacity(0.06)))
     }
 }
 
-/// 标题下面一行：新照片数（能不能格式化在侧栏的来源卡片里）。
-private struct CardSafetyLine: View {
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        Text(model.newShotCount > 0 ? "\(model.newShotCount.formatted()) 张新照片" : "无新照片")
-            .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
-    }
-}
-
-/// 工具栏里统一的胶囊控件高度。
-private let pillHeight: CGFloat = 26
-
-/// 全选右边显示的照片；都选上了就变成「取消全选」。
-private struct SelectAllButton: View {
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        let order = model.grid.order
-        let all = !order.isEmpty && order.allSatisfy(model.grid.contains)
-        Button { all ? model.grid.clear() : model.grid.selectAll() } label: {
-            Text(all ? "取消全选" : "全选")
-                .font(.system(size: 13))
-                .padding(.horizontal, 12).frame(height: pillHeight)
-                .background(Capsule().fill(Color.primary.opacity(0.08)))
-                .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .disabled(order.isEmpty)
-        .help(all ? "取消选择（⌘D）" : "选择右侧显示的全部照片（⌘A）")
-    }
-}
-
-/// 导入栏里的两个开关：备份、导入后删除卡上的照片（和设置里是同一个设置）。
+/// 导入栏里的「备份」开关和「…」菜单（存放位置、导入后删除原片；和设置里是同一个设置）。
 private struct ImportOptions: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
         @Bindable var model = model
-        HStack(spacing: 2) {
-            TypeToggle(label: "备份", on: $model.backupEnabled)
-                .help(model.backupEnabled ? "同时备份至另一磁盘" : "仅存储一份")
-            TypeToggle(label: "删除原片", on: $model.deleteAfterImport)
-                .disabled(!model.canDeleteFromSource)
-                .opacity(model.canDeleteFromSource ? 1 : 0.4)
-                .help(model.canDeleteFromSource ? "导入并校验通过后，删除存储卡上的照片（视频文件不予删除）"
-                                                : "仅适用于读卡器；经 Wi-Fi 连接相机时不可用")
+        HStack(spacing: 6) {
+            Button { model.backupEnabled.toggle() } label: {
+                HStack(spacing: 5) {
+                    if model.backupEnabled { Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)) }
+                    Text("备份")
+                }
+                .padding(.horizontal, 14).frame(height: 36)
+                .foregroundStyle(model.backupEnabled ? Color.primary : Color.secondary)
+                .background(Capsule().fill(Color.primary.opacity(model.backupEnabled ? 0.12 : 0.06)))
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .accessibilityAddTraits(model.backupEnabled ? .isSelected : [])
+            .help(model.backupEnabled ? "同时备份至另一磁盘；点按改为仅存储一份" : "仅存储一份；点按以同时备份")
+
+            Menu {
+                Button("更改存放位置…") { chooseFolder() }
+                Divider()
+                Toggle("完成后删除存储卡上的原片", isOn: $model.deleteAfterImport)
+                    .disabled(!model.canDeleteFromSource)
+                if !model.canDeleteFromSource {
+                    Text("仅适用于读卡器")
+                }
+            } label: {
+                Image(systemName: "ellipsis").font(.system(size: 13, weight: .semibold))
+                    .frame(width: 36, height: 36)
+                    .background(Circle().fill(Color.primary.opacity(model.willDeleteFromSource ? 0.12 : 0.06)))
+                    .contentShape(Circle())
+            }
+            .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
+            .fixedSize()
+            .accessibilityLabel("更多操作")
+            .help("更多操作")
         }
         .fixedSize()
+    }
+
+    /// 新建会话改的是会话放在哪；其余方式改的是照片存放位置。
+    private func chooseFolder() {
+        if model.captureOneMode == .newSession {
+            if let url = FolderPicker.choose(start: model.sessionsFolder) { model.sessionsFolder = url }
+        } else {
+            if let url = FolderPicker.choose(start: model.destination) { model.destination = url }
+        }
     }
 }
 
@@ -499,47 +510,44 @@ private struct TypeToggle: View {
     var body: some View {
         Button { on.toggle() } label: {
             Text(label)
-                .font(.system(size: 13))
-                .padding(.horizontal, 10).frame(height: pillHeight)
+                .font(.system(size: 13, weight: on ? .semibold : .regular))
+                .padding(.horizontal, 10).frame(height: segmentHeight)
                 .foregroundStyle(on ? Color.primary : Color.secondary)
-                .background(Capsule().fill(on ? Color.primary.opacity(0.12) : Color.clear))
-                .contentShape(Capsule())
+                .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(on ? Color.primary.opacity(0.12) : Color.clear))
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(on ? .isSelected : [])
     }
 }
 
-/// 胶囊分段控件：灰色底，选中的一项是浮起的亮色胶囊。
-private struct CapsuleSegment<T: Hashable>: View {
+/// 单选分段控件：选中的一格是一块会滑动的液态玻璃（和侧栏的卡槽切换一样）。
+struct SlidingSegment<T: Hashable>: View {
     let options: [(String, T)]
     @Binding var selection: T
+    /// 撑满整行，每格等宽（弹层里用）。
+    var fill = false
+    @Environment(\.isEnabled) private var enabled
     @Namespace private var ns
 
     var body: some View {
         HStack(spacing: 0) {
             ForEach(options, id: \.1) { label, value in
                 let on = selection == value
-                Button { withAnimation(.snappy(duration: 0.2)) { selection = value } } label: {
+                Button { withAnimation(.snappy(duration: 0.28)) { selection = value } } label: {
                     Text(label)
                         .font(.system(size: 13, weight: on ? .semibold : .regular))
                         .foregroundStyle(on ? Color.primary : Color.secondary)
-                        .padding(.horizontal, 12).frame(height: pillHeight - 4)
-                        .background {
-                            if on {
-                                Capsule().fill(Color(nsColor: .controlBackgroundColor))
-                                    .shadow(color: .black.opacity(0.15), radius: 1, y: 0.5)
-                                    .matchedGeometryEffect(id: "on", in: ns)
-                            }
-                        }
-                        .contentShape(Capsule())
+                        .padding(.horizontal, 10).frame(maxWidth: fill ? .infinity : nil).frame(height: segmentHeight)
+                        .background { if on { SlotThumb(radius: 6).matchedGeometryEffect(id: "on", in: ns) } }
+                        .opacity(enabled || on ? 1 : 0.5)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityAddTraits(on ? .isSelected : [])
             }
         }
-        .padding(2)
-        .background(Capsule().fill(Color.primary.opacity(0.08)))
+        .segmentTrack()
     }
 }
 
@@ -741,25 +749,23 @@ struct DayHeader: View {
     var body: some View {
         let picked = day.shots.contains(where: model.grid.contains)
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(day.title).font(.system(size: 15, weight: .semibold)).foregroundStyle(.primary)
+            Text(day.title).font(.system(size: 13, weight: .semibold)).foregroundStyle(.primary)
             if day.partial, day.scenes.count == 1 {
-                Text(AppModel.sceneTitle(day.scenes[0])).font(.system(size: 15, weight: .semibold)).foregroundStyle(.primary)
+                Text(AppModel.sceneTitle(day.scenes[0])).font(.system(size: 13, weight: .semibold)).foregroundStyle(.primary)
             }
-            Text("\(day.shots.count) 张" + (day.importedCount > 0 ? " · \(day.importedCount) 张已导入" : ""))
-                .font(.system(size: 12))
+            Text(GroupMeta.text(total: day.shots.count, new: day.newCount))
             Spacer(minLength: 8)
-            if day.newCount > 0 {
-                Button("选择新照片") { model.selectNew(in: [day.id]) }
-            }
-            Button(picked ? "取消选择" : "全选") {
-                if picked { model.deselect(in: [day.id]) } else { model.selectAll(in: [day.id]) }
+            Button(picked ? "取消选择" : day.newCount > 0 ? "选择新照片" : "全选") {
+                if picked { model.deselect(in: [day.id]) }
+                else if day.newCount > 0 { model.selectNew(in: [day.id]) }
+                else { model.selectAll(in: [day.id]) }
             }
         }
         .buttonStyle(.plain)
         .font(.system(size: 12))
         .foregroundStyle(.secondary)
-        .padding(.horizontal, 20).padding(.vertical, 8)
-        .background(Color(nsColor: .textBackgroundColor))   // 和标题区、网格同一个底色
+        .padding(.horizontal, 20).padding(.vertical, 7)
+        .background(.bar)   // 滚动时浮在缩略图上，毛玻璃底
     }
 }
 
@@ -773,17 +779,25 @@ struct SceneHeader: View {
         let picked = scene.shots.contains(where: model.grid.contains)
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(AppModel.sceneTitle(scene)).font(.system(size: 13, weight: .medium)).foregroundStyle(.primary)
-            Text("\(scene.shots.count) 张" + (scene.importedCount > 0 ? " · \(scene.importedCount) 张已导入" : ""))
+            Text(GroupMeta.text(total: scene.shots.count, new: scene.newCount))
             Spacer(minLength: 8)
-            if scene.newCount > 0 {
-                Button("选择新照片") { model.grid.set(scene.shots.filter { !model.isImported(shot: $0) }, selected: true) }
+            Button(picked ? "取消选择" : scene.newCount > 0 ? "选择新照片" : "全选") {
+                if picked { model.grid.set(scene.shots, selected: false) }
+                else if scene.newCount > 0 { model.grid.set(scene.shots.filter { !model.isImported(shot: $0) }, selected: true) }
+                else { model.grid.set(scene.shots, selected: true) }
             }
-            Button(picked ? "取消选择" : "全选") { model.grid.set(scene.shots, selected: !picked) }
         }
         .buttonStyle(.plain)
         .font(.system(size: 12))
         .foregroundStyle(.secondary)
         .padding(.horizontal, 20).padding(.top, 6).padding(.bottom, 2)
+    }
+}
+
+/// 「870 张 · 6 张新照片」/「112 张 · 均已导入」。
+enum GroupMeta {
+    static func text(total: Int, new: Int) -> String {
+        "\(total.formatted()) 张 · " + (new > 0 ? (new == total ? "均为新照片" : "\(new.formatted()) 张新照片") : "均已导入")
     }
 }
 
@@ -824,19 +838,20 @@ struct ThumbCell: View {
                         .help(copies >= 2 ? "电脑上存有两份，均已校验" : copies == 1 ? "仅存有一份，尚未备份" : "已导入，但电脑上未找到该文件")
                 }
             }
-            .overlay {
-                if selected {
-                    RoundedRectangle(cornerRadius: 6).strokeBorder(Color.accentColor, lineWidth: 3)
-                }
-            }
             .overlay(alignment: .topTrailing) {
                 if selected {
-                    Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
-                        .frame(width: 20, height: 20).background(Circle().fill(Color.accentColor))
-                        .padding(7)
+                    Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)).foregroundStyle(.white)
+                        .frame(width: 18, height: 18).background(Circle().fill(Color.accentColor))
+                        .padding(5)
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: 6))
+            // 选中：照片外面隔 2 pt 一圈蓝框（不压住照片边缘）。
+            .overlay {
+                if selected {
+                    RoundedRectangle(cornerRadius: 10).strokeBorder(Color.accentColor, lineWidth: 2).padding(-4)
+                }
+            }
             HStack(spacing: 6) {
                 Text(item?.baseName ?? "").lineLimit(1).truncationMode(.tail)
                 Spacer(minLength: 0)
@@ -997,9 +1012,9 @@ struct FloatingBar: View {
         let files = model.selectedFiles()
         let days = Set(files.map(AppModel.dayKey)).count
         let dest = model.captureOneMode == .newSession ? model.sessionsFolder : model.destination
-        var s = "\(files.count) 个文件 · \(days) 天 · 存储至 \(Self.short(dest))"
+        var s = "\(files.count) 个文件 · \(days) 天 · 存储至“\(dest.lastPathComponent)”"
         if model.backupEnabled {
-            s += model.backupAvailable ? " · 备份至 \(Self.short(model.backupFolder!))" : " · ⚠︎ 备份磁盘未连接"
+            s += model.backupAvailable ? " · 备份至“\(model.backupFolder!.lastPathComponent)”" : " · ⚠︎ 备份磁盘未连接"
         }
         if model.willDeleteFromSource { s += " · 完成后删除存储卡上的照片" }
         return s
@@ -1032,8 +1047,8 @@ struct FloatingBar: View {
     }
 
     private func capsule<C: View>(@ViewBuilder _ content: () -> C) -> some View {
-        HStack(spacing: 16) { content() }
-            .padding(.init(top: 8, leading: 24, bottom: 8, trailing: 8))
+        HStack(spacing: 6) { content() }
+            .padding(.init(top: 6, leading: 20, bottom: 6, trailing: 6))
             .frame(maxWidth: 760)
             .glassCapsule()
     }
@@ -1047,14 +1062,15 @@ struct FloatingBar: View {
     private func twoLines(_ title: String, _ detail: String) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(title).font(.system(size: 15, weight: .semibold)).lineLimit(1)
-            Text(detail).font(.system(size: 11)).lineLimit(1).truncationMode(.middle)
+            Text(detail).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.trailing, 12)
     }
 
     private func mainButton(_ title: String, disabled: Bool = false, _ action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(title).font(.system(size: 15, weight: .semibold)).padding(.horizontal, 8).frame(height: 28)
+            Text(title).font(.system(size: 15, weight: .semibold)).padding(.horizontal, 8).frame(height: 26)
         }
         .glassProminentButton()
         .controlSize(.large)
@@ -1075,13 +1091,6 @@ struct FloatingBar: View {
         }
         return "剩余约 \(n / 3600) 小时 \(n % 3600 / 60) 分"
     }
-
-    /// 路径太长时只留首尾：/Volumes/…/Pic
-    static func short(_ url: URL) -> String {
-        let parts = url.path(percentEncoded: false).split(separator: "/").map(String.init)
-        guard parts.count > 2 else { return url.path(percentEncoded: false) }
-        return "/" + parts[0] + "/…/" + parts[parts.count - 1]
-    }
 }
 
 // MARK: - 大图预览
@@ -1095,73 +1104,36 @@ struct PreviewOverlay: View {
         let shot = model.shots[id]
         let item = shot.flatMap { model.item($0.primary) }
         let selected = model.grid.contains(id)
-        let index = model.grid.order.firstIndex(of: id) ?? 0
-        ZStack {
+        let order = model.grid.order
+        let index = order.firstIndex(of: id) ?? 0
+        let atEnd = index >= order.count - 1
+        ZStack(alignment: .bottom) {
             Color.black
             Group {
                 if let img = model.previewImage {
                     Image(nsImage: img).resizable().scaledToFit()
-                        .overlay { if selected { Rectangle().strokeBorder(Color.accentColor, lineWidth: 3) } }
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                        // 大图还没到：先放大缩略图，模糊处理，免得看着像糊了。
+                        .blur(radius: model.previewLoaded ? 0 : 10, opaque: true)
+                        .clipShape(RoundedRectangle(cornerRadius: 5))
+                        .overlay(alignment: .topTrailing) {
+                            if selected {
+                                Image(systemName: "checkmark").font(.system(size: 12, weight: .bold))
+                                    .frame(width: 22, height: 22).background(Circle().fill(Color.accentColor)).padding(8)
+                            }
+                        }
+                        .overlay {
+                            if selected { RoundedRectangle(cornerRadius: 9).strokeBorder(Color.accentColor, lineWidth: 2).padding(-4) }
+                        }
+                        .animation(.easeOut(duration: 0.2), value: model.previewLoaded)
                 } else {
                     ProgressView().tint(.white)
                 }
             }
-            .padding(.init(top: 40, leading: 80, bottom: 84, trailing: 80))
+            .padding(.init(top: 40, leading: 28, bottom: 84, trailing: 28))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            HStack {
-                roundButton("chevron.left", "上一张") { model.previewStep(-1) }.disabled(index == 0).opacity(index == 0 ? 0.3 : 1)
-                Spacer()
-                let atEnd = index >= model.grid.order.count - 1
-                roundButton("chevron.right", "下一张") { model.previewStep(1) }.disabled(atEnd).opacity(atEnd ? 0.3 : 1)
-            }
-            .padding(.horizontal, 18)
-
-            VStack {
-                HStack { Spacer(); roundButton("xmark", "关闭预览", size: 32) { model.closePreview() } }
-                    .padding(.init(top: 10, leading: 0, bottom: 0, trailing: 16))
-                Spacer()
-                HStack(spacing: 16) {
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text(item?.baseName ?? "").font(.system(size: 15, weight: .semibold))
-                        HStack(spacing: 6) {
-                            Text([shot.map(model.badge(of:)) ?? "", ThumbCell.time(item)].filter { !$0.isEmpty }.joined(separator: " · ")
-                                 + (model.previewLoaded ? "" : " · 正在加载大图…"))
-                            if model.isImported(shot: id) {
-                                let copies = model.copyCount(shot: id)
-                                Label(copies >= 2 ? "两份" : copies == 1 ? "仅一份" : "已导入", systemImage: "checkmark")
-                            }
-                        }
-                        .font(.system(size: 12)).foregroundStyle(.white.opacity(0.72))
-                        if let x = model.previewExif {
-                            Text(x.exposureText).font(.system(size: 12, weight: .medium).monospacedDigit())
-                                .foregroundStyle(.white.opacity(0.9)).padding(.top, 4)
-                            if !x.gearText.isEmpty {
-                                Text(x.gearText).font(.system(size: 11)).foregroundStyle(.white.opacity(0.6)).lineLimit(1)
-                            }
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    Text("← → 翻页 · P 选中 · Esc 关闭").font(.system(size: 11)).foregroundStyle(.white.opacity(0.72))
-                    HStack {
-                        Spacer()
-                        Button { model.togglePreviewSelection() } label: {
-                            HStack(spacing: 6) {
-                                if selected { Image(systemName: "checkmark") }
-                                Text(selected ? "已选中" : "选中")
-                            }
-                            .font(.system(size: 17, weight: .semibold))
-                            .padding(.horizontal, 22).frame(height: 44)
-                            .foregroundStyle(.white)
-                            .background(Capsule().fill(selected ? Color.accentColor : Color.white.opacity(0.14)))
-                            .contentShape(Capsule())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    .frame(maxWidth: .infinity)
-                }
-                .padding(.init(top: 0, leading: 80, bottom: 16, trailing: 80))
-            }
+            bar(shot: shot, item: item, id: id, selected: selected, index: index, count: order.count, atEnd: atEnd)
+                .padding(.horizontal, 24).padding(.bottom, 14)
         }
         .foregroundStyle(.white)
         .ignoresSafeArea()
@@ -1169,22 +1141,94 @@ struct PreviewOverlay: View {
         .focusEffectDisabled()
         .focused($focused)
         .onAppear { focused = true }
-        .onKeyPress(.leftArrow) { model.previewStep(-1); return .handled }
-        .onKeyPress(.rightArrow) { model.previewStep(1); return .handled }
+        .onKeyPress(keys: [.leftArrow, .upArrow]) { _ in model.previewStep(-1); return .handled }
+        .onKeyPress(keys: [.rightArrow, .downArrow]) { _ in model.previewStep(1); return .handled }
         .onKeyPress(.space) { model.closePreview(); return .handled }
         .onKeyPress(.escape) { model.closePreview(); return .handled }
         .onKeyPress(characters: CharacterSet(charactersIn: "pP")) { _ in model.togglePreviewSelection(); return .handled }
         .accessibilityAddTraits(.isModal)
     }
 
-    private func roundButton(_ icon: String, _ label: String, size: CGFloat = 44, _ action: @escaping () -> Void) -> some View {
+    /// 底部一条：文件名和参数、翻页、选中、关闭。
+    private func bar(shot: Shot?, item: CameraContentItem?, id: UInt32, selected: Bool, index: Int, count: Int, atEnd: Bool) -> some View {
+        HStack(spacing: 6) {
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(item?.baseName ?? "").font(.system(size: 13, weight: .semibold))
+                    if let x = model.previewExif {
+                        Text(x.exposureText).font(.system(size: 12).monospacedDigit()).foregroundStyle(.white.opacity(0.85))
+                    }
+                }
+                HStack(spacing: 4) {
+                    Text(metaText(shot: shot, item: item))
+                    if model.isImported(shot: id) {
+                        let copies = model.copyCount(shot: id)
+                        Text("·")
+                        Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)).foregroundStyle(copies == 1 ? .orange : .green)
+                        Text(copies >= 2 ? "存有两份" : copies == 1 ? "仅一份" : "已导入")
+                    }
+                    if let gear = model.previewExif?.gearText, !gear.isEmpty {
+                        Text("· " + gear).truncationMode(.tail)
+                    }
+                }
+                .font(.system(size: 11)).foregroundStyle(.white.opacity(0.72))
+            }
+            .lineLimit(1)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            HStack(spacing: 0) {
+                arrow("chevron.left", "上一张（←）", disabled: index == 0) { model.previewStep(-1) }
+                Text("\(index + 1) / \(count)")
+                    .font(.system(size: 12).monospacedDigit()).foregroundStyle(.white.opacity(0.72))
+                    .frame(minWidth: 68)
+                arrow("chevron.right", "下一张（→）", disabled: atEnd) { model.previewStep(1) }
+            }
+            .padding(.trailing, 8)
+
+            Button { model.togglePreviewSelection() } label: {
+                HStack(spacing: 8) {
+                    Text(selected ? "已选中" : "选中").font(.system(size: 15, weight: .semibold))
+                    Text("P").font(.system(size: 11, weight: .medium))
+                        .frame(minWidth: 18, minHeight: 18)
+                        .background(RoundedRectangle(cornerRadius: 4).fill(.white.opacity(0.2)))
+                }
+                .padding(.leading, 16).padding(.trailing, 10).frame(height: 36)
+                .background(Capsule().fill(selected ? Color.accentColor : Color.white.opacity(0.16)))
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .help("按 P 切换")
+            .accessibilityAddTraits(selected ? .isSelected : [])
+
+            Button { model.closePreview() } label: {
+                Image(systemName: "xmark").font(.system(size: 12, weight: .semibold))
+                    .frame(width: 36, height: 36)
+                    .background(Circle().fill(.white.opacity(0.16)))
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .help("关闭（Esc）")
+            .accessibilityLabel("关闭预览")
+        }
+        .padding(.init(top: 6, leading: 20, bottom: 6, trailing: 6))
+        .frame(maxWidth: 760)
+        .glassCapsule()
+        .environment(\.colorScheme, .dark)
+    }
+
+    private func metaText(shot: Shot?, item: CameraContentItem?) -> String {
+        [shot.map(model.badge(of:)) ?? "", ThumbCell.time(item)].filter { !$0.isEmpty }.joined(separator: " · ")
+            + (model.previewLoaded ? "" : " · 正在加载大图…")
+    }
+
+    private func arrow(_ icon: String, _ label: String, disabled: Bool, _ action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: icon).font(.system(size: size * 0.38, weight: .semibold))
-                .frame(width: size, height: size)
-                .contentShape(Circle())
-                .glassCircle()
+            Image(systemName: icon).font(.system(size: 13, weight: .semibold))
+                .frame(width: 32, height: 36).contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .disabled(disabled).opacity(disabled ? 0.35 : 1)
+        .help(label)
         .accessibilityLabel(label)
     }
 }
@@ -1206,14 +1250,6 @@ extension View {
             glassEffect(.regular, in: RoundedRectangle(cornerRadius: radius))
         } else {
             background(RoundedRectangle(cornerRadius: radius).fill(.regularMaterial))
-        }
-    }
-
-    @ViewBuilder func glassCircle() -> some View {
-        if #available(macOS 26.0, *) {
-            glassEffect(.regular.interactive(), in: Circle())
-        } else {
-            background(Circle().fill(Color.white.opacity(0.14)))
         }
     }
 
