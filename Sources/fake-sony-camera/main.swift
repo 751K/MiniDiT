@@ -6,7 +6,7 @@ import ImageIO
 import UniformTypeIdentifiers
 
 // 在 Mac 上模拟一台索尼相机（PTP/IP，默认端口 15740），用来在模拟器里联调 APP。
-// 用法：swift run fake-sony-camera [端口] [-bind 本机地址] [-serial 序列号] [-model 型号]
+// 用法：swift run fake-sony-camera [端口] [-bind 本机地址] [-serial 序列号] [-model 型号] [-slow 秒] [-mirror]
 
 setvbuf(stdout, nil, _IOLBF, 0)  // 输出重定向到文件时也逐行写出
 let port = CommandLine.arguments.dropFirst().first.flatMap(UInt16.init) ?? 15740
@@ -72,10 +72,16 @@ state.card = FakeCard.sample(
 state.requireContentsTransferMode = true
 // 远程传输：卡 1 是上面那张卡，卡 2 另放几张（加 -no-remote 模拟不支持远程传输的相机）。
 if !CommandLine.arguments.contains("-no-remote") {
-    let card2 = FakeCard.sample(
-        photo: { renderJPEG(width: 3000, height: 2000, t: seed($0) + 50, label: "卡2 " + $0) },
-        thumb: { renderJPEG(width: 160, height: 120, t: seed($0) + 50, label: "卡2 " + $0) },
-        photosPerFolder: 4)
+    // -mirror：两张卡「同时记录」，卡 2 和卡 1 一模一样。
+    let mirror = CommandLine.arguments.contains("-mirror")
+    let card2 = mirror
+        ? FakeCard.sample(photo: { renderJPEG(width: 3000, height: 2000, t: seed($0), label: $0) },
+                          thumb: { renderJPEG(width: 160, height: 120, t: seed($0), label: $0) },
+                          photosPerFolder: 30)
+        : FakeCard.sample(
+            photo: { renderJPEG(width: 3000, height: 2000, t: seed($0) + 50, label: "卡2 " + $0) },
+            thumb: { renderJPEG(width: 160, height: 120, t: seed($0) + 50, label: "卡2 " + $0) },
+            photosPerFolder: 4)
     state.remoteSlots = [1: state.card!, 2: card2]
     state.advertisedOperations = [PTPOperation.getDeviceInfo, PTPOperation.openSession, SonyOperation.sdioConnect,
                                   SonyOperation.getExtDeviceInfo, SonyOperation.getCapturedDateList,

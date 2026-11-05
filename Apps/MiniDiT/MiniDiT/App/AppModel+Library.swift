@@ -124,10 +124,11 @@ extension AppModel {
 
     /// 一次拍摄里，按当前筛选和配对规则实际要导入的文件。
     func importFiles(of shot: Shot) -> [UInt32] {
-        // 先按筛选（卡槽、类型）去掉，再去重：选了「卡 2」时就用卡 2 上的那份。
+        // 先按筛选（卡槽、类型）去掉，再去重：选了「卡 2」时就用卡 2 上的那份；都显示时用卡 1 上的那份。
         ShotBuilder.files(of: shot, policy: pairPolicy, kindOf: { items[$0]?.kind },
                           identity: { items[$0].map { "\($0.filename)|\($0.size)" } },
-                          include: { items[$0].map(kindAccepted) ?? false })
+                          include: { items[$0].map(kindAccepted) ?? false },
+                          preference: { items[$0].map { $0.storageID >> 16 } ?? 0 })
     }
 
     /// 缩略图角标：只列筛选和配对规则留下的文件类型（只看 RAW 时显示「RAW」，不是「RAW+HIF」）。

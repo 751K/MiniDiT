@@ -70,8 +70,12 @@ public enum ShotBuilder {
     /// 同一个文件在两张卡上都有（同时记录）时只取一份。
     public static func files(of shot: Shot, policy: PairPolicy, kindOf: (UInt32) -> CameraContentItem.Kind?,
                              identity: (UInt32) -> String? = { _ in nil },
-                             include: (UInt32) -> Bool = { _ in true }) -> [UInt32] {
-        let accepted = shot.handles.filter(include)
+                             include: (UInt32) -> Bool = { _ in true },
+                             preference: (UInt32) -> UInt32 = { _ in 0 }) -> [UInt32] {
+        // 两张卡「同时记录」时同一个文件有两份，只留一份：按 preference 小的优先（卡 1 先于卡 2），
+        // 每次留的都是同一份，不随列表顺序变。
+        let accepted = shot.handles.filter(include).enumerated()
+            .sorted { (preference($0.element), $0.offset) < (preference($1.element), $1.offset) }.map(\.element)
         let kinds = accepted.compactMap(kindOf)
         let hasRaw = kinds.contains(.raw), hasPhoto = kinds.contains(.jpeg) || kinds.contains(.heif)
         var seen = Set<String>()
