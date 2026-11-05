@@ -30,7 +30,11 @@ extension AppModel {
     /// 主窗口开 / 关：菜单栏模式下，窗口关了就不占程序坞。
     func mainWindowChanged(open: Bool) {
         mainWindowOpen = open
-        if open { NSApp.setActivationPolicy(.regular) }
+        if open {
+            NSApp.setActivationPolicy(.regular)
+            // 用得到通知时，窗口出来以后问一次权限（程序启动完之前问，系统会直接拒绝且不再询问）。
+            if notifyCameraOnline || cardInsertAction == .notify { Notifier.shared.requestPermission() }
+        }
         else if keepInMenuBar { NSApp.setActivationPolicy(.accessory) }
     }
 
@@ -180,7 +184,27 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate, @unchecked Sen
     func requestPermission() {
         guard !asked else { return }
         asked = true
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { ok, error in
+            self.log("通知权限：\(ok ? "已允许" : "未允许")\(error.map { "，\($0.localizedDescription)" } ?? "")")
+            self.refreshPermission()
+        }
+    }
+
+    /// 查一下系统设置里现在允不允许（用户可能在系统设置里改过）。
+    func refreshPermission() {
+        UNUserNotificationCenter.current().getNotificationSettings { st in
+            let ok = st.authorizationStatus == .authorized || st.authorizationStatus == .provisional
+            Task { @MainActor in self.model?.notificationsAllowed = ok }
+        }
+    }
+
+    /// 打开「系统设置 › 通知」。
+    static func openSystemSettings() {
+        if let u = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") { NSWorkspace.shared.open(u) }
+    }
+
+    private func log(_ s: String) {
+        Task { @MainActor in self.model?.log.add(s) }
     }
 
     func post(id: String, title: String, body: String, info: [String: String]) {
@@ -189,7 +213,9 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate, @unchecked Sen
         c.title = title
         c.body = body
         c.userInfo = info
-        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: id, content: c, trigger: nil))
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: id, content: c, trigger: nil)) { error in
+            self.log("发送通知「\(title)」" + (error.map { "失败：\($0.localizedDescription)" } ?? ""))
+        }
     }
 
     // 程序在前台时也显示横幅。

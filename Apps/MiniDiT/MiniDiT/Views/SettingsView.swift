@@ -160,6 +160,15 @@ private struct ConnectSettings: View {
                 Toggle("登录时打开 MiniDiT", isOn: $model.launchAtLogin)
                 Toggle("关闭窗口后保留在菜单栏", isOn: $model.keepInMenuBar)
                 Toggle("连接过的相机开机时发送通知", isOn: $model.notifyCameraOnline)
+                if model.notificationsAllowed == false, model.notifyCameraOnline || model.cardInsertAction == .notify {
+                    HStack {
+                        Label("系统设置中已关闭 MiniDiT 的通知，将无法收到提醒。", systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                        Spacer()
+                        Button("打开通知设置…") { Notifier.openSystemSettings() }
+                    }
+                    .font(.callout)
+                }
                 Picker("插入相机存储卡时", selection: $model.cardInsertAction) {
                     ForEach(CardInsertAction.allCases) { Text($0.title).tag($0) }
                 }
@@ -193,6 +202,10 @@ private struct ConnectSettings: View {
             }
         }
         .formStyle(.grouped)
+        .onAppear { Notifier.shared.refreshPermission() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Notifier.shared.refreshPermission()
+        }
     }
 
     static func when(_ d: Date) -> String {

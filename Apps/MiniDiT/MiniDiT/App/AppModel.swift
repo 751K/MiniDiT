@@ -451,6 +451,8 @@ final class AppModel {
             startCameraWatch()
         }
     }
+    /// 系统设置里允不允许 MiniDiT 发通知（nil = 还没查）。
+    var notificationsAllowed: Bool?
     /// 后台看连过的相机在不在线。
     var cameraWatchTask: Task<Void, Never>?
     /// 后台看到在线的相机（按地址）：从不在线变成在线时才通知，免得每轮都弹。
