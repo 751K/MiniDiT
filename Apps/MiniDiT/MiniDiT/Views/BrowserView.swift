@@ -773,8 +773,8 @@ struct ThumbCell: View {
         }
         .padding(4)
         .overlay {
-            // 和访达一样：选中的格子只显示选中框；焦点框只在没选中的格子上出现（方向键移动时）。
-            if focused && !selected { RoundedRectangle(cornerRadius: 10).strokeBorder(Color.accentColor.opacity(0.8), lineWidth: 2) }
+            // 焦点框（方向键移动到的位置）只在没选中的格子上出现，用灰色细框，免得看着像选中了（选中是蓝框加对勾）。
+            if focused && !selected { RoundedRectangle(cornerRadius: 10).strokeBorder(Color.primary.opacity(0.35), lineWidth: 1.5) }
         }
         .contentShape(Rectangle())
         .onTapGesture {
