@@ -298,8 +298,24 @@ extension AppModel {
         return name + "/卡 \(item.storageID >> 16)"
     }
 
+    /// 某台 Wi-Fi 相机上有照片的卡槽（来源行里的卡槽切换条用）。设了只导的卡槽即使现在没照片也列上，好改回来。
+    func sourceSlots(_ id: Int) -> [UInt32] {
+        guard isWiFiCamera(id) else { return [] }
+        var set = Set(items.compactMap { h, i in source(of: h) == id ? i.storageID >> 16 : nil })
+        if let only = onlySlot(id) { set.insert(only) }
+        return set.sorted()
+    }
+
+    /// 某个来源某个卡槽里的拍摄数（nil = 这个来源的全部）。不受「只导某个卡槽」影响，切换条上看得到另一张卡有多少。
+    func shotCount(source id: Int, slot: UInt32?) -> Int {
+        allShots.filter { s in
+            source(of: s.id) == id && (slot == nil || s.handles.contains { items[$0].map { $0.storageID >> 16 == slot } ?? false })
+        }.count
+    }
+
     /// 某个来源里的拍摄数（筛选条上显示）。
-    func shotCount(source: Int) -> Int { allShots.filter { self.source(of: $0.id) == source }.count }
+    /// 设了只看某张卡时只数那张卡上的。
+    func shotCount(source: Int) -> Int { shotCount(source: source, slot: onlySlot(source)) }
 
     /// 存储卡来源：从卡上第一张照片的 EXIF 读出机型，当来源名字。
     func readCardCameraName(_ id: Int, library lib: LocalCardLibrary, handles: [UInt32]) async {

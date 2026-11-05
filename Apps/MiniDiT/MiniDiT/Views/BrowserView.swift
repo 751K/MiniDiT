@@ -102,12 +102,22 @@ private struct SourceCard: View {
 
             if model.isMultiSource {
                 ForEach(model.sources) { src in
-                    SourceRow(source: src).contextMenu { SourceMenu(id: src.id, rename: startRename) }
+                    VStack(spacing: 0) {
+                        SourceRow(source: src)
+                        // 每台 Wi-Fi 相机自己选看哪张卡：A 看卡 1、B 看卡 2，各管各的。
+                        if model.sourceSlots(src.id).count > 1 {
+                            SourceSlotPicker(id: src.id).padding(.leading, 36).padding(.trailing, 6).padding(.bottom, 6)
+                        }
+                    }
+                    .contextMenu { SourceMenu(id: src.id, rename: startRename) }
                 }
                 .padding(.horizontal, 6)
                 SourcePicker().padding(.horizontal, 10).padding(.vertical, 10)
             } else {
-                if model.slots.count > 1, model.onlySlot(AppModel.primarySource) == nil {
+                if model.onlySlot(AppModel.primarySource) != nil {
+                    // 这台相机记住了只看某张卡（多来源时选的）：用同一条切换条，点「全部」就改回来。
+                    SourceSlotPicker(id: AppModel.primarySource).padding(.horizontal, 10).padding(.bottom, 10)
+                } else if model.slots.count > 1 {
                     SlotPicker().padding(.horizontal, 10).padding(.bottom, 10)
                 }
                 if !model.items.isEmpty {
@@ -283,7 +293,8 @@ private struct SourceRow: View {
     /// 卡槽限制、时钟校正。
     private var extra: String {
         var s = ""
-        if let only = model.onlySlot(source.id) { s += " · 仅卡 \(only)" }
+        // 有卡槽切换条时，看的是哪张卡在条上一目了然，这里不再重复。
+        if let only = model.onlySlot(source.id), model.sourceSlots(source.id).count < 2 { s += " · 仅卡 \(only)" }
         if let t = model.profile(source.id)?.clockOffset, t != 0 { s += " · 时间 " + CameraProfile.offsetText(t) }
         return s
     }
@@ -339,7 +350,8 @@ struct SourceMenu: View {
             Text("未能识别机身，无法保存设置")
         } else {
             Button("重命名…") { rename(id) }
-            if id == AppModel.primarySource, model.sourceKind == .camera {
+            // 几个来源时卡槽在来源行的切换条上选。
+            if id == AppModel.primarySource, model.sourceKind == .camera, !model.isMultiSource {
                 Picker("导入卡槽", selection: Binding(get: { model.onlySlot(id) ?? 0 },
                                                    set: { model.setOnlySlot(id, $0 == 0 ? nil : $0) })) {
                     Text("全部卡槽").tag(UInt32(0))
@@ -361,7 +373,7 @@ private struct SourcePicker: View {
 
     var body: some View {
         HStack(spacing: 2) {
-            segment("全部", count: model.allShots.count, on: model.sourceFilter == nil) { model.sourceFilter = nil }
+            segment("全部", count: model.sources.reduce(0) { $0 + model.shotCount(source: $1.id) }, on: model.sourceFilter == nil) { model.sourceFilter = nil }
             ForEach(model.sources) { s in
                 segment(model.sourceLabel(s.id), count: model.shotCount(source: s.id), on: model.sourceFilter == s.id) { model.sourceFilter = s.id }
             }
@@ -381,6 +393,43 @@ private struct SourcePicker: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(on ? .isSelected : [])
+    }
+}
+
+/// 几个来源时，一台 Wi-Fi 相机只看 / 只导哪张卡：全部 / 卡 1 / 卡 2。按机身记住（同「导入卡槽」）。
+private struct SourceSlotPicker: View {
+    @Environment(AppModel.self) private var model
+    let id: Int
+    @Namespace private var thumb
+
+    var body: some View {
+        let only = model.onlySlot(id)
+        HStack(spacing: 2) {
+            segment("全部", count: model.shotCount(source: id, slot: nil), on: only == nil) { model.setOnlySlot(id, nil) }
+            ForEach(model.sourceSlots(id), id: \.self) { slot in
+                segment("卡 \(slot)", count: model.shotCount(source: id, slot: slot), on: only == slot) { model.setOnlySlot(id, slot) }
+            }
+        }
+        .padding(2)
+        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.primary.opacity(0.06)))
+        .disabled(model.progress != nil)
+        .help("只显示并导入这台相机的某张存储卡；按机身记住")
+    }
+
+    private func segment(_ title: String, count: Int, on: Bool, action: @escaping () -> Void) -> some View {
+        Button { withAnimation(.snappy(duration: 0.28)) { action() } } label: {
+            HStack(spacing: 4) {
+                Text(title).font(.system(size: 11, weight: on ? .semibold : .regular))
+                Text(count.formatted()).font(.system(size: 10).monospacedDigit()).foregroundStyle(.secondary)
+            }
+            .lineLimit(1)
+            .frame(maxWidth: .infinity).padding(.vertical, 3)
+            .background { if on { SlotThumb(radius: 6).matchedGeometryEffect(id: "thumb", in: thumb) } }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(title)，\(count) 张")
         .accessibilityAddTraits(on ? .isSelected : [])
     }
 }
