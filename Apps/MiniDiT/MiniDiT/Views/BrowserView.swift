@@ -210,7 +210,7 @@ private struct DayRow: View {
             Text(day.title).lineLimit(1)
             Spacer(minLength: 4)
             if day.newCount > 0 {
-                Text("\(day.newCount) 新").font(.system(size: 12, weight: .semibold))
+                NewCount(new: day.newCount, total: day.shots.count, size: 12, highlighted: model.shownDays.contains(day.id))
             } else {
                 let copies = day.shots.map { model.copyCount(shot: $0) }.min() ?? 0
                 Image(systemName: copies >= 2 ? "checkmark.shield.fill" : copies == 1 ? "exclamationmark.shield.fill" : "checkmark")
@@ -218,8 +218,6 @@ private struct DayRow: View {
                     .foregroundStyle(model.shownDays.contains(day.id) ? .white : copies >= 2 ? .green : copies == 1 ? .orange : .secondary)
                     .help(copies >= 2 ? "当日照片均已存有两份" : copies == 1 ? "均已导入，部分照片仅存有一份" : "均已导入")
             }
-            Text("\(day.shots.count)").font(.system(size: 12).monospacedDigit()).foregroundStyle(.secondary)
-                .frame(minWidth: 18, alignment: .trailing)
         }
         .contextMenu {
             Button("选择当日未导入的照片") { model.selectNew(in: [day.id]) }
@@ -228,6 +226,21 @@ private struct DayRow: View {
             Divider()
             SceneGapMenu()
         }
+    }
+}
+
+/// 侧栏右边的数字：都没导入过时只写张数；导入过一部分时写还有几张新的（总数在提示里）。
+private struct NewCount: View {
+    let new: Int
+    let total: Int
+    let size: CGFloat
+    let highlighted: Bool
+
+    var body: some View {
+        Text(new == total ? "\(total)" : "\(new) 新")
+            .font(.system(size: size, weight: new == total ? .regular : .semibold).monospacedDigit())
+            .foregroundStyle(highlighted ? .white : new == total ? .secondary : .primary)
+            .help(new == total ? "\(total) 张，均未导入" : "共 \(total) 张，\(new) 张未导入")
     }
 }
 
@@ -255,11 +268,11 @@ private struct SceneRow: View {
             Text(scene.timeRange.isEmpty ? "第 \(scene.number) 场" : scene.timeRange).font(.system(size: 12)).lineLimit(1)
             Spacer(minLength: 4)
             if scene.newCount > 0 {
-                Text("\(scene.newCount) 新").font(.system(size: 11, weight: .semibold))
+                NewCount(new: scene.newCount, total: scene.shots.count, size: 11, highlighted: shown)
+            } else {
+                Image(systemName: "checkmark").font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(shown ? .white : .secondary).help("均已导入")
             }
-            Text("\(scene.shots.count)").font(.system(size: 11).monospacedDigit())
-                .foregroundStyle(shown ? .white : .secondary)
-                .frame(minWidth: 18, alignment: .trailing)
         }
         .padding(.leading, 18)
         .contextMenu { SceneGapMenu() }
