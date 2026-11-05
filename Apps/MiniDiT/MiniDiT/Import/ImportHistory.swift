@@ -38,6 +38,13 @@ final class ImportHistory {
         return Self.matches(u, item) ? u : nil
     }
 
+    /// 备份盘上的那份（文件还在、大小一致才返回）。
+    func backupFile(_ item: CameraContentItem, camera: String?) -> URL? {
+        guard let p = index.find(item, camera: camera)?.backupPath else { return nil }
+        let u = URL(filePath: p)
+        return Self.matches(u, item) ? u : nil
+    }
+
     static func matches(_ url: URL, _ item: CameraContentItem) -> Bool {
         guard let size = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? UInt64 else { return false }
         return size == item.size

@@ -11,11 +11,20 @@ extension AppModel {
         captureOneDocument = CaptureOneBridge.currentDocument()
     }
 
-    /// 点「导入」：没有备份盘先提醒；新建会话模式先问会话名，其他模式直接开始。
-    func beginImport(checkBackup: Bool = true) {
+    /// 点「导入」：没有备份盘、空间不够先提醒；新建会话模式先问会话名，其他模式直接开始。
+    /// 界面上点按钮时用默认参数；提醒里点「继续」时跳过已经确认过的检查。
+    func beginImport(checkBackup: Bool = true, checkSpace: Bool = true) {
         guard progress == nil, !grid.selected.isEmpty else { return }
-        if checkBackup, backupEnabled, !backupAvailable {
-            backupMissingPrompt = true
+        if checkBackup {
+            noBackupThisTime = false
+            if backupEnabled, !backupAvailable {
+                backupMissingPrompt = true
+                return
+            }
+        }
+        if checkSpace, let p = spaceShortage() {
+            log.add("空间不够：\(p.folder.path) 剩 \(p.available) 字节，需要 \(p.needed)")
+            spaceProblem = p
             return
         }
         if captureOneMode == .newSession {
@@ -25,6 +34,37 @@ extension AppModel {
         } else {
             startImport(session: nil)
         }
+    }
+
+    /// 两块盘够不够放这次要导的文件。本地已经有的（上次导过、还在）不算。
+    func spaceShortage() -> SpaceProblem? {
+        let files = selectedFiles()
+        let history = ImportHistory.shared
+        let primaryNeed = files.filter { history.localFile($0, camera: cameraID) == nil }.reduce(0) { $0 + $1.size }
+        let primary = captureOneMode == .newSession ? sessionsFolder : destination
+        if primaryNeed > 0, let free = Self.freeSpace(at: primary), free < primaryNeed + Self.spaceMargin(primaryNeed) {
+            return SpaceProblem(isBackup: false, folder: primary, needed: primaryNeed, available: free)
+        }
+        if backupEnabled, backupAvailable, !noBackupThisTime, let backup = backupFolder {
+            let need = files.filter { history.backupFile($0, camera: cameraID) == nil }.reduce(0) { $0 + $1.size }
+            if need > 0, let free = Self.freeSpace(at: backup), free < need + Self.spaceMargin(need) {
+                return SpaceProblem(isBackup: true, folder: backup, needed: need, available: free)
+            }
+        }
+        return nil
+    }
+
+    /// 多留一点余量：2%，至少 50 MB。
+    private static func spaceMargin(_ need: UInt64) -> UInt64 { max(need / 50, 50_000_000) }
+
+    /// 文件夹所在磁盘的剩余空间（文件夹还没建时看它最近的上级）。
+    static func freeSpace(at folder: URL) -> UInt64? {
+        var u = folder
+        while !FileManager.default.fileExists(atPath: u.path), u.pathComponents.count > 1 { u = u.deletingLastPathComponent() }
+        guard let v = try? u.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey, .volumeAvailableCapacityKey])
+        else { return nil }
+        if let i = v.volumeAvailableCapacityForImportantUsage, i > 0 { return UInt64(i) }
+        return v.volumeAvailableCapacity.map { UInt64($0) }
     }
 
     func startImport(session: SessionChoice?) {
@@ -39,7 +79,8 @@ extension AppModel {
         let root = destination
         let mode = captureOneMode
         let camera = cameraID
-        let backupRoot = backupEnabled && backupAvailable ? backupFolder : nil
+        let backupRoot = backupEnabled && backupAvailable && !noBackupThisTime ? backupFolder : nil
+        noBackupThisTime = false
         let wantsBackup = backupEnabled
         let deleteRequested = willDeleteFromSource
         let weight: UInt64 = backupRoot == nil ? 1 : 2

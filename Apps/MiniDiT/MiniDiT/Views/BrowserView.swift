@@ -678,9 +678,11 @@ struct FloatingBar: View {
                         HStack(spacing: 10) {
                             ProgressView(value: p.fraction).progressViewStyle(.linear)
                             Text("\(p.done + p.skipped + p.reused + p.failed.count)/\(p.total)").fontWeight(.semibold).monospacedDigit()
+                            Text(Self.timeLeft(p.secondsLeft)).foregroundStyle(.secondary).monospacedDigit()
                         }
-                        Text("正在\(p.current) · \(Self.bytes(p.bytesDone)) / \(Self.bytes(p.bytesTotal))")
-                            .font(.system(size: 11)).lineLimit(1)
+                        Text("正在\(p.current) · \(Self.bytes(p.bytesDone)) / \(Self.bytes(p.bytesTotal))"
+                             + (p.bytesPerSecond.map { " · \(Self.bytes(UInt64($0)))/s" } ?? ""))
+                            .font(.system(size: 11)).lineLimit(1).truncationMode(.middle)
                     }
                     Button("取消") { model.cancelImport() }.buttonStyle(.bordered).buttonBorderShape(.capsule)
                 }
@@ -789,6 +791,19 @@ struct FloatingBar: View {
     }
 
     static func bytes(_ n: UInt64) -> String { ByteCountFormatter.string(fromByteCount: Int64(n), countStyle: .file) }
+
+    /// 「剩余约 2 分 10 秒」；刚开始还算不出速度时显示「正在估算…」。
+    static func timeLeft(_ s: Double?) -> String {
+        guard let s else { return "正在估算…" }
+        let n = Int(s.rounded())
+        if n < 5 { return "即将完成" }
+        if n < 60 { return "剩余约 \(n) 秒" }
+        if n < 3600 {
+            let sec = n % 60 / 10 * 10      // 秒数取整到 10，免得一直跳
+            return "剩余约 \(n / 60) 分" + (sec > 0 ? " \(sec) 秒" : "")
+        }
+        return "剩余约 \(n / 3600) 小时 \(n % 3600 / 60) 分"
+    }
 
     /// 路径太长时只留首尾：/Volumes/…/Pic
     static func short(_ url: URL) -> String {

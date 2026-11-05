@@ -76,6 +76,23 @@ struct RootView: View {
                 Text("本次将仅存储一份，且不会删除存储卡上的文件。可在“设置 › 导入”中选择备份位置。")
             }
         }
+        .alert(model.spaceProblem?.isBackup == true ? "备份磁盘空间不足" : "存储空间不足",
+               isPresented: Binding(get: { model.spaceProblem != nil }, set: { if !$0 { model.spaceProblem = nil } }),
+               presenting: model.spaceProblem) { p in
+            if p.isBackup {
+                Button("仅存储一份并继续") {
+                    model.noBackupThisTime = true
+                    model.beginImport(checkBackup: false)
+                }
+            }
+            Button("取消", role: .cancel) {}
+        } message: { p in
+            let free = ByteCountFormatter.string(fromByteCount: Int64(p.available), countStyle: .file)
+            let need = ByteCountFormatter.string(fromByteCount: Int64(p.needed), countStyle: .file)
+            Text("“\(p.folder.path(percentEncoded: false))”所在磁盘剩余 \(free)，本次导入约需 \(need)。\n"
+                 + (p.isBackup ? "请清理备份磁盘、更换备份位置或减少所选照片；也可本次仅存储一份，此时不会删除存储卡上的文件。"
+                               : "请清理磁盘、更换存储位置，或减少所选照片。"))
+        }
         .alert("出错了", isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })) {
             Button("好") { model.errorMessage = nil }
         } message: {

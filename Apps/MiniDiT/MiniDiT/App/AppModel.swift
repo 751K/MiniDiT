@@ -138,12 +138,44 @@ final class AppModel {
         var skipped = 0
         var reused = 0
         var failed: [String] = []
-        var bytesDone: UInt64 = 0
+        var bytesDone: UInt64 = 0 { didSet { sample() } }
         var bytesTotal: UInt64
         var current = ""
         var backedUp = 0
         var backupFailed: [String] = []
         var fraction: Double { bytesTotal == 0 ? 0 : min(1, Double(bytesDone) / Double(bytesTotal)) }
+
+        // 速度按最近 10 秒算：下载（Wi-Fi）和写备份（本地盘）快慢不同，太短的窗口会跳得厉害。
+        private struct Sample { var t: TimeInterval; var bytes: UInt64 }
+        private var samples: [Sample] = [Sample(t: Date().timeIntervalSinceReferenceDate, bytes: 0)]
+
+        private mutating func sample() {
+            let now = Date().timeIntervalSinceReferenceDate
+            if let last = samples.last, now - last.t < 0.25 { samples[samples.count - 1].bytes = bytesDone; return }
+            samples.append(Sample(t: now, bytes: bytesDone))
+            while samples.count > 2, now - samples[0].t > 10 { samples.removeFirst() }
+        }
+
+        /// 每秒多少字节；数据不够 2 秒时为 nil。
+        var bytesPerSecond: Double? {
+            guard let f = samples.first, let l = samples.last, l.t - f.t >= 2, l.bytes > f.bytes else { return nil }
+            return Double(l.bytes - f.bytes) / (l.t - f.t)
+        }
+
+        /// 预计还要多少秒。
+        var secondsLeft: Double? {
+            guard let r = bytesPerSecond, r > 0, bytesTotal > bytesDone else { return nil }
+            return Double(bytesTotal - bytesDone) / r
+        }
+    }
+
+    /// 导入前发现磁盘空间不够。
+    struct SpaceProblem: Identifiable {
+        let id = UUID()
+        let isBackup: Bool
+        let folder: URL
+        let needed: UInt64
+        let available: UInt64
     }
 
     struct ImportResult {
@@ -221,6 +253,10 @@ final class AppModel {
     }
     /// 点「导入」时发现没有备份盘，先问一下。
     var backupMissingPrompt = false
+    /// 点「导入」时发现空间不够，先问一下。
+    var spaceProblem: SpaceProblem?
+    /// 这一次不备份（备份盘空间不够时用户选了「仅存储一份」）。
+    var noBackupThisTime = false
 
     var captureOneMode: CaptureOneMode = CaptureOneMode(rawValue: UserDefaults.standard.string(forKey: "c1Mode") ?? "") ?? .newSession {
         didSet { UserDefaults.standard.set(captureOneMode.rawValue, forKey: "c1Mode") }
