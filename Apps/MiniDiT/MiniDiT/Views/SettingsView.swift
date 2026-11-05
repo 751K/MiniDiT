@@ -9,15 +9,20 @@ struct SettingsView: View {
         // 各页同一尺寸：高度不同时，切换标签会让窗口改变大小，标题栏和工具栏随之闪一下。
         TabView {
             ImportSettings()
+                .clipped()
                 .tabItem { Label("导入", systemImage: "square.and.arrow.down") }
             ConnectSettings()
+                .clipped()
                 .tabItem { Label("连接", systemImage: "camera") }
             AppsSettings()
+                .clipped()
                 .tabItem { Label("软件", systemImage: "square.grid.2x2") }
             RecordSettings()
+                .clipped()
                 .tabItem { Label("记录", systemImage: "list.bullet") }
         }
         .frame(width: 600, height: 560)
+        // 标签栏没有底色，内容滚上去会和标签叠在一起；各页裁在标签栏下方。
         .hiddenToolbarBackground()
     }
 }
