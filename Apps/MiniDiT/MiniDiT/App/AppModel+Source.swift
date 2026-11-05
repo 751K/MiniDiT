@@ -154,6 +154,9 @@ extension AppModel {
                                              model: deviceInfo?.model ?? known?.model, firmware: deviceInfo?.version ?? known?.firmware))
             knownCameras = KnownCamera.load()
             if let deviceInfo { log.add("相机：\(deviceInfo.model) 固件 \(deviceInfo.version)，机身 ID \(cameraID ?? "无")") }
+            if let ops = deviceInfo?.operations, !ops.isEmpty {
+                log.add("相机支持的操作：" + ops.sorted().map { String(format: "%04X", $0) }.joined(separator: " "))
+            }
             await loadAll()
             refreshCaptureOne()
         } catch is CancellationError {

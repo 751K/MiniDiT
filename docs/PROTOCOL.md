@@ -497,6 +497,8 @@ Standard events: 0x4002 ObjectAdded, 0x4006 DevicePropChanged, 0x400D CaptureCom
 - `direct-tcpip` channels to `localhost:15740` carry the PTP/IP command and event connections (two channels, one SSH session) [A2G: `127.0.0.1` is rejected].
 - Wi-Fi Direct gateway: `192.168.122.1`.
 - GetDeviceInfo lists 80 operations, including 0x923B–0x923E.
+  - Full list (firmware 2.00, remote transfer session, 2026-11-05): 1001–100A, 100D, 101B; 9201–9207, 9209, 920C–9216, 9219–9229, 922B, 922C, 922F–9234, 9238–9240, 9243, 9244, 9247–9249, 924D, 9250–9254; 9801–9803, 9805.
+  - **No 0x100B DeleteObject**: files can't be deleted over Wi-Fi in this mode. 0x101B GetPartialObject and 0x9211 SDIO_GetPartialLargeObject are listed, so a download can resume from an offset.
 
 **Contents Transfer Mode on the A7 V** (0x9210 mode 1 → 0x9212(2,1,0)):
 - Works, but only one storage is exposed (`0x00010001`).
