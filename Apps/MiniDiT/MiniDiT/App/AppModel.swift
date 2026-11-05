@@ -117,6 +117,14 @@ final class AppModel {
     var origins: [UInt32: Origin] = [:]
     /// 存储卡上照片的机型（从 EXIF 读，比如「α7 V」），读卡器来源用它当名字。
     var cardCameraNames: [Int: String] = [:]
+    /// 存储卡上照片的机身（「型号#序列号」，从 EXIF 读），用来找这台相机的档案。
+    var cardCameraKeys: [Int: String] = [:]
+    /// 要改名的来源（菜单或右键里点了「重命名…」，侧栏弹出输入框）。
+    var renamingSource: Int?
+    /// 每台机身的档案：自己起的名字、只导哪个卡槽、时钟校正。按机身存，换卡、换连接方式都跟着走。
+    var cameraProfiles: [String: CameraProfile] = CameraProfile.loadAll() {
+        didSet { CameraProfile.saveAll(cameraProfiles) }
+    }
 
     var autoConnect: Bool = UserDefaults.standard.object(forKey: "autoConnect") as? Bool ?? true {
         didSet { UserDefaults.standard.set(autoConnect, forKey: "autoConnect") }

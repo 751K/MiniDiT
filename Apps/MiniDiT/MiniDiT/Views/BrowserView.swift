@@ -77,6 +77,7 @@ private struct SourceCard: View {
     /// 展开换来源的列表。
     @State private var expanded = false
     @State private var listHeight: CGFloat = 0
+    @State private var newName = ""
 
     private struct ListHeight: PreferenceKey {
         static let defaultValue: CGFloat = 0
@@ -99,11 +100,13 @@ private struct SourceCard: View {
                 .onPreferenceChange(ListHeight.self) { listHeight = $0 }
 
             if model.isMultiSource {
-                ForEach(model.sources) { SourceRow(source: $0) }
-                    .padding(.horizontal, 6)
+                ForEach(model.sources) { src in
+                    SourceRow(source: src).contextMenu { SourceMenu(id: src.id, rename: startRename) }
+                }
+                .padding(.horizontal, 6)
                 SourcePicker().padding(.horizontal, 10).padding(.vertical, 10)
             } else {
-                if model.slots.count > 1 {
+                if model.slots.count > 1, model.onlySlot(AppModel.primarySource) == nil {
                     SlotPicker().padding(.horizontal, 10).padding(.bottom, 10)
                 }
                 if !model.items.isEmpty {
@@ -115,7 +118,18 @@ private struct SourceCard: View {
         .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.primary.opacity(0.06)))
         .accessibilityElement(children: .contain)
         .onChange(of: model.progress != nil) { _, busy in if busy { expanded = false } }
+        .onChange(of: model.renamingSource) { _, id in if let id { newName = model.profile(id)?.nickname ?? "" } }
+        .alert("重命名“\(model.renamingSource.map(model.sourceName) ?? "")”",
+               isPresented: Binding(get: { model.renamingSource != nil }, set: { if !$0 { model.renamingSource = nil } })) {
+            TextField("名称", text: $newName)
+            Button("好") { if let id = model.renamingSource { model.rename(id, to: newName) }; model.renamingSource = nil }
+            Button("取消", role: .cancel) { model.renamingSource = nil }
+        } message: {
+            Text("例如“主机”“副机”。同时导入多个来源时，也用作子文件夹名。留空即恢复机型名。")
+        }
     }
+
+    private func startRename(_ id: Int) { model.renamingSource = id }
 
     private var toggle: some View {
         Button { withAnimation(.snappy(duration: 0.22)) { expanded.toggle() } } label: {
@@ -135,7 +149,13 @@ private struct SourceCard: View {
             Image(systemName: "square.stack").font(.system(size: 17)).frame(width: 24)
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(model.sources.count) 个来源").font(.system(size: 14, weight: .semibold))
-                Text("按拍摄时间合并显示").font(.system(size: 11)).foregroundStyle(.secondary)
+                if model.clocksUnaligned {
+                    Label("相机时间尚未对齐", systemImage: "clock.badge.exclamationmark")
+                        .font(.system(size: 11)).foregroundStyle(.orange)
+                        .help("各相机的时钟可能不一致，合并后的顺序会错位。选中两台相机在同一时刻拍的各一张照片，右键选“按这两张对齐时间”。")
+                } else {
+                    Text("按拍摄时间合并显示").font(.system(size: 11)).foregroundStyle(.secondary)
+                }
             }
             Spacer(minLength: 4)
             toggle
@@ -160,12 +180,15 @@ private struct SourceCard: View {
                 toggle
             }
             .padding(.horizontal, 12).padding(.vertical, 10)
+            .contentShape(Rectangle())
+            .contextMenu { SourceMenu(id: AppModel.primarySource, rename: startRename) }
     }
 
     private var statusText: String {
         if model.offline { return "已断开，正在重新连接…" }
         if model.sourceKind == .card { return "读卡器 · " + (model.cardRoot?.lastPathComponent ?? "") }
-        return "已连接 · " + (model.connectedHost ?? "")
+        let only = model.onlySlot(AppModel.primarySource).map { " · 仅卡 \($0)" } ?? ""
+        return "已连接 · " + (model.connectedHost ?? "") + only
     }
 
     private var statusHelp: String {
@@ -244,6 +267,14 @@ private struct SourceRow: View {
     @Environment(AppModel.self) private var model
     let source: SourceSummary
 
+    /// 卡槽限制、时钟校正。
+    private var extra: String {
+        var s = ""
+        if let only = model.onlySlot(source.id) { s += " · 仅卡 \(only)" }
+        if let t = model.profile(source.id)?.clockOffset, t != 0 { s += " · 时间 " + CameraProfile.offsetText(t) }
+        return s
+    }
+
     var body: some View {
         let c = model.cardSafety(source: source.id)
         HStack(spacing: 8) {
@@ -257,11 +288,11 @@ private struct SourceRow: View {
                     } else {
                         Image(systemName: c.canFormat ? "checkmark.shield.fill" : "exclamationmark.shield")
                             .foregroundStyle(c.canFormat ? .green : .orange)
-                        Text(source.detail)
+                        Text(source.detail + extra)
                     }
                 }
                 .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
-                .help(c.canFormat ? "可格式化：全部文件均已存有两份" : "暂不可格式化：\((c.one + c.none).formatted()) 个文件尚未存有两份")
+                .help(source.detail + extra + "\n" + (c.canFormat ? "可格式化：全部文件均已存有两份" : "暂不可格式化：\((c.one + c.none).formatted()) 个文件尚未存有两份"))
             }
             Spacer(minLength: 0)
             Button {
@@ -278,6 +309,32 @@ private struct SourceRow: View {
             .accessibilityLabel(source.isCard ? "推出存储卡" : "断开相机")
         }
         .padding(.horizontal, 6).padding(.vertical, 4)
+    }
+}
+
+/// 来源的右键菜单：改名、只导某个卡槽（Wi-Fi 相机）、清除时间校正。改的是这台机身的档案。
+struct SourceMenu: View {
+    @Environment(AppModel.self) private var model
+    let id: Int
+    let rename: (Int) -> Void
+
+    var body: some View {
+        if model.profileKey(id) == nil {
+            Text("未能识别机身，无法保存设置")
+        } else {
+            Button("重命名…") { rename(id) }
+            if id == AppModel.primarySource, model.sourceKind == .camera {
+                Picker("导入卡槽", selection: Binding(get: { model.onlySlot(id) ?? 0 },
+                                                   set: { model.setOnlySlot(id, $0 == 0 ? nil : $0) })) {
+                    Text("全部卡槽").tag(UInt32(0))
+                    Text("仅卡 1").tag(UInt32(1))
+                    Text("仅卡 2").tag(UInt32(2))
+                }
+            }
+            if let t = model.profile(id)?.clockOffset {
+                Button("清除时间校正（\(CameraProfile.offsetText(t))）") { model.clearClockOffset(id) }
+            }
+        }
     }
 }
 
@@ -986,6 +1043,15 @@ struct ThumbCell: View {
                 Button("选择当日全部照片") { model.selectAll(in: [day.id]) }
             }
             Button("反选") { model.grid.invert() }
+            if model.isMultiSource {
+                Divider()
+                if let c = model.alignCandidate {
+                    Button("按这两张对齐时间（\(model.sourceLabel(c.adjust)) \(CameraProfile.offsetText(c.offset))）") { model.alignClocks() }
+                } else {
+                    Button("按这两张对齐时间") {}.disabled(true)
+                    Text("先选中两台相机在同一时刻拍的各一张照片")
+                }
+            }
             if let url = model.localFile(of: shotID) {
                 Divider()
                 Button("在“访达”中显示") { NSWorkspace.shared.activateFileViewerSelecting([url]) }

@@ -24,6 +24,44 @@ struct SourceSummary: Identifiable, Hashable {
     let isCard: Bool
 }
 
+/// 一台机身的档案。
+struct CameraProfile: Codable, Equatable {
+    /// 自己起的名字（「主机」「副机」）；nil = 用机型名。
+    var nickname: String?
+    /// 只导这个卡槽（Wi-Fi 相机有两个卡槽时）；nil = 两个都导。
+    var onlySlot: UInt32?
+    /// 时钟校正（秒）：这台相机记录的时间加上它，才和其他相机对得上。
+    var clockOffset: Double?
+
+    private static let key = "cameraProfiles"
+
+    static func loadAll() -> [String: CameraProfile] {
+        guard let d = UserDefaults.standard.data(forKey: key),
+              let p = try? JSONDecoder().decode([String: CameraProfile].self, from: d) else { return [:] }
+        return p
+    }
+
+    static func saveAll(_ p: [String: CameraProfile]) {
+        if let d = try? JSONEncoder().encode(p) { UserDefaults.standard.set(d, forKey: key) }
+    }
+
+    /// 「型号#序列号」，序列号去掉前导 0（PTP 给的序列号前面补了一串 0，EXIF 里的没有）。
+    static func bodyKey(model: String, serial: String) -> String? {
+        let m = model.trimmingCharacters(in: .whitespaces).uppercased()
+        let s = serial.trimmingCharacters(in: .whitespaces).drop { $0 == "0" }
+        return m.isEmpty || s.isEmpty ? nil : "\(m)#\(s)"
+    }
+
+    /// 「+2 分 30 秒」「−45 秒」。
+    static func offsetText(_ t: Double) -> String {
+        let n = Int(abs(t).rounded())
+        let sign = t >= 0 ? "+" : "−"
+        if n < 60 { return "\(sign)\(n) 秒" }
+        if n < 3600 { return "\(sign)\(n / 60) 分" + (n % 60 > 0 ? " \(n % 60) 秒" : "") }
+        return "\(sign)\(n / 3600) 小时" + (n % 3600 / 60 > 0 ? " \(n % 3600 / 60) 分" : "")
+    }
+}
+
 extension CameraContentItem {
     /// 换一个句柄的同一个文件（来源里的句柄 ↔ 界面上的全局句柄）。
     func withID(_ id: UInt32) -> CameraContentItem {
@@ -64,8 +102,97 @@ extension AppModel {
         origins[item.id].map { item.withID($0.local) } ?? item
     }
 
-    /// 来源显示的名字：Wi-Fi 相机用相机名；存储卡用卡上照片的机型，读不到时用卷名。
+    // MARK: 相机档案
+
+    /// 这个来源的机身（找档案用）。Wi-Fi 相机用机身 ID，存储卡用照片 EXIF 里的型号和序列号。
+    func profileKey(_ id: Int) -> String? {
+        if id == Self.primarySource, sourceKind == .camera, let c = cameraID {
+            let parts = c.split(separator: "#", maxSplits: 1).map(String.init)
+            return parts.count == 2 ? CameraProfile.bodyKey(model: parts[0], serial: parts[1]) : nil
+        }
+        return cardCameraKeys[id]
+    }
+
+    func profile(_ id: Int) -> CameraProfile? { profileKey(id).flatMap { cameraProfiles[$0] } }
+
+    func updateProfile(_ id: Int, _ change: (inout CameraProfile) -> Void) {
+        guard let k = profileKey(id) else { return }
+        var p = cameraProfiles[k] ?? CameraProfile()
+        change(&p)
+        cameraProfiles[k] = p
+    }
+
+    /// 改名：名字也用在多来源导入的子文件夹上。空 = 恢复机型名。
+    func rename(_ id: Int, to name: String) {
+        let n = NameTemplate.sanitize(name.trimmingCharacters(in: .whitespaces))
+        updateProfile(id) { $0.nickname = n.isEmpty ? nil : n }
+        log.add("来源 \(id) 改名为「\(n.isEmpty ? "（机型名）" : n)」")
+    }
+
+    /// 只导某个卡槽（nil = 都导）。
+    func setOnlySlot(_ id: Int, _ slot: UInt32?) {
+        updateProfile(id) { $0.onlySlot = slot }
+        if slot != nil { slotFilter = nil } else { rebuild() }
+    }
+
+    /// 只对 Wi-Fi 相机生效：读卡器上的卡总是「卡槽 1」，同一台机身的设置不能把它整张筛掉。
+    func onlySlot(_ id: Int) -> UInt32? {
+        guard id == Self.primarySource, sourceKind == .camera else { return nil }
+        return profile(id)?.onlySlot
+    }
+
+    func clockOffset(_ id: Int) -> Double { profile(id)?.clockOffset ?? 0 }
+
+    /// 拍摄时间加上这台相机的时钟校正（多来源合并排序用）。
+    func correctedDate(_ item: CameraContentItem) -> Date? {
+        item.captureDate.map { $0.addingTimeInterval(clockOffset(source(of: item.id))) }
+    }
+
+    /// 打开的来源里有几台不同的机身（读不出机身的卡不算）。
+    var distinctBodies: Int { Set(sources.compactMap { profileKey($0.id) }).count }
+
+    /// 有两台以上的相机，还没对过时间。
+    var clocksUnaligned: Bool {
+        distinctBodies > 1 && sources.allSatisfy { profile($0.id)?.clockOffset == nil }
+    }
+
+    /// 选中了两台不同相机的各一张照片：可以按它们对齐时间。返回（参照来源，要校正的来源，要校正的秒数）。
+    var alignCandidate: (reference: Int, adjust: Int, offset: Double)? {
+        let sel = Array(grid.selected)
+        guard sel.count == 2, let a = shots[sel[0]], let b = shots[sel[1]],
+              let ia = items[a.primary], let ib = items[b.primary],
+              let ta = ia.captureDate, let tb = ib.captureDate else { return nil }
+        let sa = source(of: a.id), sb = source(of: b.id)
+        guard sa != sb, let ka = profileKey(sa), let kb = profileKey(sb), ka != kb else { return nil }
+        // 以 id 小的（先打开的）为准，校正另一台。
+        let (ref, adj, tr, tj) = sa < sb ? (sa, sb, ta, tb) : (sb, sa, tb, ta)
+        let corrected = tr.addingTimeInterval(clockOffset(ref))
+        return (ref, adj, corrected.timeIntervalSince(tj))
+    }
+
+    func alignClocks() {
+        guard let c = alignCandidate else { return }
+        updateProfile(c.adjust) { $0.clockOffset = abs(c.offset) < 0.5 ? 0 : c.offset }
+        log.add("时钟对齐：\(sourceName(c.adjust)) 校正 \(CameraProfile.offsetText(c.offset))，以 \(sourceName(c.reference)) 为准")
+        resortShots()
+    }
+
+    func clearClockOffset(_ id: Int) {
+        updateProfile(id) { $0.clockOffset = nil }
+        resortShots()
+    }
+
+    /// 时钟校正变了：重新按校正后的时间排一遍，不用重新读卡。
+    func resortShots() {
+        guard isMultiSource else { return }
+        let key: (Shot) -> Date = { self.items[$0.primary].flatMap(self.correctedDate) ?? .distantPast }
+        allShots.sort { key($0) > key($1) }
+        rebuild()
+    }
+
+    /// 来源显示的名字：自己起的名字优先；Wi-Fi 相机用相机名；存储卡用卡上照片的机型，读不到时用卷名。
     func sourceName(_ id: Int) -> String {
+        if let n = profile(id)?.nickname { return n }
         if id == Self.primarySource {
             if sourceKind == .card, let n = cardCameraNames[id] { return n }
             return connectedName ?? ""
@@ -125,9 +252,22 @@ extension AppModel {
         for h in handles.prefix(40) {
             if let x = await lib.exif(h), let cam = x.camera, !cam.isEmpty {
                 cardCameraNames[id] = CameraDeviceInfo.displayName(model: cam)
+                if let serial = x.serial, let k = CameraProfile.bodyKey(model: cam, serial: serial) {
+                    cardCameraKeys[id] = k
+                } else {
+                    // 索尼的 EXIF 里没有机身序列号（在加密的 MakerNote 里）：改为按这张卡记住（卷 UUID）。
+                    cardCameraKeys[id] = Self.cardKey(model: cam, root: lib.root)
+                }
+                log.add("存储卡来源 \(id)：\(cam)，" + (x.serial != nil ? "按机身记住设置" : "没有机身序列号，按存储卡记住设置"))
                 return
             }
         }
+    }
+
+    /// 没有机身序列号时，按存储卡认：「CARD:型号@卷 UUID」（没有 UUID 用卷名）。
+    static func cardKey(model: String, root: URL) -> String {
+        let v = try? root.resourceValues(forKeys: [.volumeUUIDStringKey, .volumeNameKey])
+        return "CARD:\(model.uppercased())@\(v?.volumeUUIDString ?? v?.volumeName ?? root.lastPathComponent)"
     }
 
     // MARK: 同时打开存储卡
@@ -163,6 +303,7 @@ extension AppModel {
         log.add("关闭存储卡 \(e.root.path)")
         if sourceFilter == id { sourceFilter = nil }
         cardCameraNames[id] = nil
+        cardCameraKeys[id] = nil
         let keep = selectedKeys(), keepDays = shownDays
         Task { await loadAll(restoring: keep, days: keepDays) }
     }
@@ -175,6 +316,7 @@ extension AppModel {
         extraSources.removeAll { $0.id == e.id }
         if sourceFilter == e.id { sourceFilter = nil }
         cardCameraNames[e.id] = nil
+        cardCameraKeys[e.id] = nil
         let keep = selectedKeys(), keepDays = shownDays
         Task { await loadAll(restoring: keep, days: keepDays) }
     }

@@ -47,7 +47,10 @@ extension AppModel {
             origins = map
             // 几个来源的拍摄按时间合在一起排（新的在前）。
             if sources.count > 1 {
-                grouped.sort { (all[$0.primary]?.captureDateRaw ?? "") > (all[$1.primary]?.captureDateRaw ?? "") }
+                // 按校正过的时间排：两台相机的钟不一样快时，对齐后才排得对。
+                let key: (Shot) -> Date = { s in all[s.primary].flatMap { i in
+                    i.captureDate.map { $0.addingTimeInterval(self.clockOffset(map[s.primary]?.source ?? 0)) } } ?? .distantPast }
+                grouped.sort { key($0) > key($1) }
             }
             allShots = grouped
             shots = Dictionary(uniqueKeysWithValues: allShots.map { ($0.id, $0) })
@@ -108,6 +111,8 @@ extension AppModel {
     /// 文件类型 / 卡槽筛选（不含「只看未导入」）。
     private func kindAccepted(_ item: CameraContentItem) -> Bool {
         if let sourceFilter, source(of: item.id) != sourceFilter { return false }
+        // 这台相机设了只导某个卡槽。
+        if let only = onlySlot(source(of: item.id)), item.storageID >> 16 != only { return false }
         if let slotFilter, item.storageID >> 16 != slotFilter { return false }
         switch item.kind {
         case .jpeg, .heif: return showPhotos

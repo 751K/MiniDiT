@@ -393,7 +393,7 @@ extension AppModel {
 
     func resetContent() {
         items = [:]; allShots = []; shots = [:]; shotOfFile = [:]; slots = []; days = []
-        origins = [:]; cardCameraNames = [:]; sourceFilter = nil
+        origins = [:]; cardCameraNames = [:]; cardCameraKeys = [:]; sourceFilter = nil
         grid = GridSelection(); shownDays = []
         thumbnails = [:]; thumbOrder = []; pendingThumbs = []; fileCopies = [:]
         connectedName = nil; connectedHost = nil; cameraID = nil; deviceInfo = nil; cardRoot = nil
@@ -449,6 +449,7 @@ extension AppModel {
         offline = false
         cardRoot = e.root
         cardCameraNames[Self.primarySource] = cardCameraNames.removeValue(forKey: e.id)
+        cardCameraKeys[Self.primarySource] = cardCameraKeys.removeValue(forKey: e.id)
         if sourceFilter == e.id { sourceFilter = nil }
         attach(e.library, name: e.root.lastPathComponent, host: nil)
         log.add("改用存储卡 \(e.root.path) 作为主来源")

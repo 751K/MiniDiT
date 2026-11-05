@@ -30,6 +30,17 @@ struct MiniDiTApp: App {
                 Button("大图预览") { model.openPreview() }
                     .keyboardShortcut("y", modifiers: .command)
             }
+            CommandMenu("来源") {
+                Button(model.alignCandidate.map { "按选中的两张对齐时间（\(model.sourceLabel($0.adjust)) \(CameraProfile.offsetText($0.offset))）" }
+                       ?? "按选中的两张对齐时间") { model.alignClocks() }
+                    .disabled(model.alignCandidate == nil)
+                Divider()
+                ForEach(model.sources) { src in
+                    Menu(model.sources.count > 1 ? model.sourceLabel(src.id) : "当前来源") {
+                        SourceMenu(id: src.id) { model.renamingSource = $0 }.environment(model)
+                    }
+                }
+            }
             CommandGroup(after: .toolbar) {
                 Button("放大缩略图") { model.thumbSize = min(320, model.thumbSize + 30) }
                     .keyboardShortcut("+", modifiers: .command)

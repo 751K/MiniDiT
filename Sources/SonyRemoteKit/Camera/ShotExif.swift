@@ -13,6 +13,8 @@ public struct ShotExif: Sendable, Equatable {
     public var iso: Int?
     /// 曝光补偿（EV）。
     public var exposureBias: Double?
+    /// 机身序列号（EXIF BodySerialNumber），用来认出是哪台机身拍的。
+    public var serial: String?
 
     public init?(properties p: [CFString: Any]) {
         let exif = p[kCGImagePropertyExifDictionary] as? [CFString: Any] ?? [:]
@@ -24,6 +26,8 @@ public struct ShotExif: Sendable, Equatable {
         exposureTime = Self.number(exif[kCGImagePropertyExifExposureTime])
         iso = (exif[kCGImagePropertyExifISOSpeedRatings] as? [NSNumber])?.first?.intValue
         exposureBias = Self.number(exif[kCGImagePropertyExifExposureBiasValue])
+        serial = (exif[kCGImagePropertyExifBodySerialNumber] as? String)?.trimmingCharacters(in: .whitespaces)
+        if serial?.isEmpty == true { serial = nil }
         if fNumber == nil && exposureTime == nil && iso == nil && focalLength == nil { return nil }
         if lens?.isEmpty == true { lens = nil }
         if camera?.isEmpty == true { camera = nil }
