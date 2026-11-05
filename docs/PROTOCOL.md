@@ -498,6 +498,7 @@ Standard events: 0x4002 ObjectAdded, 0x4006 DevicePropChanged, 0x400D CaptureCom
 - Wi-Fi Direct gateway: `192.168.122.1`.
 - GetDeviceInfo lists 80 operations, including 0x923B–0x923E.
   - Full list (firmware 2.00, remote transfer session, 2026-11-05): 1001–100A, 100D, 101B; 9201–9207, 9209, 920C–9216, 9219–9229, 922B, 922C, 922F–9234, 9238–9240, 9243, 9244, 9247–9249, 924D, 9250–9254; 9801–9803, 9805.
+  - **Power-off behaviour** (2026-11-05): when the camera is switched off mid-download it first answers further 0x923D requests with OperationNotSupported for ~0.5 s, then the TCP link drops. The read in flight completes. Treat a run of failures as a disconnect, not as per-file errors.
   - **No 0x100B DeleteObject**: files can't be deleted over Wi-Fi in this mode. 0x101B GetPartialObject and 0x9211 SDIO_GetPartialLargeObject are listed, so a download can resume from an offset.
 
 **Contents Transfer Mode on the A7 V** (0x9210 mode 1 → 0x9212(2,1,0)):

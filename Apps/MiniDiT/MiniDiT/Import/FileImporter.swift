@@ -143,7 +143,13 @@ struct FileImporter {
                 skipped(resume)
             }
             if resume < item.size {
-                try await library.download(item, to: part, from: resume) { done, _ in progress(done) }
+                do {
+                    try await library.download(item, to: part, from: resume) { done, _ in progress(done) }
+                } catch {
+                    // 一个字节都没收到的 .part 没有续传价值，删掉，免得文件夹里留一堆空文件。
+                    if ((try? fm.attributesOfItem(atPath: part.path))?[.size] as? UInt64 ?? 0) == 0 { try? fm.removeItem(at: part) }
+                    throw error
+                }
             }
             guard ImportHistory.matches(part, item) else { try? fm.removeItem(at: part); throw CocoaError(.fileReadCorruptFile) }
             stage("校验 \(item.filename)")

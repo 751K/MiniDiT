@@ -127,6 +127,7 @@ extension AppModel {
                                         checkSource: deleteRequested)
             // 可以从卡上删的：和卡上数据核对过；要求备份时备份也成功了；不是视频（删视频会让相机的数据库对不上）。
             var deletable: [UInt32] = []
+            var consecutiveFailures = 0
             for item in picked {
                 if Task.isCancelled { break }
                 progress?.current = "导入 \(item.filename)"
@@ -160,7 +161,17 @@ extension AppModel {
                     if error is PTPIPTransportError { progress?.failed.append(item.filename); lostDuringImport = true; break }
                     log.add("导入失败 \(item.filename)：\(error.localizedDescription)")
                     progress?.failed.append(item.filename)
+                    // 连着几个文件都失败，多半是相机在关机 / 断开（关机前会先对所有请求回「不支持」），
+                    // 当作中断处理：停下来，等重连后继续，而不是把剩下的全标成失败。
+                    consecutiveFailures += 1
+                    if consecutiveFailures >= 3 {
+                        log.add("连续 \(consecutiveFailures) 个文件失败，当作中断处理")
+                        lostDuringImport = true
+                        break
+                    }
+                    continue
                 }
+                consecutiveFailures = 0
             }
             ImportHistory.shared.record(done, camera: camera)
             var deleted: Int?
