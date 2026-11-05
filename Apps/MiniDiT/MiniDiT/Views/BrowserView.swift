@@ -99,6 +99,11 @@ struct Sidebar: View {
             Section("日期") {
                 ForEach(model.days) { day in
                     DayRow(day: day).tag(day.id)
+                    if day.scenes.count > 1 {
+                        ForEach(day.scenes) { scene in
+                            SceneRow(scene: scene, day: day).selectionDisabled()
+                        }
+                    }
                 }
             }
         }
@@ -219,6 +224,48 @@ private struct DayRow: View {
             Button("选这一天全部") { model.selectAll(in: [day.id]) }
             Button("取消这一天的选择") { model.deselect(in: [day.id]) }
         }
+    }
+}
+
+/// 侧栏里日期下面的场次：勾选框选这一场，点文字跳到这一场。
+private struct SceneRow: View {
+    @Environment(AppModel.self) private var model
+    let scene: ShootingScene
+    let day: ShootingDay
+
+    var body: some View {
+        let state = model.checkState(scene)
+        HStack(spacing: 8) {
+            Button { model.toggleScene(scene, in: day) } label: {
+                Image(systemName: state == .on ? "checkmark.square.fill" : state == .mixed ? "minus.square.fill" : "square")
+                    .font(.system(size: 13))
+                    .foregroundStyle(state == .off ? Color(nsColor: .tertiaryLabelColor) : .accentColor)
+                    .frame(width: 18, height: 18)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("导入 \(day.title) \(AppModel.sceneTitle(scene))")
+            .accessibilityValue(state == .on ? "已勾选" : state == .mixed ? "部分勾选" : "未勾选")
+            .help(scene.newCount > 0 ? "勾选这一场没导入过的 \(scene.newCount) 张" : "勾选这一场全部")
+            Button {
+                model.shownDays = [day.id]
+                model.scrollTarget = scene.id
+            } label: {
+                HStack(spacing: 6) {
+                    Text(scene.timeRange.isEmpty ? "第 \(scene.number) 场" : scene.timeRange).font(.system(size: 12)).lineLimit(1)
+                    Spacer(minLength: 4)
+                    if scene.newCount > 0 {
+                        Text("\(scene.newCount) 新").font(.system(size: 11, weight: .semibold))
+                    }
+                    Text("\(scene.shots.count)").font(.system(size: 11).monospacedDigit()).foregroundStyle(.secondary)
+                        .frame(minWidth: 18, alignment: .trailing)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.leading, 18)
+        .foregroundStyle(.secondary)
     }
 }
 
@@ -447,16 +494,15 @@ struct GridView: View {
                     LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
                         ForEach(model.visibleDays) { day in
                             Section {
-                                LazyVGrid(columns: columns, spacing: spacing) {
-                                    ForEach(day.shots, id: \.self) { id in
-                                        ThumbCell(shotID: id)
-                                            .id(id)
-                                            .background(GeometryReader { g in
-                                                Color.clear.preference(key: CellFrameKey.self, value: [id: g.frame(in: .named("grid"))])
-                                            })
+                                if day.scenes.count > 1 {
+                                    // 分了场次：每场一个小标题，最后一场下面留出和日期之间的间距。
+                                    ForEach(day.scenes) { scene in
+                                        SceneHeader(scene: scene, day: day).id(scene.id)
+                                        cells(scene.shots, bottom: scene.id == day.scenes.last?.id ? 20 : 10)
                                     }
+                                } else {
+                                    cells(day.shots, bottom: 20)
                                 }
-                                .padding(.init(top: 4, leading: 16, bottom: 20, trailing: 16))
                             } header: {
                                 DayHeader(day: day)
                             }
@@ -484,6 +530,16 @@ struct GridView: View {
                         .onChange(of: g.size) { width = $1.width; height = $1.height }
                 })
                 .onPreferenceChange(CellFrameKey.self) { frames = $0 }
+                .onChange(of: model.scrollTarget) { _, target in
+                    guard let target else { return }
+                    // 等新显示的日期排好版再滚动；停在置顶的日期标题下面。
+                    let anchor = UnitPoint(x: 0.5, y: min(0.5, 40 / max(height, 1)))
+                    // 刚换了显示的日期时，第一次滚动常常落空（懒加载还没排到），过一会儿再滚一次。
+                    for delay in [0.1, 0.45] {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { withAnimation { proxy.scrollTo(target, anchor: anchor) } }
+                    }
+                    model.scrollTarget = nil
+                }
                 .focusable()
                 .focusEffectDisabled()
                 .focused($focused)
@@ -504,6 +560,19 @@ struct GridView: View {
                 .onCommand(#selector(NSResponder.selectAll(_:))) { model.grid.selectAll() }
             }
         }
+    }
+
+    private func cells(_ shots: [UInt32], bottom: CGFloat) -> some View {
+        LazyVGrid(columns: columns, spacing: spacing) {
+            ForEach(shots, id: \.self) { id in
+                ThumbCell(shotID: id)
+                    .id(id)
+                    .background(GeometryReader { g in
+                        Color.clear.preference(key: CellFrameKey.self, value: [id: g.frame(in: .named("grid"))])
+                    })
+            }
+        }
+        .padding(.init(top: 4, leading: 16, bottom: bottom, trailing: 16))
     }
 
     /// 在空白处或缩略图上拖动 = 框选（按住 ⌘ / ⇧ 在原有选择上增减）。
@@ -577,6 +646,30 @@ struct DayHeader: View {
         .foregroundStyle(.secondary)
         .padding(.horizontal, 20).padding(.vertical, 8)
         .background(Color(nsColor: .textBackgroundColor))   // 和标题区、网格同一个底色
+    }
+}
+
+/// 一天里分了场次时，每场上面的小标题。
+struct SceneHeader: View {
+    @Environment(AppModel.self) private var model
+    let scene: ShootingScene
+    let day: ShootingDay
+
+    var body: some View {
+        let picked = scene.shots.contains(where: model.grid.contains)
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(AppModel.sceneTitle(scene)).font(.system(size: 13, weight: .medium)).foregroundStyle(.primary)
+            Text("\(scene.shots.count) 张" + (scene.importedCount > 0 ? " · \(scene.importedCount) 张导入过" : ""))
+            Spacer(minLength: 8)
+            if scene.newCount > 0 {
+                Button("选未导入的") { model.grid.set(scene.shots.filter { !model.isImported(shot: $0) }, selected: true) }
+            }
+            Button(picked ? "取消选择" : "全选") { model.grid.set(scene.shots, selected: !picked) }
+        }
+        .buttonStyle(.plain)
+        .font(.system(size: 12))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 20).padding(.top, 6).padding(.bottom, 2)
     }
 }
 

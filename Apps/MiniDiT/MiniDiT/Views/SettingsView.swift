@@ -73,6 +73,21 @@ private struct ImportSettings: View {
                 Text("仅删除校验通过的照片；启用备份时，须两份均校验通过。视频文件不予删除。此项仅适用于读卡器。")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            Section {
+                Picker("场次间隔", selection: $model.sceneGap) {
+                    Text("不分场次").tag(0)
+                    Text("30 分钟").tag(30)
+                    Text("1 小时").tag(60)
+                    Text("2 小时").tag(120)
+                    Text("3 小时").tag(180)
+                    Text("4 小时").tag(240)
+                }
+            } header: {
+                Text("场次")
+            } footer: {
+                Text("同一天内相邻两张照片的拍摄时间相隔超过此间隔时，分为两场，可按场次分别选择和导入。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section("同时有 RAW 和 JPG/HIF 时") {
                 Picker("配对规则", selection: $model.pairPolicy) {
                     Text("都导入").tag(PairPolicy.both)

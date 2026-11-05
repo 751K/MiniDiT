@@ -124,7 +124,8 @@ extension AppModel {
         }
         keys.sort { a, b in a == "unknown" ? false : b == "unknown" ? true : a > b }
         days = keys.map { k in
-            ShootingDay(id: k, title: Self.dayTitle(k), shots: groups[k]!, importedCount: importedCounts[k] ?? 0)
+            ShootingDay(id: k, title: Self.dayTitle(k), shots: groups[k]!, importedCount: importedCounts[k] ?? 0,
+                        scenes: scenes(of: groups[k]!, day: k))
         }
         // 被筛掉的内容不再算选中（否则会导入看不见的东西）。
         let visible = Set(days.flatMap(\.shots))
@@ -133,6 +134,44 @@ extension AppModel {
         if !shownDays.isSubset(of: validDays) { shownDays = shownDays.intersection(validDays) }
         if shownDays.isEmpty, let first = days.first { shownDays = [first.id] }
         updateGridOrder()
+    }
+
+    /// 把一天的拍摄（新的在前）按时间间隔切成几场。没有拍摄时间的拍摄跟着前一张走。
+    private func scenes(of shots: [UInt32], day: String) -> [ShootingScene] {
+        let gap = TimeInterval(sceneGap * 60)
+        var runs: [[UInt32]] = []
+        var last: Date?
+        for id in shots {
+            let t = self.shots[id].flatMap { items[$0.primary]?.captureDate }
+            if let t, let l = last, gap > 0, l.timeIntervalSince(t) > gap { runs.append([]) }
+            if runs.isEmpty { runs.append([]) }
+            runs[runs.count - 1].append(id)
+            if let t { last = t }
+        }
+        return runs.enumerated().map { i, ids in
+            // ids 是新的在前：最后一张最早。
+            let times = ids.compactMap { self.shots[$0].flatMap { items[$0.primary] }.flatMap(Self.clockTime) }
+            let range = times.isEmpty ? "" : times.first == times.last ? times[0] : "\(times.last!)–\(times.first!)"
+            let number = runs.count - i
+            return ShootingScene(id: "\(day)-\(number)", number: number, timeRange: range, shots: ids,
+                                 importedCount: ids.filter { isImported(shot: $0) }.count)
+        }
+    }
+
+    /// 拍摄时间的「时:分」：优先取相机记录的原始时间串。
+    static func clockTime(_ item: CameraContentItem) -> String? {
+        let raw = Array(item.captureDateRaw)
+        if raw.count >= 13, raw[8] == "T", raw[9...12].allSatisfy(\.isNumber) {
+            return "\(String(raw[9...10])):\(String(raw[11...12]))"
+        }
+        guard let d = item.captureDate else { return nil }
+        let f = DateFormatter(); f.dateFormat = "HH:mm"
+        return f.string(from: d)
+    }
+
+    /// 场次的标题：「第 2 场 · 14:05–16:30」。
+    static func sceneTitle(_ s: ShootingScene) -> String {
+        s.timeRange.isEmpty ? "第 \(s.number) 场" : "第 \(s.number) 场 · \(s.timeRange)"
     }
 
     func updateGridOrder() {
@@ -195,22 +234,34 @@ extension AppModel {
 
     // MARK: 选择
 
-    func checkState(_ day: ShootingDay) -> CheckState {
-        let n = day.shots.filter(grid.contains).count
+    func checkState(_ day: ShootingDay) -> CheckState { checkState(shots: day.shots) }
+    func checkState(_ scene: ShootingScene) -> CheckState { checkState(shots: scene.shots) }
+
+    /// 一组拍摄的勾选状态：没导入过的都选上了 = 勾上（都导过了就看是否全选）。
+    private func checkState(shots: [UInt32]) -> CheckState {
+        let n = shots.filter(grid.contains).count
         if n == 0 { return .off }
-        let target = day.newCount > 0 ? day.shots.filter { !isImported(shot: $0) } : day.shots
-        return target.allSatisfy(grid.contains) ? .on : .mixed
+        return toggleTarget(shots).allSatisfy(grid.contains) ? .on : .mixed
+    }
+
+    private func toggleTarget(_ shots: [UInt32]) -> [UInt32] {
+        let new = shots.filter { !isImported(shot: $0) }
+        return new.isEmpty ? shots : new
     }
 
     /// 侧栏勾选框：勾上 = 这一天没导入过的全部选中（都导过了就全选）；再点一下取消这一天。
-    func toggleDay(_ day: ShootingDay) {
-        if checkState(day) == .on {
-            grid.set(day.shots, selected: false)
+    func toggleDay(_ day: ShootingDay) { toggle(shots: day.shots, day: day.id) }
+
+    /// 场次的勾选框，规则同一天。
+    func toggleScene(_ scene: ShootingScene, in day: ShootingDay) { toggle(shots: scene.shots, day: day.id) }
+
+    private func toggle(shots: [UInt32], day: String) {
+        if checkState(shots: shots) == .on {
+            grid.set(shots, selected: false)
         } else {
-            let target = day.newCount > 0 ? day.shots.filter { !isImported(shot: $0) } : day.shots
-            grid.set(target, selected: true)
+            grid.set(toggleTarget(shots), selected: true)
             // 勾上的那天也显示在右边，选中的照片看得见。
-            if !shownDays.contains(day.id) { shownDays.insert(day.id) }
+            if !shownDays.contains(day) { shownDays.insert(day) }
         }
     }
 

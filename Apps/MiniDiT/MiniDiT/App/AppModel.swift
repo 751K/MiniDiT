@@ -11,6 +11,20 @@ struct ShootingDay: Identifiable, Hashable {
     var shots: [UInt32]
     var importedCount: Int
     var newCount: Int { shots.count - importedCount }
+    /// 按时间间隔分出的场次（新的在前）；没有分组或只有一场时只有一个。
+    var scenes: [ShootingScene] = []
+}
+
+/// 一天里的一场：相邻两张隔得比「场次间隔」久，就分成两场。
+struct ShootingScene: Identifiable, Hashable {
+    let id: String          // 「yyyyMMdd-场次号」
+    /// 这一天里的第几场（从早到晚，从 1 开始）。
+    let number: Int
+    /// 「14:05–16:30」，按相机记录的时间（不换算时区）。
+    let timeRange: String
+    var shots: [UInt32]
+    var importedCount: Int
+    var newCount: Int { shots.count - importedCount }
 }
 
 enum CaptureOneMode: String, CaseIterable, Identifiable {
@@ -110,7 +124,13 @@ final class AppModel {
     var onlyNew = UserDefaults.standard.object(forKey: "onlyNew") as? Bool ?? true {
         didSet { UserDefaults.standard.set(onlyNew, forKey: "onlyNew"); rebuild() }
     }
+    /// 场次间隔（分钟）：相邻两张隔得比这久就分成两场；0 = 不分场次。
+    var sceneGap = UserDefaults.standard.object(forKey: "sceneGap") as? Int ?? 120 {
+        didSet { UserDefaults.standard.set(sceneGap, forKey: "sceneGap"); rebuild() }
+    }
     var days: [ShootingDay] = []
+    /// 侧栏点了场次：网格滚到这一场（场次 id）。
+    var scrollTarget: String?
     /// 侧栏里点中的日期（右边显示哪几天）。
     var shownDays: Set<String> = [] { didSet { updateGridOrder() } }
     /// 选中的拍摄（Shot.id）。
