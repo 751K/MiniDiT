@@ -126,6 +126,8 @@ enum LightroomBridge {
         var url: URL
         /// 叠到这张 RAW 下面（RAW + JPG/HIF 成对时）。
         var stackWith: URL?
+        /// 按创意外观要设的 Look 配置文件（XMP 文件的位置）。
+        var look: String?
     }
 
     private static var counter = 0
@@ -136,13 +138,13 @@ enum LightroomBridge {
         let fm = FileManager.default
         try fm.createDirectory(at: jobsFolder, withIntermediateDirectories: true)
         counter += 1
-        let name = String(format: "%013d-%05d", Int(Date().timeIntervalSince1970 * 1000), counter)
+        let name = String(format: "%013lld-%05d", Int64(Date().timeIntervalSince1970 * 1000), Int32(counter))
         var lines = ["minidit-job\t1"]
         if let set, !set.isEmpty { lines.append("set\t" + clean(set)) }
         if let collection, !collection.isEmpty { lines.append("collection\t" + clean(collection)) }
         if select { lines.append("select\t1") }
         for p in photos {
-            lines.append("photo\t" + p.url.path + (p.stackWith.map { "\t" + $0.path } ?? ""))
+            lines.append("photo\t" + p.url.path + "\t" + (p.stackWith?.path ?? "") + (p.look.map { "\t" + clean($0) } ?? ""))
         }
         // 先写成 .tmp 再改名，插件只认 .job，不会读到写了一半的文件。
         let tmp = jobsFolder.appending(path: name + ".tmp")

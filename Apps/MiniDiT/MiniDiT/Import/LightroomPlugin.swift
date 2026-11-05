@@ -19,7 +19,7 @@ import Foundation
 /// 回执每行：`ok|skip|fail <Tab> 路径 [<Tab> 原因]`（skip = 目录里本来就有，只加进收藏夹）。
 enum LightroomPlugin {
     /// 改了插件代码就加版本号，App 会提示用户更新。
-    static let version = "1.0.0"
+    static let version = "1.1.2"
     static let toolkitID = "com.kong.minidit"
     static let folderName = "MiniDiT.lrplugin"
 
@@ -146,7 +146,8 @@ enum LightroomPlugin {
             elseif f[1] == 'collection' then job.collection = f[2]
             elseif f[1] == 'select' then job.select = (f[2] == '1')
             elseif f[1] == 'photo' and f[2] and f[2] ~= '' then
-              job.photos[#job.photos + 1] = { path = f[2], stackWith = (f[3] and f[3] ~= '') and f[3] or nil }
+              job.photos[#job.photos + 1] = { path = f[2], stackWith = (f[3] and f[3] ~= '') and f[3] or nil,
+                                              look = (f[4] and f[4] ~= '') and f[4] or nil }
             end
           end
           return job
@@ -163,6 +164,28 @@ enum LightroomPlugin {
         end
 
         local function oneLine(s) return (tostring(s):gsub('[\\t\\r\\n]', ' ')) end
+
+        -- 读 Camera Raw 的 Look 配置文件（XMP），拼成 LrC 修改照片设置用的 Look 表：
+        -- 名字、UUID、Supports* 在外层，其余（基础 DCP、RGBTable 和它的数据）放进 Parameters。
+        local function readLook(path)
+          local f = io.open(path, 'r')
+          if not f then return nil end
+          local s = f:read('*a'); f:close()
+          local name = s:match('<crs:Name>%s*<rdf:Alt>%s*<rdf:li[^>]*>(.-)</rdf:li>')
+          if not name then return nil end
+          local look = { Name = name, Amount = 1, Parameters = {} }
+          local skip = { PresetType = true, Cluster = true, Copyright = true, ContactInfo = true,
+                         CameraModelRestriction = true, HasSettings = true }
+          for k, v in s:gmatch('crs:([%w_]+)="(.-)"') do
+            if k == 'UUID' then look.UUID = v
+            elseif k:match('^Supports') then look[k] = (v == 'True')
+            elseif not skip[k] then
+              if v == 'True' then v = true elseif v == 'False' then v = false end
+              look.Parameters[k] = v
+            end
+          end
+          return look
+        end
 
         local function processJob(path)
           local job = parse(path)
@@ -187,6 +210,20 @@ enum LightroomPlugin {
                 end
                 if coll then coll:addPhotos({ photo }) end
               end)
+              -- 按创意外观设配置文件（自己装在 Camera Raw 里的「SonyA7M5 Look FL」等）。只给这次新加的照片设，已在目录里的不动。
+              if p.look and status == 'ok' then
+                local look = readLook(p.look)
+                local lok, lerr = LrTasks.pcall(function()
+                  if not look then error('读不了 ' .. p.look) end
+                  write(catalog, 'MiniDiT：设置配置文件', function()
+                    photo:applyDevelopSettings({ CameraProfile = look.Parameters.CameraProfile, Look = look })
+                  end)
+                end)
+                local st = photo:getDevelopSettings() or {}
+                local got = type(st.Look) == 'table' and st.Look.Name or nil
+                C.log('配置文件 ' .. LrPathUtils.leafName(p.path) .. '：' .. tostring(got)
+                      .. ((lok and got == (look and look.Name)) and '' or ('（要 ' .. tostring(look and look.Name) .. '，' .. oneLine(lerr or '未生效') .. '）')))
+              end
               results[#results + 1] = status .. '\\t' .. p.path
             end)
             if not ok then

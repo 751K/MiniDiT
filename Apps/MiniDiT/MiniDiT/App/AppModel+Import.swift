@@ -279,7 +279,8 @@ extension AppModel {
                             let key = pairKey(item)
                             if item.kind == .raw {
                                 rawByKey[key] = url
-                                sendToLightroom([.init(url: url)] + (waiting.removeValue(forKey: key) ?? []).map { .init(url: $0, stackWith: url) })
+                                let look = applyCreativeLook ? LightroomLooks.profile(for: url) : nil
+                                sendToLightroom([.init(url: url, look: look)] + (waiting.removeValue(forKey: key) ?? []).map { .init(url: $0, stackWith: url) })
                             } else if let raw = rawByKey[key] {
                                 sendToLightroom([.init(url: url, stackWith: raw)])
                             } else if rawKeys.contains(key) {
@@ -488,6 +489,7 @@ extension AppModel {
             var remaining = Set(names)
             var sum = LightroomBridge.Results()
             var lastProgress = Date()
+            var lastWake = Date()
             while !remaining.isEmpty, !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1))
                 let r = LightroomBridge.collect(Array(remaining))
@@ -497,6 +499,11 @@ extension AppModel {
                 let done = total - remaining.count
                 if remaining.isEmpty { break }
                 let fresh = LightroomBridge.heartbeat()?.isFresh ?? false
+                // LrC 是被唤醒链接打开的话，启动途中那次唤醒会丢，插件要等下一次才开始干活：插件没在跑就隔 10 秒再唤醒一次。
+                if !fresh, Date().timeIntervalSince(lastWake) > 10 {
+                    LightroomBridge.wake()
+                    lastWake = Date()
+                }
                 if !fresh, Date().timeIntervalSince(lastProgress) > 45 {
                     lightroomStatus = "Lightroom Classic 无响应（已添加 \(done)/\(total)）。请打开 Lightroom Classic 并确认 MiniDiT 插件已启用，其余照片将继续添加"
                 } else {

@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 
 /// 索尼的「创意外观」（Creative Look）：拍摄时选的 ST / PT / FL…，记在 RAW 文件厂商信息（MakerNote）的 0xb020 里。
 /// 这一项是明文（不在加密的那部分里），老机型叫「创意风格」，值是英文全称（Standard、Vivid…），新的外观直接写代号。
@@ -55,5 +56,52 @@ enum CreativeLook {
         let bytes = d[start..<start + e.count].prefix { $0 != 0 }
         let s = String(decoding: bytes, as: UTF8.self).trimmingCharacters(in: .whitespaces)
         return s.isEmpty ? nil : s
+    }
+}
+
+/// 装在 Camera Raw 里的 Look 配置文件（XMP，LrC 和 ACR 共用）：按机型和外观代号找名字。
+/// 文件里有 crs:CameraModelRestriction（「Sony ILCE-7M5」）和名字（「SonyA7M5 Look FL」）。
+enum LightroomLooks {
+    struct Profile: Hashable { let model: String; let code: String; let name: String; let file: URL }
+
+    static var folders: [URL] {
+        [FileManager.default.homeDirectoryForCurrentUser.appending(path: "Library/Application Support/Adobe/CameraRaw/Settings"),
+         URL(filePath: "/Library/Application Support/Adobe/CameraRaw/Settings")]
+    }
+
+    /// 扫一遍装好的 Look。名字以「Look 代号」结尾的才算。
+    static func installed() -> [Profile] {
+        var out: Set<Profile> = []
+        for dir in folders {
+            guard let e = FileManager.default.enumerator(at: dir, includingPropertiesForKeys: nil) else { continue }
+            for case let u as URL in e where u.pathExtension.lowercased() == "xmp" {
+                guard let s = try? String(contentsOf: u, encoding: .utf8), s.contains("crs:PresetType=\"Look\"") else { continue }
+                guard let model = value(s, "crs:CameraModelRestriction=\"", "\""),
+                      let name = value(s, "<rdf:li xml:lang=\"x-default\">", "</rdf:li>") else { continue }
+                let parts = name.split(separator: " ")
+                guard parts.count >= 2, parts[parts.count - 2] == "Look" else { continue }
+                let code = String(parts.last!)
+                if CreativeLook.all.contains(code) { out.insert(Profile(model: model, code: code, name: name, file: u)) }
+            }
+        }
+        return out.sorted { ($0.model, CreativeLook.all.firstIndex(of: $0.code) ?? 99) < ($1.model, CreativeLook.all.firstIndex(of: $1.code) ?? 99) }
+    }
+
+    private static func value(_ s: String, _ start: String, _ end: String) -> String? {
+        guard let a = s.range(of: start), let b = s.range(of: end, range: a.upperBound..<s.endIndex) else { return nil }
+        let v = String(s[a.upperBound..<b.lowerBound]).trimmingCharacters(in: .whitespaces)
+        return v.isEmpty ? nil : v
+    }
+
+    /// 这张 RAW 该用哪个 Look（返回配置文件 XMP 的位置，插件读它）：机型取 EXIF 的「Sony」+「ILCE-7M5」，外观取 0xb020。没装就是 nil。
+    static func profile(for raw: URL) -> String? {
+        guard let code = CreativeLook.code(ofRaw: raw),
+              let src = CGImageSourceCreateWithURL(raw as CFURL, nil),
+              let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
+              let tiff = props[kCGImagePropertyTIFFDictionary] as? [CFString: Any],
+              let model = tiff[kCGImagePropertyTIFFModel] as? String else { return nil }
+        let make = (tiff[kCGImagePropertyTIFFMake] as? String)?.split(separator: " ").first.map(String.init) ?? "Sony"
+        let full = model.hasPrefix(make) ? model : make + " " + model
+        return installed().first { $0.model.caseInsensitiveCompare(full) == .orderedSame && $0.code == code }?.file.path
     }
 }
