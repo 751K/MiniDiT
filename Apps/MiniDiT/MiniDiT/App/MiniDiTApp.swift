@@ -20,7 +20,7 @@ struct MiniDiTApp: App {
                     .disabled(model.progress != nil || model.connectedName == nil)
             }
             CommandMenu("选择") {
-                Button("选择所有未导入的照片") { model.selectNew(in: Set(model.days.map(\.id))) }
+                Button("选择全部新照片") { model.selectNew(in: Set(model.days.map(\.id))) }
                     .keyboardShortcut("n", modifiers: [.command, .shift])
                 Button("反选") { model.grid.invert() }
                     .keyboardShortcut("i", modifiers: [.command, .shift])

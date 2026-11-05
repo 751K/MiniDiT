@@ -206,7 +206,7 @@ private struct DayRow: View {
             .buttonStyle(.plain)
             .accessibilityLabel("导入 \(day.title)")
             .accessibilityValue(state == .on ? "已勾选" : state == .mixed ? "部分勾选" : "未勾选")
-            .help(day.newCount > 0 ? "勾选当日未导入的 \(day.newCount) 张照片" : "勾选当日全部照片")
+            .help(day.newCount > 0 ? "勾选当日 \(day.newCount) 张新照片" : "勾选当日全部照片")
             DayTitle(title: day.title)
             Spacer(minLength: 4)
             if day.newCount > 0 {
@@ -220,7 +220,7 @@ private struct DayRow: View {
             }
         }
         .contextMenu {
-            Button("选择当日未导入的照片") { model.selectNew(in: [day.id]) }
+            Button("选择当日新照片") { model.selectNew(in: [day.id]) }
             Button("选择当日全部照片") { model.selectAll(in: [day.id]) }
             Button("取消选择当日照片") { model.deselect(in: [day.id]) }
             Divider()
@@ -287,7 +287,7 @@ private struct SceneRow: View {
             .buttonStyle(.plain)
             .accessibilityLabel("导入 \(day.title) \(AppModel.sceneTitle(scene))")
             .accessibilityValue(state == .on ? "已勾选" : state == .mixed ? "部分勾选" : "未勾选")
-            .help(scene.newCount > 0 ? "勾选该场次未导入的 \(scene.newCount) 张照片" : "勾选该场次全部照片")
+            .help(scene.newCount > 0 ? "勾选该场次 \(scene.newCount) 张新照片" : "勾选该场次全部照片")
             Text(scene.timeRange.isEmpty ? "第 \(scene.number) 场" : scene.timeRange).font(.system(size: 12)).lineLimit(1)
             Spacer(minLength: 4)
             if scene.newCount > 0 {
@@ -675,7 +675,7 @@ struct DayHeader: View {
                 .font(.system(size: 12))
             Spacer(minLength: 8)
             if day.newCount > 0 {
-                Button("选择未导入的") { model.selectNew(in: [day.id]) }
+                Button("选择新照片") { model.selectNew(in: [day.id]) }
             }
             Button(picked ? "取消选择" : "全选") {
                 if picked { model.deselect(in: [day.id]) } else { model.selectAll(in: [day.id]) }
@@ -702,7 +702,7 @@ struct SceneHeader: View {
             Text("\(scene.shots.count) 张" + (scene.importedCount > 0 ? " · \(scene.importedCount) 张已导入" : ""))
             Spacer(minLength: 8)
             if scene.newCount > 0 {
-                Button("选择未导入的") { model.grid.set(scene.shots.filter { !model.isImported(shot: $0) }, selected: true) }
+                Button("选择新照片") { model.grid.set(scene.shots.filter { !model.isImported(shot: $0) }, selected: true) }
             }
             Button(picked ? "取消选择" : "全选") { model.grid.set(scene.shots, selected: !picked) }
         }
@@ -787,7 +787,7 @@ struct ThumbCell: View {
             Button("大图预览") { model.openPreview(shotID) }
             Divider()
             if let day = model.day(of: shotID) {
-                Button("选择当日未导入的照片") { model.selectNew(in: [day.id]) }
+                Button("选择当日新照片") { model.selectNew(in: [day.id]) }
                 Button("选择当日全部照片") { model.selectAll(in: [day.id]) }
             }
             Button("反选") { model.grid.invert() }
