@@ -326,7 +326,7 @@ final class AppModel {
     /// 当前来源能不能删文件：只有读卡器可以，Wi-Fi 相机不支持删除。
     var canDeleteFromSource: Bool { (sourceKind == .card && connectedName != nil) || !extraSources.isEmpty }
     /// 这次导入会不会删卡上的文件。
-    var willDeleteFromSource: Bool { deleteAfterImport && canDeleteFromSource }
+    var willDeleteFromSource: Bool { deleteAfterImport && canDeleteFromSource && !autoRunning }
     /// 第一次打开时选择导入方式。
     var setupDone: Bool = UserDefaults.standard.bool(forKey: "setupDone") {
         didSet { UserDefaults.standard.set(setupDone, forKey: "setupDone") }
@@ -451,6 +451,15 @@ final class AppModel {
             startCameraWatch()
         }
     }
+    /// 相机开机（连过的相机上线）后自动导入新照片。
+    var autoImportCamera: Bool = UserDefaults.standard.bool(forKey: "autoImportCamera") {
+        didSet { UserDefaults.standard.set(autoImportCamera, forKey: "autoImportCamera") }
+    }
+    /// 自动导入开始前的倒计时（菜单栏面板上显示、可取消）。
+    var autoCountdown: AutoCountdown?
+    var autoTask: Task<Void, Never>?
+    /// 这次导入是自动开始的：不删卡上的照片，结束时发通知。
+    var autoRunning = false
     /// 系统设置里允不允许 MiniDiT 发通知（nil = 还没查）。
     var notificationsAllowed: Bool?
     /// 后台看连过的相机在不在线。

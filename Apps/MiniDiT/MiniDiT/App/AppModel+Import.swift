@@ -412,6 +412,7 @@ extension AppModel {
             refreshCopies()
             rebuild()
             importTask = nil
+            if autoRunning { autoImportFinished() }
             // 删了卡上的文件：重新列一遍卡。
             if let deleted, deleted > 0 { await loadAll(restoring: selectedKeys(), days: shownDays) }
         }

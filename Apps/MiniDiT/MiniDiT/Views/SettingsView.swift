@@ -160,6 +160,8 @@ private struct ConnectSettings: View {
                 Toggle("登录时打开 MiniDiT", isOn: $model.launchAtLogin)
                 Toggle("关闭窗口后保留在菜单栏", isOn: $model.keepInMenuBar)
                 Toggle("连接过的相机开机时发送通知", isOn: $model.notifyCameraOnline)
+                Toggle("连接过的相机开机后自动导入新照片", isOn: $model.autoImportCamera)
+                    .disabled(!model.notifyCameraOnline)
                 if model.notificationsAllowed == false, model.notifyCameraOnline || model.cardInsertAction == .notify {
                     HStack {
                         Label("系统设置中已关闭 MiniDiT 的通知，将无法收到提醒。", systemImage: "exclamationmark.triangle.fill")
@@ -176,7 +178,7 @@ private struct ConnectSettings: View {
                 Text("启动与后台")
             } footer: {
                 Text(model.keepInMenuBar
-                     ? "关闭窗口后，导入照常进行，可从菜单栏重新打开窗口。登录时打开的话，只显示菜单栏图标。相机须与 Mac 在同一网络，约 30 秒内发现。"
+                     ? "关闭窗口后，导入照常进行，可从菜单栏重新打开窗口。登录时打开的话，只显示菜单栏图标。相机须与 Mac 在同一网络，约 30 秒内发现。\n自动导入：只导未导入过的照片，按当前的导入方式、存放位置、备份和命名设置进行；开始前倒计时 10 秒，可点通知取消；不会删除存储卡上的照片；备份磁盘未连接或空间不足时不导入，改为通知。"
                      : "关闭窗口即退出 MiniDiT。")
                     .font(.caption).foregroundStyle(.secondary)
             }

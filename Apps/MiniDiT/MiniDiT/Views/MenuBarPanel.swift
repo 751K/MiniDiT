@@ -28,6 +28,11 @@ struct MenuBarPanel: View {
                 ProgressView(value: Double(p.bytesDone), total: Double(max(p.bytesTotal, 1)))
                     .padding(.horizontal, 14).padding(.bottom, 10)
             }
+            if model.autoCountdown != nil {
+                Button("取消自动导入") { model.cancelAutoImport() }
+                    .controlSize(.small)
+                    .padding(.horizontal, 14).padding(.bottom, 10)
+            }
             Divider()
             VStack(alignment: .leading, spacing: 2) {
                 if model.library != nil {
