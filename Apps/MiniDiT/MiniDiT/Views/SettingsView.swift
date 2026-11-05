@@ -6,17 +6,18 @@ import SwiftUI
 /// 设置窗口：导入 / 连接 / 记录。
 struct SettingsView: View {
     var body: some View {
-        // 每页高度不同，切换时窗口跟着变高变矮，不留大片空白。
+        // 各页同一尺寸：高度不同时，切换标签会让窗口改变大小，标题栏和工具栏随之闪一下。
         TabView {
-            ImportSettings().frame(width: 600, height: 560)
+            ImportSettings()
                 .tabItem { Label("导入", systemImage: "square.and.arrow.down") }
-            ConnectSettings().frame(width: 600, height: 380)
+            ConnectSettings()
                 .tabItem { Label("连接", systemImage: "camera") }
-            AppsSettings().frame(width: 600, height: 480)
+            AppsSettings()
                 .tabItem { Label("软件", systemImage: "square.grid.2x2") }
-            RecordSettings().frame(width: 600, height: 250)
+            RecordSettings()
                 .tabItem { Label("记录", systemImage: "list.bullet") }
         }
+        .frame(width: 600, height: 560)
     }
 }
 
