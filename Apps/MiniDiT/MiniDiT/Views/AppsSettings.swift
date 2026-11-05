@@ -24,12 +24,12 @@ struct AppsSettings: View {
             }
             Section {
                 ForEach(apps.filter { $0.kind != .captureOne && $0.kind != .lightroom }) { app in
-                    PlannedRow(app: app)
+                    FolderAppRow(app: app, inUse: model.captureOneMode == .off && model.openAfterImport.appKind == app.kind)
                 }
             } header: {
-                Text("计划支持")
+                Text("按文件夹管理")
             } footer: {
-                Text("目前可使用“只下载”。")
+                Text("导入方式选“只下载”时，可在“设置 › 导入”中设置导入完成后用哪个软件打开下载的文件夹。")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
@@ -291,8 +291,9 @@ private struct CaptureOneRow: View {
     }
 }
 
-private struct PlannedRow: View {
+private struct FolderAppRow: View {
     let app: AppInfo
+    let inUse: Bool
 
     var body: some View {
         HStack(spacing: 12) {
@@ -306,7 +307,7 @@ private struct PlannedRow: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
-            Text("暂不支持").font(.caption).foregroundStyle(.secondary)
+            if inUse { Text("导入后打开").font(.caption).foregroundStyle(.secondary) }
         }
     }
 }

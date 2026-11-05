@@ -245,6 +245,8 @@ final class AppModel {
         var needsAttention: Bool { backedUp == nil || backupFailed > 0 || cardReadOnly || deleteFailed > 0 }
         /// 交给 Lightroom Classic 的收藏夹名（「A」「B」）。
         var lightroom: String? = nil
+        /// 「只下载」导入后打开了文件夹：「，已在访达中打开」之类。
+        var opened: String? = nil
     }
     /// 导入中断（相机掉线）：没导完的仍然选中，重连后可以继续。
     struct Interrupted {
@@ -313,6 +315,11 @@ final class AppModel {
     var captureOneMode: CaptureOneMode = CaptureOneMode(rawValue: UserDefaults.standard.string(forKey: "c1Mode") ?? "") ?? .newSession {
         didSet { UserDefaults.standard.set(captureOneMode.rawValue, forKey: "c1Mode") }
     }
+    /// 「只下载」时，导入完成后用哪个软件打开下载的文件夹。
+    var openAfterImport: FolderApp = FolderApp(rawValue: UserDefaults.standard.string(forKey: "openAfterImport") ?? "") ?? .none {
+        didSet { UserDefaults.standard.set(openAfterImport.rawValue, forKey: "openAfterImport") }
+    }
+
     var pairPolicy: PairPolicy = PairPolicy(rawValue: UserDefaults.standard.string(forKey: "pairPolicy") ?? "") ?? .both {
         didSet { UserDefaults.standard.set(pairPolicy.rawValue, forKey: "pairPolicy") }
     }
@@ -425,4 +432,31 @@ extension AppModel.ResumeSession {
     var session: AppModel.SessionChoice {
         captureDir.map { .resolved(captureDir: $0, name: name) } ?? .new(name)
     }
+}
+
+/// 按文件夹管理照片的软件：「只下载」导入完成后用它打开下载的文件夹。
+enum FolderApp: String, CaseIterable, Identifiable {
+    case none, finder, bridge, dxo
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .none: "不打开"
+        case .finder: "访达"
+        case .bridge: "Adobe Bridge"
+        case .dxo: "DxO PhotoLab"
+        }
+    }
+
+    /// 对应「设置 › 软件」里的哪一个（访达不用找）。
+    var appKind: AppInfo.Kind? {
+        switch self {
+        case .bridge: .bridge
+        case .dxo: .dxo
+        default: nil
+        }
+    }
+
+    /// 装了才能选（访达总是有）。
+    var isAvailable: Bool { appKind.map { AppInfo.find($0).isInstalled } ?? true }
 }

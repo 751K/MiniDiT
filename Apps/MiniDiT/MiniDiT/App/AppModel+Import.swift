@@ -350,6 +350,7 @@ extension AppModel {
             lastBatch = saved
             let sessionText = sessionNames.isEmpty ? nil : sessionNames.joined(separator: "”“")
             let lightroomText = lightroomCollections.isEmpty ? nil : lightroomCollections.joined(separator: "”“")
+            var openedText: String?
             if mode == .newSession {
                 if let sessionText { summary += "，已存入会话“\(sessionText)”" }
             } else if mode == .lightroom {
@@ -359,6 +360,9 @@ extension AppModel {
                 }
             } else if mode != .off && !saved.isEmpty {
                 summary += await sendToCaptureOne(saved, inPlace: mode == .inPlace)
+            } else if mode == .off && !Task.isCancelled, let folder = Self.commonFolder(done.map(\.url)) {
+                openedText = openFolder(folder, in: openAfterImport)
+                if let openedText { summary += openedText }
             }
             var c1Failed = false
             if mode != .newSession && mode != .off && mode != .lightroom && !saved.isEmpty { c1Failed = summary.contains("Capture One 导入失败") }
@@ -375,7 +379,7 @@ extension AppModel {
                                           deleted: deleted, keptOnCard: deleted.map { picked.count - $0 } ?? 0,
                                           deleteFailed: deleteFailed, cardReadOnly: cardReadOnly,
                                           resumed: progress?.resumedFiles ?? 0, savedBytes: savedBytes, reports: reports,
-                                          lightroom: mode == .lightroom ? lightroomText : nil)
+                                          lightroom: mode == .lightroom ? lightroomText : nil, opened: openedText)
             }
             log.add("导入结束：\(summary)")
             // 全部文件都导好的拍摄取消选中。
@@ -391,6 +395,40 @@ extension AppModel {
     }
 
     func cancelImport() { importTask?.cancel() }
+
+    /// 这些文件共同所在的最深一层文件夹（一天就是那一天的文件夹，跨了几天就是上一层）。
+    static func commonFolder(_ files: [URL]) -> URL? {
+        let dirs = files.map { $0.deletingLastPathComponent().standardizedFileURL.pathComponents }
+        guard var common = dirs.first else { return nil }
+        for d in dirs.dropFirst() {
+            var n = 0
+            while n < min(common.count, d.count), common[n] == d[n] { n += 1 }
+            common = Array(common.prefix(n))
+        }
+        guard common.count > 1 else { return nil }
+        return URL(fileURLWithPath: NSString.path(withComponents: common), isDirectory: true)
+    }
+
+    /// 用选好的软件打开下载的文件夹，返回接在导入结果后面的说明。Bridge 和 DxO PhotoLab 打开文件夹时会定位到它。
+    func openFolder(_ folder: URL, in app: FolderApp) -> String? {
+        switch app {
+        case .none:
+            return nil
+        case .finder:
+            NSWorkspace.shared.open(folder)
+            return "，已在访达中打开"
+        case .bridge, .dxo:
+            guard let kind = app.appKind, let appURL = AppInfo.find(kind).url else {
+                log.add("导入后打开：没有找到 \(app.title)")
+                return "；未找到 \(app.title)，未打开文件夹"
+            }
+            NSWorkspace.shared.open([folder], withApplicationAt: appURL, configuration: NSWorkspace.OpenConfiguration()) { _, error in
+                if let error { Task { @MainActor in AppLog.shared.add("用 \(app.title) 打开 \(folder.path) 失败：\(error.localizedDescription)") } }
+            }
+            log.add("导入后用 \(app.title) 打开：\(folder.path)")
+            return "，已在 \(app.title) 中打开"
+        }
+    }
 
     /// 会话名「3.15-公园」里的「公园」；没有「-」就用整个名字。
     static func eventName(of sessionName: String) -> String? {

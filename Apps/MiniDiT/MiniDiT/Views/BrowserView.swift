@@ -952,6 +952,7 @@ struct FloatingBar: View {
             s += "，已从存储卡删除 \(d) 个" + (r.keptOnCard > 0 ? "（保留 \(r.keptOnCard) 个）" : "")
         }
         if !r.reports.isEmpty { s += "，已写入校验清单" }
+        if let o = r.opened { s += o }
         if r.cancelled { s += r.savedBytes > 0 ? "（已取消；已保存 \(Self.bytes(r.savedBytes))，下次将从断点续传）" : "（已取消）" }
         return s
     }

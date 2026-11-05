@@ -33,6 +33,11 @@ private struct ImportSettings: View {
                     }
                 }
                 .pickerStyle(.radioGroup).labelsHidden()
+                if model.captureOneMode == .off {
+                    Picker("导入完成后打开", selection: $model.openAfterImport) {
+                        ForEach(FolderApp.allCases.filter { $0.isAvailable || $0 == model.openAfterImport }) { Text($0.title).tag($0) }
+                    }
+                }
                 if let d = model.captureOneDocument {
                     Text("Capture One 当前打开的文档：\(d.name)").font(.caption).foregroundStyle(.secondary)
                 }
@@ -125,7 +130,7 @@ private struct ImportSettings: View {
         case .c1Settings: "按当前文档的导入设置处理"
         case .inPlace: "下载后直接添加到当前文档"
         case .lightroom: "下载后添加到当前目录，须安装插件"
-        case .off: "仅存储至电脑"
+        case .off: "仅存储至电脑，可在导入后用访达、Bridge 或 DxO 打开"
         }
     }
 
