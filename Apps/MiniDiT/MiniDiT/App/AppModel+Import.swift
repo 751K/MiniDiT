@@ -128,6 +128,9 @@ extension AppModel {
             // 可以从卡上删的：和卡上数据核对过；要求备份时备份也成功了；不是视频（删视频会让相机的数据库对不上）。
             var deletable: [UInt32] = []
             var consecutiveFailures = 0
+            // 写 MHL 校验清单用：第一份、备份各一组。
+            var mhlPrimary: [MHLWriter.Entry] = []
+            var mhlBackup: [MHLWriter.Entry] = []
             for item in picked {
                 if Task.isCancelled { break }
                 progress?.current = "导入 \(item.filename)"
@@ -157,6 +160,12 @@ extension AppModel {
                         deletable.append(item.id)
                     }
                     done.append(.init(item: item, url: r.outcome.url, xxh64: r.xxh64, backup: backupURL))
+                    if case .alreadyThere = r.outcome {
+                        mhlPrimary.append(.init(url: r.outcome.url, xxh64: r.xxh64, action: .verified))
+                    } else {
+                        mhlPrimary.append(.init(url: r.outcome.url, xxh64: r.xxh64, action: .original))
+                    }
+                    if let backupURL { mhlBackup.append(.init(url: backupURL, xxh64: r.xxh64, action: .original)) }
                 } catch is CancellationError {
                     break
                 } catch {
@@ -176,6 +185,19 @@ extension AppModel {
                 consecutiveFailures = 0
             }
             ImportHistory.shared.record(done, camera: camera)
+            // 导入报告：ASC MHL 清单。会话模式写在 Capture 文件夹里（C1 自己的 CaptureOne/ 子文件夹不算），其他模式写在保存位置根目录。
+            var reports: [URL] = []
+            if !mhlPrimary.isEmpty {
+                do {
+                    reports.append(try MHLWriter.append(root: captureDir ?? root, entries: mhlPrimary,
+                                                        ignore: captureDir != nil ? ["CaptureOne", "CaptureOne/"] : []))
+                } catch { log.add("写校验清单失败：\(error.localizedDescription)") }
+            }
+            if let backupRoot, !mhlBackup.isEmpty {
+                do { reports.append(try MHLWriter.append(root: backupRoot, entries: mhlBackup)) }
+                catch { log.add("写备份盘校验清单失败：\(error.localizedDescription)") }
+            }
+            for r in reports { log.add("校验清单：\(r.path)") }
             // 没导完的文件里，已经传了一部分、留着续传的有多少。
             let finishedIDs = Set(done.map(\.item.id))
             let savedBytes = picked.filter { !finishedIDs.contains($0.id) }
@@ -231,13 +253,14 @@ extension AppModel {
                                           backupFailed: progress?.backupFailed.count ?? 0,
                                           deleted: deleted, keptOnCard: deleted.map { picked.count - $0 } ?? 0,
                                           deleteFailed: deleteFailed, cardReadOnly: cardReadOnly,
-                                          resumed: progress?.resumedFiles ?? 0, savedBytes: savedBytes)
+                                          resumed: progress?.resumedFiles ?? 0, savedBytes: savedBytes, reports: reports)
             }
             log.add("导入结束：\(summary)")
             // 全部文件都导好的拍摄取消选中。
             let doneIDs = Set(done.map(\.item.id))
             grid.remove(pickedShots.filter { id in shots[id].map { importFiles(of: $0).allSatisfy(doneIDs.contains) } ?? false })
             progress = nil
+            refreshCopies()
             rebuild()
             importTask = nil
             // 删了卡上的文件：重新列一遍卡。

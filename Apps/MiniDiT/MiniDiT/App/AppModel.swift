@@ -116,6 +116,8 @@ final class AppModel {
     /// 选中的拍摄（Shot.id）。
     var grid = GridSelection<UInt32>()
     var thumbnails: [UInt32: NSImage] = [:]
+    /// 每个文件在电脑上有几份（0 / 1 / 2），读卡和导入完以后检查一遍磁盘，结果存在这里。
+    var fileCopies: [UInt32: Int] = [:]
     var thumbOrder: [UInt32] = []
     var pendingThumbs: [UInt32] = []
     var thumbLoaderRunning = false
@@ -209,6 +211,8 @@ final class AppModel {
         var resumed = 0
         /// 没传完、留着下次接着传的字节数（取消时）。
         var savedBytes: UInt64 = 0
+        /// 这次写的 MHL 校验清单。
+        var reports: [URL] = []
         /// 结果里有需要注意的（只有一份、备份失败、没删成功）。
         var needsAttention: Bool { backedUp == nil || backupFailed > 0 || cardReadOnly || deleteFailed > 0 }
     }

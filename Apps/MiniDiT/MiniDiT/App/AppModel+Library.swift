@@ -34,6 +34,7 @@ extension AppModel {
             for s in allShots { for h in s.handles { shotOfFile[h] = s.id } }
             slots = Array(Set(all.values.map { $0.storageID >> 16 })).sorted()
             grid = GridSelection()
+            refreshCopies()
             rebuild()
             if let keep {
                 // 重连后：按文件身份找回原来的选择和查看的日期。
@@ -149,6 +150,48 @@ extension AppModel {
     var visibleDays: [ShootingDay] { days.filter { shownDays.contains($0.id) } }
 
     func item(_ h: UInt32) -> CameraContentItem? { items[h] }
+
+    // MARK: 备份状态
+
+    /// 检查每个导入过的文件，第一份和备份盘上的那份还在不在（大小一致）。
+    func refreshCopies() {
+        let history = ImportHistory.shared
+        var map: [UInt32: Int] = [:]
+        for (h, item) in items where history.contains(item, camera: cameraID) {
+            let local = history.localFile(item, camera: cameraID) != nil
+            let backup = history.backupFile(item, camera: cameraID) != nil
+            map[h] = (local ? 1 : 0) + (backup ? 1 : 0)
+        }
+        fileCopies = map
+    }
+
+    /// 一次拍摄有几份：取它要导入的文件里最少的那个（RAW 有两份、JPG 只有一份，就算一份）。
+    func copyCount(shot id: UInt32) -> Int {
+        guard let s = shots[id] else { return 0 }
+        let files = importFiles(of: s)
+        guard !files.isEmpty else { return 0 }
+        return files.map { fileCopies[$0] ?? 0 }.min() ?? 0
+    }
+
+    /// 整张卡（当前来源上的所有文件，不管筛选）：几个有两份、几个只有一份、几个没导。
+    struct CardSafety {
+        var two = 0, one = 0, none = 0
+        var total: Int { two + one + none }
+        /// 每个文件都有两份，可以格式化。
+        var canFormat: Bool { total > 0 && two == total }
+    }
+
+    var cardSafety: CardSafety {
+        var c = CardSafety()
+        for h in items.keys {
+            switch fileCopies[h] ?? 0 {
+            case 2...: c.two += 1
+            case 1: c.one += 1
+            default: c.none += 1
+            }
+        }
+        return c
+    }
 
     // MARK: 选择
 

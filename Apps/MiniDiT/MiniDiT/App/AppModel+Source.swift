@@ -373,7 +373,7 @@ extension AppModel {
     func resetContent() {
         items = [:]; allShots = []; shots = [:]; shotOfFile = [:]; slots = []; days = []
         grid = GridSelection(); shownDays = []
-        thumbnails = [:]; thumbOrder = []; pendingThumbs = []
+        thumbnails = [:]; thumbOrder = []; pendingThumbs = []; fileCopies = [:]
         connectedName = nil; connectedHost = nil; cameraID = nil; deviceInfo = nil; cardRoot = nil
         previewShot = nil; previewImage = nil
         progress = nil; lastResult = nil; interrupted = nil; offline = false

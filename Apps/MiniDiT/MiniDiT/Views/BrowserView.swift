@@ -205,8 +205,11 @@ private struct DayRow: View {
             if day.newCount > 0 {
                 Text("\(day.newCount) 新").font(.system(size: 12, weight: .semibold))
             } else {
-                Image(systemName: "checkmark").font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
-                    .help("都导入过了")
+                let copies = day.shots.map { model.copyCount(shot: $0) }.min() ?? 0
+                Image(systemName: copies >= 2 ? "checkmark.shield.fill" : copies == 1 ? "exclamationmark.shield.fill" : "checkmark")
+                    .font(.system(size: copies >= 1 ? 12 : 10, weight: .semibold))
+                    .foregroundStyle(model.shownDays.contains(day.id) ? .white : copies >= 2 ? .green : copies == 1 ? .orange : .secondary)
+                    .help(copies >= 2 ? "这一天的照片都有两份" : copies == 1 ? "都导入过了，但有的只有一份" : "都导入过了")
             }
             Text("\(day.shots.count)").font(.system(size: 12).monospacedDigit()).foregroundStyle(.secondary)
                 .frame(minWidth: 18, alignment: .trailing)
@@ -229,8 +232,7 @@ struct BrowseHeader: View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 0) {
                 Text(title).font(.system(size: 15, weight: .semibold)).lineLimit(1)
-                Text(model.newShotCount > 0 ? "\(model.newShotCount) 张新照片" : "没有新照片")
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                CardSafetyLine()
             }
             Spacer(minLength: 8)
             SelectAllButton()
@@ -255,6 +257,28 @@ struct BrowseHeader: View {
         var t = model.connectedName ?? "MiniDiT"
         if let s = model.slotFilter, model.slots.count > 1 { t += " · 卡 \(s)" }
         return t
+    }
+}
+
+/// 标题下面一行：新照片数，以及这张卡能不能格式化（每个文件是否都有两份）。
+private struct CardSafetyLine: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        let c = model.cardSafety
+        Group {
+            if c.canFormat {
+                Label("全部文件已有两份，可以格式化存储卡", systemImage: "checkmark.shield.fill")
+                    .foregroundStyle(.green)
+            } else {
+                let newText = model.newShotCount > 0 ? "\(model.newShotCount) 张新照片" : "没有新照片"
+                let unsafe = c.one + c.none
+                Text(c.two + c.one == 0 ? newText : newText + " · \(unsafe) 个文件尚未存够两份，暂不要格式化")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .font(.system(size: 11)).lineLimit(1)
+        .help("卡上 \(c.total) 个文件：两份 \(c.two) · 一份 \(c.one) · 未导入 \(c.none)（包括没有显示的类型，比如视频）")
     }
 }
 
@@ -586,7 +610,11 @@ struct ThumbCell: View {
             }
             .overlay(alignment: .bottomTrailing) {
                 if imported {
-                    Badge(text: model.thumbSize >= 150 ? "已导入" : "", check: true).padding(5)
+                    let copies = model.copyCount(shot: shotID)
+                    let text = copies >= 2 ? "两份" : copies == 1 ? "一份" : "已导入"
+                    Badge(text: model.thumbSize >= 150 ? text : "", check: true,
+                          checkColor: copies == 1 ? .orange : .green).padding(5)
+                        .help(copies >= 2 ? "电脑上有两份，都校验过" : copies == 1 ? "只有一份，还没有备份" : "导入过，但电脑上找不到这个文件了")
                 }
             }
             .overlay {
@@ -652,10 +680,11 @@ struct ThumbCell: View {
 private struct Badge: View {
     let text: String
     var check = false
+    var checkColor: Color = .green
 
     var body: some View {
         HStack(spacing: 2) {
-            if check { Image(systemName: "checkmark").font(.system(size: 8, weight: .bold)).foregroundStyle(.green) }
+            if check { Image(systemName: "checkmark").font(.system(size: 8, weight: .bold)).foregroundStyle(checkColor) }
             if !text.isEmpty { Text(text) }
         }
         .font(.system(size: 10, weight: .medium))
@@ -787,6 +816,7 @@ struct FloatingBar: View {
         } else if let d = r.deleted {
             s += "，从卡上删除 \(d) 个" + (r.keptOnCard > 0 ? "（\(r.keptOnCard) 个保留）" : "")
         }
+        if !r.reports.isEmpty { s += "，已写入校验清单" }
         if r.cancelled { s += r.savedBytes > 0 ? "（已取消；已保存 \(Self.bytes(r.savedBytes))，下次从断点接着传）" : "（已取消）" }
         return s
     }
@@ -888,7 +918,8 @@ struct PreviewOverlay: View {
                             Text([shot?.badge ?? "", ThumbCell.time(item)].filter { !$0.isEmpty }.joined(separator: " · ")
                                  + (model.previewLoaded ? "" : " · 正在加载大图…"))
                             if model.isImported(shot: id) {
-                                Label("已导入", systemImage: "checkmark")
+                                let copies = model.copyCount(shot: id)
+                                Label(copies >= 2 ? "两份" : copies == 1 ? "只有一份" : "已导入", systemImage: "checkmark")
                             }
                         }
                         .font(.system(size: 12)).foregroundStyle(.white.opacity(0.72))
