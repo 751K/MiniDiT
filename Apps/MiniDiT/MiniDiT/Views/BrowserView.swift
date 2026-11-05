@@ -22,6 +22,8 @@ struct BrowserView: View {
                         GridView()
                     }
                 }
+                // 窗口没有标题栏：顶栏直接放进标题栏那一行，不另留一条空白。
+                .ignoresSafeArea(.container, edges: .top)
                 FloatingBar()
                     .padding(.horizontal, 20)
                     .padding(.bottom, 16)
