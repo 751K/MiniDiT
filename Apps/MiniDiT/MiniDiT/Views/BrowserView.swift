@@ -674,15 +674,26 @@ struct FloatingBar: View {
         Group {
             if let p = model.progress {
                 capsule {
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack(spacing: 10) {
-                            ProgressView(value: p.fraction).progressViewStyle(.linear)
-                            Text("\(p.done + p.skipped + p.reused + p.failed.count)/\(p.total)").fontWeight(.semibold).monospacedDigit()
-                            Text(Self.timeLeft(p.secondsLeft)).foregroundStyle(.secondary).monospacedDigit()
+                    VStack(alignment: .leading, spacing: 5) {
+                        // 第一行：进度（左）和剩余时间（右）。
+                        HStack(alignment: .firstTextBaseline) {
+                            Text("正在导入").font(.system(size: 14, weight: .semibold))
+                            Text("\(p.done + p.skipped + p.reused + p.failed.count) / \(p.total)")
+                                .font(.system(size: 14)).foregroundStyle(.secondary).monospacedDigit()
+                            Spacer(minLength: 12)
+                            Text(Self.timeLeft(p.secondsLeft))
+                                .font(.system(size: 12)).foregroundStyle(.secondary).monospacedDigit()
                         }
-                        Text("正在\(p.current) · \(Self.bytes(p.bytesDone)) / \(Self.bytes(p.bytesTotal))"
-                             + (p.bytesPerSecond.map { " · \(Self.bytes(UInt64($0)))/s" } ?? ""))
-                            .font(.system(size: 11)).lineLimit(1).truncationMode(.middle)
+                        ProgressView(value: p.fraction).progressViewStyle(.linear)
+                        // 第三行：当前文件（左）和数据量、速度（右）。
+                        HStack(alignment: .firstTextBaseline) {
+                            Text(p.current).lineLimit(1).truncationMode(.middle)
+                            Spacer(minLength: 12)
+                            Text("\(Self.bytes(p.bytesDone)) / \(Self.bytes(p.bytesTotal))"
+                                 + (p.bytesPerSecond.map { " · \(Self.bytes(UInt64($0)))/s" } ?? ""))
+                                .monospacedDigit().layoutPriority(1)
+                        }
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
                     }
                     Button("取消") { model.cancelImport() }.buttonStyle(.bordered).buttonBorderShape(.capsule)
                 }
