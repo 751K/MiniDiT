@@ -6,7 +6,7 @@ import ImageIO
 import UniformTypeIdentifiers
 
 // 在 Mac 上模拟一台索尼相机（PTP/IP，默认端口 15740），用来在模拟器里联调 APP。
-// 用法：swift run fake-sony-camera [端口]
+// 用法：swift run fake-sony-camera [端口] [-bind 本机地址] [-serial 序列号] [-model 型号]
 
 setvbuf(stdout, nil, _IOLBF, 0)  // 输出重定向到文件时也逐行写出
 let port = CommandLine.arguments.dropFirst().first.flatMap(UInt16.init) ?? 15740
@@ -93,7 +93,18 @@ state.onOperation = { line in
     if verbose || !line.hasPrefix("op 0x1009 0xFFFFC002") && !line.hasPrefix("op 0x9209") { print(line) }
 }
 
-let server = try FakeCamera(port: port) { state.handle($0, $1, $2) }
+// -slow 秒：每次取文件数据前等一会儿（模拟慢速 Wi-Fi）。
+if let i = CommandLine.arguments.firstIndex(of: "-slow"), i + 1 < CommandLine.arguments.count, let t = Double(CommandLine.arguments[i + 1]) {
+    state.slowDownload = t
+}
+// -model XXXX：机型（默认 ILCE-7M5）。
+if let i = CommandLine.arguments.firstIndex(of: "-model"), i + 1 < CommandLine.arguments.count {
+    state.model = CommandLine.arguments[i + 1]
+}
+// -bind 地址：只在这个本机地址上监听，同一台 Mac 上可以开几台（各用一个地址）。
+let bind = CommandLine.arguments.firstIndex(of: "-bind").flatMap { $0 + 1 < CommandLine.arguments.count ? CommandLine.arguments[$0 + 1] : nil }
+
+let server = try FakeCamera(port: port, bind: bind) { state.handle($0, $1, $2) }
 let actual = try await server.start()
-print("模拟索尼相机已启动：端口 \(actual)。在模拟器 APP 里连接 127.0.0.1 即可。按 Ctrl+C 退出。")
+print("模拟索尼相机已启动：\(bind ?? "所有地址") 端口 \(actual)，\(state.model) #\(state.serialNumber)。按 Ctrl+C 退出。")
 while true { try await Task.sleep(for: .seconds(3600)) }

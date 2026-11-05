@@ -78,6 +78,7 @@ private struct SourceCard: View {
     @State private var expanded = false
     @State private var listHeight: CGFloat = 0
     @State private var newName = ""
+    @State private var newHost = ""
 
     private struct ListHeight: PreferenceKey {
         static let defaultValue: CGFloat = 0
@@ -119,6 +120,13 @@ private struct SourceCard: View {
         .accessibilityElement(children: .contain)
         .onChange(of: model.progress != nil) { _, busy in if busy { expanded = false } }
         .onChange(of: model.renamingSource) { _, id in if let id { newName = model.profile(id)?.nickname ?? "" } }
+        .alert("同时连接相机", isPresented: Bindable(model).askingHost) {
+            TextField("IP 地址", text: $newHost)
+            Button("连接") { model.addCamera(host: newHost); newHost = "" }
+            Button("取消", role: .cancel) { newHost = "" }
+        } message: {
+            Text("输入相机的 IP 地址，例如 192.168.1.23。")
+        }
         .alert("重命名“\(model.renamingSource.map(model.sourceName) ?? "")”",
                isPresented: Binding(get: { model.renamingSource != nil }, set: { if !$0 { model.renamingSource = nil } })) {
             TextField("名称", text: $newName)
@@ -205,9 +213,10 @@ private struct SourceList: View {
     let done: () -> Void
 
     var body: some View {
-        let open = Set(([model.cardRoot].compactMap { $0 } + model.extraSources.map(\.root)).map(\.standardizedFileURL))
-        let cards = model.cards.filter { !open.contains($0.standardizedFileURL) }
-        let cameras = model.knownCameras.filter { $0.fingerprint != model.currentFingerprint }
+        let openCards = Set(([model.cardRoot] + model.extraSources.map(\.root)).compactMap { $0?.standardizedFileURL })
+        let cards = model.cards.filter { !openCards.contains($0.standardizedFileURL) }
+        let cameras = model.knownCameras.filter { !model.openFingerprints.contains($0.fingerprint) && !model.openHosts.contains($0.host) }
+        let open = model.library != nil || model.offline
         VStack(alignment: .leading, spacing: 0) {
             Divider().padding(.horizontal, 10)
             VStack(spacing: 2) {
@@ -215,11 +224,15 @@ private struct SourceList: View {
                 ForEach(cards, id: \.self) { url in
                     row(icon: "plus.circle", title: url.lastPathComponent, detail: "同时打开此存储卡") { model.addCard(url) }
                 }
+                // 连过的相机：和当前来源同时连接（多机位）。
                 ForEach(cameras) { k in
-                    row(icon: "camera", title: k.name,
-                        detail: model.switchingTo == k.fingerprint ? "正在检查…" : (k.name == k.host ? "上次连接的相机" : "上次连接：\(k.host)")) {
-                        model.switchTo(known: k)
+                    row(icon: open ? "plus.circle" : "camera", title: k.name,
+                        detail: model.switchingTo == k.fingerprint ? "正在检查…" : (open ? "同时连接此相机 · \(k.host)" : (k.name == k.host ? "上次连接的相机" : "上次连接：\(k.host)"))) {
+                        if open { model.addCamera(known: k) } else { model.switchTo(known: k) }
                     }
+                }
+                if open {
+                    row(icon: "network", title: "输入地址同时连接相机…", detail: nil) { model.askingHost = true }
                 }
                 if model.sourceKind == .card, !model.isMultiSource {
                     row(icon: "eject", title: "推出存储卡", detail: nil) { model.ejectCard() }
@@ -282,9 +295,12 @@ private struct SourceRow: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(source.name).font(.system(size: 12, weight: .semibold)).lineLimit(1)
                 HStack(spacing: 4) {
-                    if source.id == AppModel.primarySource, model.offline {
+                    if (source.id == AppModel.primarySource && model.offline) || source.offline {
                         Circle().fill(Color.orange).frame(width: 6, height: 6)
-                        Text("正在重新连接…")
+                        Text("已断开，正在重新连接…")
+                    } else if source.connecting {
+                        ProgressView().controlSize(.mini)
+                        Text("正在连接…")
                     } else {
                         Image(systemName: c.canFormat ? "checkmark.shield.fill" : "exclamationmark.shield")
                             .foregroundStyle(c.canFormat ? .green : .orange)
@@ -1126,10 +1142,10 @@ struct FloatingBar: View {
                 capsule(maxWidth: 560) {
                     statusIcon(warning: true)
                     twoLines("导入已中断，已完成 \(i.done) / \(i.total) 个文件",
-                             (model.offline ? "相机已断开，" : "") + "未完成的 \(i.total - i.done) 个文件仍处于选中状态"
+                             (model.sourcesOffline ? "相机已断开，" : "") + "未完成的 \(i.total - i.done) 个文件仍处于选中状态"
                              + (i.savedBytes > 0 ? "；已保存 \(Self.bytes(i.savedBytes))，继续时将从断点续传" : ""))
                     secondaryButton("放弃") { model.dismissInterrupted() }
-                    mainButton("继续导入", disabled: model.offline) { model.continueImport() }
+                    mainButton("继续导入", disabled: model.sourcesOffline) { model.continueImport() }
                 }
             } else if let r = model.lastResult, r.c1Failed, model.grid.selected.isEmpty {
                 capsule(maxWidth: 560) {
@@ -1140,7 +1156,7 @@ struct FloatingBar: View {
                 }
             } else if !model.grid.selected.isEmpty {
                 capsule {
-                    if let r = model.lastResult, r.cancelled, r.savedBytes > 0, !model.offline {
+                    if let r = model.lastResult, r.cancelled, r.savedBytes > 0, !model.sourcesOffline {
                         VStack(alignment: .leading, spacing: 1) {
                             Text("已选 \(model.selectedShotCount) 张 · \(Self.bytes(model.selectionBytes))")
                                 .font(.system(size: 15, weight: .semibold)).lineLimit(1)
@@ -1152,7 +1168,7 @@ struct FloatingBar: View {
                         twoLines("已选 \(model.selectedShotCount) 张 · \(Self.bytes(model.selectionBytes))", pickedDetail)
                     }
                     ImportOptions()
-                    mainButton(importLabel, disabled: model.offline) { model.beginImport() }
+                    mainButton(importLabel, disabled: model.sourcesOffline) { model.beginImport() }
                         .keyboardShortcut(.return, modifiers: .command)
                 }
             } else if let r = model.lastResult {
@@ -1189,7 +1205,7 @@ struct FloatingBar: View {
     }
 
     private var pickedDetail: String {
-        if model.offline { return "相机重新连接后方可导入" }
+        if model.sourcesOffline { return "相机重新连接后方可导入" }
         let files = model.selectedFiles()
         let days = Set(files.map(AppModel.dayKey)).count
         let dest = model.captureOneMode == .newSession ? model.sessionsFolder : model.destination

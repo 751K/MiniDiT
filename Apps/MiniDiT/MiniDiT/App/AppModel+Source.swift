@@ -138,8 +138,9 @@ extension AppModel {
         notice = nil
         log.add("连接 \(cam.host)")
         do {
-            let lib = try await openLibrary(cam)
+            let (lib, remote) = try await openLibrary(cam)
             if Task.isCancelled { await lib.close(); throw CancellationError() }
+            usesRemoteTransfer = remote
             sourceKind = .camera
             deviceInfo = await lib.deviceInfo
             cameraID = deviceInfo?.cameraID
@@ -184,22 +185,21 @@ extension AppModel {
         }
     }
 
-    private func openLibrary(_ cam: FoundCamera, interactive: Bool = true) async throws -> any CameraLibrary {
+    /// 打开相机的存储卡接口。返回是否用的远程传输（不改主来源的状态，同时连接第二台相机时也用它）。
+    private func openLibrary(_ cam: FoundCamera, interactive: Bool = true) async throws -> (any CameraLibrary, remote: Bool) {
         let step: @Sendable (String) -> Void = { s in Task { @MainActor in self.status = s; self.log.add(s) } }
         do {
             let tunnel = try await prepareTunnel(cam, interactive: interactive)
             let lib = try await SonyRemoteTransferLibrary.open(host: cam.host, identity: HostIdentityStore.identity,
                                                                tunnel: tunnel, progress: step)
-            usesRemoteTransfer = true
             log.add("使用远程传输（相机界面不锁，可读两个卡槽）")
-            return lib
+            return (lib, true)
         } catch let e where e is SonyRemoteTransferError || e is PTPError {
             log.add("远程传输不可用（\(e.localizedDescription)），改用内容传输模式")
             try? await Task.sleep(for: .milliseconds(800))
             let tunnel = try await prepareTunnel(cam, interactive: interactive)
-            usesRemoteTransfer = false
-            return try await SonyContentsTransfer.openLibrary(host: cam.host, identity: HostIdentityStore.identity,
-                                                              tunnel: tunnel, progress: step)
+            return (try await SonyContentsTransfer.openLibrary(host: cam.host, identity: HostIdentityStore.identity,
+                                                               tunnel: tunnel, progress: step), false)
         }
     }
 
@@ -290,9 +290,11 @@ extension AppModel {
         library = nil
         let extras = extraSources
         extraSources = []
+        for t in extraTasks.values { t.cancel() }
+        extraTasks = [:]
         Task {
             await lib?.close()
-            for e in extras { await e.library.close() }
+            for e in extras { await e.library?.close() }
         }
         resetContent()
         phase = .idle
@@ -318,10 +320,11 @@ extension AppModel {
         }
         let wasCard = sourceKind == .card
         // 主来源的卡被拔了，但还有别的卡开着：让下一张卡顶上来，不回到首页。
-        if wasCard, let next = extraSources.first {
-            log.add("存储卡被移除了，改用同时打开的 \(next.root.lastPathComponent)")
+        if wasCard, let i = extraSources.firstIndex(where: { $0.library != nil }) {
+            let next = extraSources[i]
+            log.add("存储卡被移除了，改用同时打开的 \(next.isCard ? next.root?.lastPathComponent ?? "" : next.name)")
             importTask?.cancel()
-            extraSources.removeFirst()
+            extraSources.remove(at: i)
             let keep = selectedKeys(), keepDays = shownDays
             promote(next)
             Task { await loadAll(restoring: keep, days: keepDays) }
@@ -360,8 +363,9 @@ extension AppModel {
         status = "正在重新连接 \(cam.host)…"
         guard await probe(host: cam.host)?.fingerprint == cam.fingerprint else { return false }
         do {
-            let lib = try await openLibrary(cam, interactive: false)
+            let (lib, remote) = try await openLibrary(cam, interactive: false)
             guard offline else { await lib.close(); return true }
+            usesRemoteTransfer = remote
             let keep = selectedKeys()
             let keepDays = shownDays
             deviceInfo = await lib.deviceInfo
@@ -384,7 +388,8 @@ extension AppModel {
 
     func sourceIdentity(_ id: Int) -> String {
         if id == Self.primarySource { return cardRoot?.standardizedFileURL.path ?? cameraID ?? connectedHost ?? "" }
-        return extraSources.first { $0.id == id }?.root.standardizedFileURL.path ?? ""
+        guard let e = extra(id) else { return "" }
+        return e.root?.standardizedFileURL.path ?? e.cameraID ?? e.camera?.host ?? ""
     }
 
     func selectedKeys() -> Set<String> {
@@ -439,20 +444,147 @@ extension AppModel {
 
     /// 同时打开的卡顶上来当主来源。
     func promote(_ e: ExtraSource) {
+        guard let lib = e.library else { return }
         watchTask?.cancel()
         reconnectTask?.cancel()
-        sourceKind = .card
-        usesRemoteTransfer = false
-        cameraID = nil
-        deviceInfo = nil
-        lastCamera = nil
+        extraTasks.removeValue(forKey: e.id)?.cancel()
         offline = false
-        cardRoot = e.root
-        cardCameraNames[Self.primarySource] = cardCameraNames.removeValue(forKey: e.id)
-        cardCameraKeys[Self.primarySource] = cardCameraKeys.removeValue(forKey: e.id)
         if sourceFilter == e.id { sourceFilter = nil }
-        attach(e.library, name: e.root.lastPathComponent, host: nil)
-        log.add("改用存储卡 \(e.root.path) 作为主来源")
+        if let root = e.root {
+            sourceKind = .card
+            usesRemoteTransfer = false
+            cameraID = nil
+            deviceInfo = nil
+            lastCamera = nil
+            cardRoot = root
+            cardCameraNames[Self.primarySource] = cardCameraNames.removeValue(forKey: e.id)
+            cardCameraKeys[Self.primarySource] = cardCameraKeys.removeValue(forKey: e.id)
+            attach(lib, name: root.lastPathComponent, host: nil)
+            log.add("改用存储卡 \(root.path) 作为主来源")
+        } else {
+            sourceKind = .camera
+            usesRemoteTransfer = e.usesRemoteTransfer
+            cameraID = e.cameraID
+            deviceInfo = e.deviceInfo
+            lastCamera = e.camera
+            cardRoot = nil
+            attach(lib, name: e.name, host: e.camera?.host)
+            log.add("改用相机 \(e.name) 作为主来源")
+        }
+    }
+
+    // MARK: 同时连接另一台相机
+
+    /// 输入地址，和当前来源同时连接这台相机。
+    func addCamera(host: String) {
+        let h = host.trimmingCharacters(in: .whitespaces)
+        guard !h.isEmpty, progress == nil else { return }
+        Task {
+            status = "正在检查 \(h)…"
+            guard let cam = await probe(host: h) else {
+                status = ""
+                errorMessage = "在 \(h) 上未找到相机（端口 22 和 15740 均无法连接）。请确认相机已开机并开启“遥控拍摄”，且与本机处于同一网络。"
+                return
+            }
+            let name = knownCameras.first { $0.fingerprint == cam.fingerprint }?.name
+            await addCamera(FoundCamera(host: cam.host, kind: cam.kind, knownName: name))
+        }
+    }
+
+    /// 连过的相机：确认它在线（指纹一致）再同时连接。
+    func addCamera(known k: KnownCamera) {
+        guard progress == nil, switchingTo == nil else { return }
+        switchingTo = k.fingerprint
+        Task {
+            defer { switchingTo = nil }
+            guard let cam = await probe(host: k.host), cam.fingerprint == k.fingerprint else {
+                errorMessage = "“\(k.name)”离线（上次地址为 \(k.host)），未能同时连接。"
+                return
+            }
+            await addCamera(FoundCamera(host: cam.host, kind: cam.kind, knownName: k.name))
+        }
+    }
+
+    private func addCamera(_ cam: FoundCamera) async {
+        // 什么都没开着：就是普通的连接。
+        guard library != nil || offline else { await connect(cam); return }
+        guard !openFingerprints.contains(cam.fingerprint), !openHosts.contains(cam.host) else { return }
+        let id = nextSourceID
+        nextSourceID += 1
+        extraSources.append(ExtraSource(id: id, camera: cam, name: cam.knownName ?? cam.host, connecting: true))
+        log.add("同时连接相机 \(cam.host)（来源 \(id)）")
+        do {
+            let (lib, remote) = try await openLibrary(cam)
+            guard let i = extraIndex(id) else { await lib.close(); return }
+            let info = await lib.deviceInfo
+            let known = knownCameras.first { $0.fingerprint == cam.fingerprint }
+            let keepName = cam.knownName.flatMap { n in (known?.nameIsAddress ?? false) || n == cam.host ? nil : n }
+            let modelName = info.map(\.displayName) ?? ""
+            let name = keepName ?? (modelName.isEmpty ? (cam.knownName ?? cam.host) : modelName)
+            extraSources[i].library = lib
+            extraSources[i].deviceInfo = info
+            extraSources[i].cameraID = info?.cameraID
+            extraSources[i].name = name
+            extraSources[i].usesRemoteTransfer = remote
+            extraSources[i].connecting = false
+            extraSources[i].camera = FoundCamera(host: cam.host, kind: cam.kind, knownName: name)
+            KnownCamera.remember(KnownCamera(fingerprint: cam.fingerprint, host: cam.host, name: name, lastSeen: Date(),
+                                             model: info?.model ?? known?.model, firmware: info?.version ?? known?.firmware),
+                                 front: false)
+            knownCameras = KnownCamera.load()
+            if let info { log.add("同时连接的相机：\(info.model) 固件 \(info.version)，机身 ID \(info.cameraID ?? "无")") }
+            watchExtra(id, lib)
+            status = ""
+            let keep = selectedKeys(), keepDays = shownDays
+            await loadAll(restoring: keep, days: keepDays)
+        } catch {
+            extraSources.removeAll { $0.id == id }
+            status = ""
+            if !(error is CancellationError) {
+                log.add("同时连接失败：\(error.localizedDescription)")
+                errorMessage = "未能同时连接“\(cam.knownName ?? cam.host)”：\(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func watchExtra(_ id: Int, _ lib: any CameraLibrary) {
+        let lost = lib.connectionLost
+        extraTasks[id] = Task { [weak self] in
+            for await _ in lost {
+                self?.extraCameraLost(id)
+                return
+            }
+        }
+    }
+
+    /// 同时连接的相机掉线：保留它的照片和选择，后台自动重连；导入中就停下（可以继续导入）。
+    private func extraCameraLost(_ id: Int) {
+        guard let i = extraIndex(id), extraSources[i].library != nil else { return }
+        log.add("和同时连接的相机「\(extraSources[i].name)」的连接断开了，开始自动重连")
+        extraSources[i].library = nil
+        extraSources[i].offline = true
+        if progress != nil { lostDuringImport = true; importTask?.cancel() }
+        guard let cam = extraSources[i].camera else { return }
+        extraTasks[id] = Task {
+            var attempt = 0
+            while !Task.isCancelled, extra(id)?.offline == true {
+                attempt += 1
+                if await probe(host: cam.host)?.fingerprint == cam.fingerprint,
+                   let (lib, remote) = try? await openLibrary(cam, interactive: false) {
+                    guard let j = extraIndex(id), extraSources[j].offline else { await lib.close(); return }
+                    extraSources[j].library = lib
+                    extraSources[j].offline = false
+                    extraSources[j].usesRemoteTransfer = remote
+                    extraSources[j].deviceInfo = await lib.deviceInfo ?? extraSources[j].deviceInfo
+                    log.add("已重新连上同时连接的相机「\(extraSources[j].name)」")
+                    watchExtra(id, lib)
+                    let keep = selectedKeys(), keepDays = shownDays
+                    await loadAll(restoring: keep, days: keepDays)
+                    return
+                }
+                try? await Task.sleep(for: .seconds(attempt < 5 ? 3 : 8))
+            }
+        }
     }
 
     func ejectCard() {

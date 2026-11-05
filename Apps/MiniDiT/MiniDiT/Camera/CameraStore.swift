@@ -54,9 +54,15 @@ struct KnownCamera: Codable, Hashable, Identifiable {
         return (try? JSONDecoder().decode([KnownCamera].self, from: d)) ?? []
     }
 
-    static func remember(_ cam: KnownCamera) {
-        var all = load().filter { $0.fingerprint != cam.fingerprint }
-        all.insert(cam, at: 0)
+    /// - front: 排到最前（启动时自动连接的就是第一台）。同时连接的第二台相机不抢这个位置。
+    static func remember(_ cam: KnownCamera, front: Bool = true) {
+        var all = load()
+        if !front, let i = all.firstIndex(where: { $0.fingerprint == cam.fingerprint }) {
+            all[i] = cam
+        } else {
+            all.removeAll { $0.fingerprint == cam.fingerprint }
+            if front { all.insert(cam, at: 0) } else { all.append(cam) }
+        }
         if let d = try? JSONEncoder().encode(all) { UserDefaults.standard.set(d, forKey: key) }
     }
 

@@ -28,9 +28,18 @@ public final class FakeCamera: @unchecked Sendable {
 
     private(set) var log: [(code: UInt16, params: [UInt32], data: Data?)] = []
 
-    public init(port: UInt16? = nil, handler: @escaping Handler) throws {
+    /// - bind: 只在这个本机地址上监听（同一台 Mac 上开几台模拟相机，各用一个地址、同一个端口）；nil = 所有地址。
+    public init(port: UInt16? = nil, bind: String? = nil, handler: @escaping Handler) throws {
         self.handler = handler
-        listener = try NWListener(using: .tcp, on: port.flatMap { NWEndpoint.Port(rawValue: $0) } ?? .any)
+        let p = port.flatMap { NWEndpoint.Port(rawValue: $0) } ?? .any
+        if let bind {
+            let params = NWParameters.tcp
+            params.requiredLocalEndpoint = .hostPort(host: NWEndpoint.Host(bind), port: p)
+            params.allowLocalEndpointReuse = true
+            listener = try NWListener(using: params)
+        } else {
+            listener = try NWListener(using: .tcp, on: p)
+        }
     }
 
     public func start() async throws -> UInt16 {

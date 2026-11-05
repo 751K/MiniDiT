@@ -3,11 +3,23 @@ import Foundation
 import MiniDiTCore
 import SonyRemoteKit
 
-/// 同时打开的另一张存储卡。
+/// 和主来源同时打开的另一个来源：一张存储卡，或另一台 Wi-Fi 相机。
 struct ExtraSource: Identifiable {
     let id: Int
-    let root: URL
-    let library: LocalCardLibrary
+    /// 存储卡的卷（读卡器来源）。
+    var root: URL?
+    /// Wi-Fi 相机（地址、连接方式）。
+    var camera: FoundCamera?
+    /// 连接中或掉线时为 nil。
+    var library: (any CameraLibrary)?
+    var name: String = ""
+    var cameraID: String?
+    var deviceInfo: CameraDeviceInfo?
+    var usesRemoteTransfer = false
+    /// 掉线了，正在自动重连（照片和选择保留）。
+    var offline = false
+    var connecting = false
+    var isCard: Bool { root != nil }
 }
 
 /// 一个文件在它的来源里的位置。
@@ -22,6 +34,8 @@ struct SourceSummary: Identifiable, Hashable {
     let name: String
     let detail: String
     let isCard: Bool
+    var offline = false
+    var connecting = false
 }
 
 /// 一台机身的档案。
@@ -79,7 +93,7 @@ extension AppModel {
 
     /// 所有打开的来源（主来源在前）。
     var openSources: [(id: Int, library: any CameraLibrary)] {
-        (library.map { [(Self.primarySource, $0)] } ?? []) + extraSources.map { ($0.id, $0.library as any CameraLibrary) }
+        (library.map { [(Self.primarySource, $0)] } ?? []) + extraSources.compactMap { e in e.library.map { (e.id, $0) } }
     }
 
     func library(of source: Int) -> (any CameraLibrary)? {
@@ -95,7 +109,26 @@ extension AppModel {
     func source(of h: UInt32) -> Int { origins[h]?.source ?? Self.primarySource }
 
     /// 这个文件所在机身的 ID（导入记录用）。读卡器没有。
-    func camera(of h: UInt32) -> String? { source(of: h) == Self.primarySource ? cameraID : nil }
+    func camera(of h: UInt32) -> String? {
+        let s = source(of: h)
+        return s == Self.primarySource ? cameraID : extraSources.first { $0.id == s }?.cameraID
+    }
+
+    func extra(_ id: Int) -> ExtraSource? { extraSources.first { $0.id == id } }
+    func extraIndex(_ id: Int) -> Int? { extraSources.firstIndex { $0.id == id } }
+
+    /// 有来源掉线了（主来源或同时连接的相机）。掉线时不能继续导入。
+    var sourcesOffline: Bool { offline || extraSources.contains { $0.offline } }
+
+    /// 已经连着的相机地址。同一台相机开不开访问身份验证，指纹不一样（「直连」和 SSH），按地址也要排除。
+    var openHosts: Set<String> {
+        Set((sourceKind == .camera ? [connectedHost] : []).compactMap { $0 } + extraSources.compactMap { $0.camera?.host })
+    }
+
+    /// 已经打开的 Wi-Fi 相机的指纹（同一台不重复连）。
+    var openFingerprints: Set<String> {
+        Set([currentFingerprint].compactMap { $0 } + extraSources.compactMap { $0.camera?.fingerprint })
+    }
 
     /// 交给来源去下载 / 读取时用的那份（句柄换回来源里的）。
     func localItem(_ item: CameraContentItem) -> CameraContentItem {
@@ -106,10 +139,12 @@ extension AppModel {
 
     /// 这个来源的机身（找档案用）。Wi-Fi 相机用机身 ID，存储卡用照片 EXIF 里的型号和序列号。
     func profileKey(_ id: Int) -> String? {
-        if id == Self.primarySource, sourceKind == .camera, let c = cameraID {
+        func body(_ c: String) -> String? {
             let parts = c.split(separator: "#", maxSplits: 1).map(String.init)
             return parts.count == 2 ? CameraProfile.bodyKey(model: parts[0], serial: parts[1]) : nil
         }
+        if id == Self.primarySource, sourceKind == .camera, let c = cameraID { return body(c) }
+        if let e = extra(id), !e.isCard { return e.cameraID.flatMap(body) }
         return cardCameraKeys[id]
     }
 
@@ -137,8 +172,12 @@ extension AppModel {
 
     /// 只对 Wi-Fi 相机生效：读卡器上的卡总是「卡槽 1」，同一台机身的设置不能把它整张筛掉。
     func onlySlot(_ id: Int) -> UInt32? {
-        guard id == Self.primarySource, sourceKind == .camera else { return nil }
+        guard isWiFiCamera(id) else { return nil }
         return profile(id)?.onlySlot
+    }
+
+    func isWiFiCamera(_ id: Int) -> Bool {
+        id == Self.primarySource ? sourceKind == .camera : extra(id).map { !$0.isCard } ?? false
     }
 
     func clockOffset(_ id: Int) -> Double { profile(id)?.clockOffset ?? 0 }
@@ -197,8 +236,9 @@ extension AppModel {
             if sourceKind == .card, let n = cardCameraNames[id] { return n }
             return connectedName ?? ""
         }
-        guard let e = extraSources.first(where: { $0.id == id }) else { return "" }
-        return cardCameraNames[id] ?? e.root.lastPathComponent
+        guard let e = extra(id) else { return "" }
+        if !e.isCard { return e.name }
+        return cardCameraNames[id] ?? e.root?.lastPathComponent ?? ""
     }
 
     /// 界面上区分来源用的短名字：和别的来源重名时，存储卡改用卷名（两张卡都是 α7 V 拍的）。
@@ -212,7 +252,7 @@ extension AppModel {
     /// 卷名（存储卡来源）。
     func volumeName(_ id: Int) -> String? {
         if id == Self.primarySource { return sourceKind == .card ? cardRoot?.lastPathComponent : nil }
-        return extraSources.first { $0.id == id }?.root.lastPathComponent
+        return extra(id)?.root?.lastPathComponent
     }
 
     var sources: [SourceSummary] {
@@ -224,7 +264,9 @@ extension AppModel {
                                      isCard: isCard))
         }
         for e in extraSources {
-            out.append(SourceSummary(id: e.id, name: sourceName(e.id), detail: "读卡器 · \(e.root.lastPathComponent)", isCard: true))
+            let detail = e.isCard ? "读卡器 · \(e.root?.lastPathComponent ?? "")" : "Wi-Fi · \(e.camera?.host ?? "")"
+            out.append(SourceSummary(id: e.id, name: sourceName(e.id), detail: detail, isCard: e.isCard,
+                                     offline: e.offline, connecting: e.connecting))
         }
         return out
     }
@@ -237,7 +279,8 @@ extension AppModel {
         for s in list {
             let base = NameTemplate.sanitize(s.name)
             let clash = list.filter { NameTemplate.sanitize($0.name) == base }.count > 1
-            var name = clash ? base + "-" + NameTemplate.sanitize(volumeName(s.id) ?? "\(s.id + 1)") : base
+            let tag = volumeName(s.id) ?? (isWiFiCamera(s.id) ? (s.id == Self.primarySource ? connectedHost : extra(s.id)?.camera?.host) : nil)
+            var name = clash ? base + "-" + NameTemplate.sanitize(tag ?? "\(s.id + 1)") : base
             if name.isEmpty { name = "来源 \(s.id + 1)" }
             out[s.id] = name
         }
@@ -276,7 +319,7 @@ extension AppModel {
     func addCard(_ url: URL) {
         guard progress == nil, library != nil else { openCard(url); return }
         let std = url.standardizedFileURL
-        if cardRoot?.standardizedFileURL == std || extraSources.contains(where: { $0.root.standardizedFileURL == std }) { return }
+        if cardRoot?.standardizedFileURL == std || extraSources.contains(where: { $0.root?.standardizedFileURL == std }) { return }
         let src = ExtraSource(id: nextSourceID, root: url, library: LocalCardLibrary(root: url))
         nextSourceID += 1
         extraSources.append(src)
@@ -289,8 +332,8 @@ extension AppModel {
     func removeSource(_ id: Int) {
         guard progress == nil else { return }
         if id == Self.primarySource {
-            guard let next = extraSources.first else { disconnect(); return }
-            extraSources.removeFirst()
+            guard let i = extraSources.firstIndex(where: { $0.library != nil }) else { disconnect(); return }
+            let next = extraSources.remove(at: i)
             let keep = selectedKeys(), keepDays = shownDays
             let old = library
             Task { await old?.close() }
@@ -298,9 +341,11 @@ extension AppModel {
             Task { await loadAll(restoring: keep, days: keepDays) }
             return
         }
-        guard let i = extraSources.firstIndex(where: { $0.id == id }) else { return }
+        guard let i = extraIndex(id) else { return }
         let e = extraSources.remove(at: i)
-        log.add("关闭存储卡 \(e.root.path)")
+        extraTasks.removeValue(forKey: id)?.cancel()
+        if let lib = e.library, !e.isCard { Task { await lib.close() } }
+        log.add(e.isCard ? "关闭存储卡 \(e.root?.path ?? "")" : "断开同时连接的相机 \(e.name)")
         if sourceFilter == id { sourceFilter = nil }
         cardCameraNames[id] = nil
         cardCameraKeys[id] = nil
@@ -310,7 +355,7 @@ extension AppModel {
 
     /// 同时打开的一张卡被拔掉了。
     func extraCardLost(_ root: URL) {
-        guard let e = extraSources.first(where: { $0.root.standardizedFileURL == root.standardizedFileURL }) else { return }
+        guard let e = extraSources.first(where: { $0.root?.standardizedFileURL == root.standardizedFileURL }) else { return }
         if progress != nil { importTask?.cancel() }
         log.add("同时打开的存储卡被移除了：\(root.path)")
         extraSources.removeAll { $0.id == e.id }
@@ -323,11 +368,11 @@ extension AppModel {
 
     /// 推出一张同时打开的卡。
     func ejectExtra(_ id: Int) {
-        guard let e = extraSources.first(where: { $0.id == id }) else { return }
+        guard let e = extra(id), let root = e.root else { return }
         removeSource(id)
         do {
-            try NSWorkspace.shared.unmountAndEjectDevice(at: e.root)
-            notice = "已推出 \(e.root.lastPathComponent)，可安全取出存储卡"
+            try NSWorkspace.shared.unmountAndEjectDevice(at: root)
+            notice = "已推出 \(root.lastPathComponent)，可安全取出存储卡"
         } catch {
             errorMessage = "推出存储卡失败：\(error.localizedDescription)"
         }

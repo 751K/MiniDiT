@@ -23,6 +23,8 @@ public final class FakeSonyState: @unchecked Sendable {
     public private(set) var contentsTransferModeParams: [[UInt32]] = []
     /// 为 true 时模拟真机：不进入内容传输模式就读不到存储卡（返回 StoreNotAvailable）。
     public var requireContentsTransferMode = false
+    /// 远程传输下每次取文件数据前等这么久（秒），用来模拟慢速 Wi-Fi、测试导入中途断开。
+    public var slowDownload: TimeInterval = 0
     /// 0x9210 收到的功能模式。
     public private(set) var sessionMode: UInt32?
     private var contentsOn = false
@@ -83,6 +85,7 @@ public final class FakeSonyState: @unchecked Sendable {
                 : code == SonyOperation.getContentsInfoList ? (params.count > 3 ? params[3] : 0)
                 : (params.count > 1 ? params[1] >> 24 : 0)
             guard let c = slots[slot] else { return .init(code: 0x201D) }   // InvalidParameter：没有卡
+            if code == SonyOperation.getContentsData, slowDownload > 0 { Thread.sleep(forTimeInterval: slowDownload) }
             return c.remoteTransfer(code, params) ?? .init(code: 0x201D)
         }
         if let card, storageOps.contains(code), params.first.map({ $0 < 0xFFFF_0000 }) ?? true {

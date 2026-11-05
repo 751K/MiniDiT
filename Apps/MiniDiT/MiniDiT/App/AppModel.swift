@@ -113,6 +113,8 @@ final class AppModel {
     /// 和主来源同时打开的其他存储卡（多机位：主机的卡、副机的卡一起导）。主来源仍是上面 library 那一套，id 为 0。
     var extraSources: [ExtraSource] = []
     var nextSourceID = 1
+    /// 同时连接的相机：盯着断线、自动重连的任务（按来源 id）。
+    var extraTasks: [Int: Task<Void, Never>] = [:]
     /// 每个文件（全局句柄）来自哪个来源、在来源里的句柄。几个来源的句柄会重复，所以界面上用的是重新编号的全局句柄。
     var origins: [UInt32: Origin] = [:]
     /// 存储卡上照片的机型（从 EXIF 读，比如「α7 V」），读卡器来源用它当名字。
@@ -121,6 +123,8 @@ final class AppModel {
     var cardCameraKeys: [Int: String] = [:]
     /// 要改名的来源（菜单或右键里点了「重命名…」，侧栏弹出输入框）。
     var renamingSource: Int?
+    /// 侧栏里点了「输入地址同时连接相机…」。
+    var askingHost = false
     /// 每台机身的档案：自己起的名字、只导哪个卡槽、时钟校正。按机身存，换卡、换连接方式都跟着走。
     var cameraProfiles: [String: CameraProfile] = CameraProfile.loadAll() {
         didSet { CameraProfile.saveAll(cameraProfiles) }

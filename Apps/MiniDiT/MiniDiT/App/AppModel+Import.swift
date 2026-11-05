@@ -462,7 +462,7 @@ extension AppModel {
 
     /// 中断后继续：导到原来的会话，不再问名字。有的分组上次还没来得及建会话时，再问一次（已建好的那些不用再填）。
     func continueImport() {
-        guard !offline, let i = interrupted else { return }
+        guard !sourcesOffline, let i = interrupted else { return }
         guard captureOneMode.namesGroups else { startImport(session: nil); return }
         let groups = importGroups(i.grouping)
         if !groups.isEmpty, groups.allSatisfy({ i.sessions[$0.id] != nil }) {
