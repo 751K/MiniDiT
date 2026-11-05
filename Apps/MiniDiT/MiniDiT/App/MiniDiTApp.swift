@@ -4,15 +4,20 @@ import SwiftUI
 
 @main
 struct MiniDiTApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @State private var model = AppModel()
 
     var body: some Scene {
-        WindowGroup("MiniDiT") {
+        // 只有一个主窗口：关了以后从菜单栏、通知、插卡再打开的都是它。
+        Window("MiniDiT", id: "main") {
             RootView()
                 .environment(model)
                 .frame(minWidth: 860, minHeight: 560)
+                .onAppear { model.mainWindowChanged(open: true) }
+                .onDisappear { model.mainWindowChanged(open: false) }
         }
         .windowStyle(.hiddenTitleBar)
+        .defaultSize(width: 1280, height: 800)
         .commands {
             CommandGroup(replacing: .newItem) {
                 Button("切换来源…") { model.disconnect() }
@@ -51,6 +56,43 @@ struct MiniDiTApp: App {
         Settings {
             SettingsView().environment(model)
         }
+        MenuBarExtra(isInserted: Bindable(model).keepInMenuBar) {
+            MenuBarPanel().environment(model)
+        } label: {
+            MenuBarLabel().environment(model)
+        }
+        .menuBarExtraStyle(.window)
+    }
+}
+
+/// 关窗口时要不要退出、登录时打开的话先不弹窗口。
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    /// 这次是作为登录项打开的。
+    private var launchedAtLogin = false
+
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        let e = NSAppleEventManager.shared().currentAppleEvent
+        launchedAtLogin = e?.eventID == kAEOpenApplication
+            && e?.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue == keyAELaunchedAsLogInItem
+    }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // 登录时打开：只在菜单栏待着，不弹主窗口。
+        guard launchedAtLogin, UserDefaults.standard.object(forKey: "keepInMenuBar") as? Bool ?? true else { return }
+        DispatchQueue.main.async {
+            for w in NSApp.windows where w.identifier?.rawValue.hasPrefix("main") == true { w.close() }
+            NSApp.setActivationPolicy(.accessory)
+        }
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        !(UserDefaults.standard.object(forKey: "keepInMenuBar") as? Bool ?? true)
+    }
+
+    /// 点程序坞图标时，窗口关着就打开。
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag { MainActor.assumeIsolated { Notifier.shared.model?.showMainWindow() } }
+        return true
     }
 }
 

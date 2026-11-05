@@ -155,8 +155,20 @@ private struct ConnectSettings: View {
     var body: some View {
         @Bindable var model = model
         Form {
-            Section("启动") {
+            Section {
                 Toggle("自动连接上次使用的相机", isOn: $model.autoConnect)
+                Toggle("登录时打开 MiniDiT", isOn: $model.launchAtLogin)
+                Toggle("关闭窗口后保留在菜单栏", isOn: $model.keepInMenuBar)
+                Picker("插入相机存储卡时", selection: $model.cardInsertAction) {
+                    ForEach(CardInsertAction.allCases) { Text($0.title).tag($0) }
+                }
+            } header: {
+                Text("启动与后台")
+            } footer: {
+                Text(model.keepInMenuBar
+                     ? "关闭窗口后，导入照常进行，可从菜单栏重新打开窗口。登录时打开的话，只显示菜单栏图标。"
+                     : "关闭窗口即退出 MiniDiT。")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Section {
                 if model.knownCameras.isEmpty {

@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import MiniDiTCore
 import Observation
+import ServiceManagement
 import SonyRemoteKit
 
 /// 一天的拍摄（按相机里的拍摄日期分组，不受 Mac 时区影响）。
@@ -426,16 +427,42 @@ final class AppModel {
         var scene: Int?
     }
 
+    // MARK: 后台（v0.6）
+
+    /// 关掉主窗口后留在菜单栏继续运行（导入不中断，插卡、相机上线时再弹出来）。
+    var keepInMenuBar: Bool = UserDefaults.standard.object(forKey: "keepInMenuBar") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(keepInMenuBar, forKey: "keepInMenuBar") }
+    }
+    /// 插入相机存储卡时怎么办。
+    var cardInsertAction: CardInsertAction = CardInsertAction(rawValue: UserDefaults.standard.string(forKey: "cardInsertAction") ?? "") ?? .open {
+        didSet {
+            UserDefaults.standard.set(cardInsertAction.rawValue, forKey: "cardInsertAction")
+            if cardInsertAction == .notify { Notifier.shared.requestPermission() }
+        }
+    }
+    /// 登录时打开（系统的登录项）。初始值读系统当前的状态。
+    var launchAtLogin: Bool = SMAppService.mainApp.status == .enabled {
+        didSet { applyLaunchAtLogin() }
+    }
+    /// 主窗口开着没有（菜单栏模式下关了窗口就隐藏程序坞图标）。
+    var mainWindowOpen = false
+    /// 加一 = 请求把主窗口打开到最前（由一直存在的菜单栏图标去调 openWindow）。
+    var windowRequest = 0
+
     /// 最近用过的事件名（「3.15-公园」里的「公园」），新的在前。
     var recentContents: [String] = UserDefaults.standard.stringArray(forKey: "recentContents") ?? []
 
     init() {
         refreshCards()
+        Notifier.shared.model = self
         let nc = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification] {
             nc.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
                 let path = (note.userInfo?[NSWorkspace.volumeURLUserInfoKey] as? URL)
-                MainActor.assumeIsolated { self?.volumesChanged(unmounted: name == NSWorkspace.didUnmountNotification ? path : nil) }
+                MainActor.assumeIsolated {
+                    self?.volumesChanged(unmounted: name == NSWorkspace.didUnmountNotification ? path : nil)
+                    if name == NSWorkspace.didMountNotification, let path { self?.volumeMounted(path) }
+                }
             }
         }
         if autoConnect, !knownCameras.isEmpty {
