@@ -24,20 +24,22 @@ struct AppsSettings: View {
                 Text("正在使用")
             }
             Section {
-                Toggle("按拍摄时的创意外观设置 ICC 配置文件", isOn: Bindable(model).applyCreativeLook)
+                Toggle("按拍摄时的创意外观套用 Look", isOn: Bindable(model).applyCreativeLook)
                 let looks = InstalledLooks.scan()
-                if looks.isEmpty {
-                    Text("未找到 Look 配置文件（应位于“~/Library/ColorSync/Profiles”，文件名如“SonyA7M5-Look-ST.icc”）。")
-                        .font(.callout).foregroundStyle(.orange)
-                } else {
-                    ForEach(looks, id: \.body) { l in
-                        LabeledContent(l.body, value: l.codes.joined(separator: " · "))
-                    }
+                ForEach(looks, id: \.body) { l in
+                    LabeledContent("Capture One · \(l.body)", value: l.codes.joined(separator: " · "))
+                }
+                let lr = Dictionary(grouping: LightroomLooks.installed(), by: \.model)
+                ForEach(lr.keys.sorted(), id: \.self) { m in
+                    LabeledContent("Lightroom · \(m)", value: lr[m]!.map(\.code).joined(separator: " · "))
+                }
+                if looks.isEmpty && lr.isEmpty {
+                    Text("未找到 Look 配置文件。").font(.callout).foregroundStyle(.orange)
                 }
             } header: {
-                Text("Capture One 会话")
+                Text("创意外观")
             } footer: {
-                Text("导入到 Capture One 会话后，读取 RAW 文件中记录的创意外观（ST、FL、IN 等），将 ICC 配置文件设为对应的“… Look-ST”等，曲线设为“Linear Response”。未安装对应 Look 的照片保持原样。仅处理 RAW 文件。")
+                Text("读取 RAW 文件中记录的创意外观（ST、FL、IN 等）。导入到 Capture One 会话时，ICC 配置文件设为对应的“… Look-ST”（~/Library/ColorSync/Profiles），曲线设为“Linear Response”；导入到 Lightroom Classic 时，配置文件设为 Camera Raw 中安装的“… Look ST”。未安装对应 Look 的照片保持原样。仅处理 RAW 文件。")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section {

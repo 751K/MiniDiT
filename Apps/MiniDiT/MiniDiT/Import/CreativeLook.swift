@@ -65,8 +65,10 @@ enum LightroomLooks {
     struct Profile: Hashable { let model: String; let code: String; let name: String; let file: URL }
 
     static var folders: [URL] {
-        [FileManager.default.homeDirectoryForCurrentUser.appending(path: "Library/Application Support/Adobe/CameraRaw/Settings"),
-         URL(filePath: "/Library/Application Support/Adobe/CameraRaw/Settings")]
+        // ACR「导入配置文件和预设」放在 ImportedSettings，手动安装的放在 Settings。
+        let home = FileManager.default.homeDirectoryForCurrentUser.appending(path: "Library/Application Support/Adobe/CameraRaw")
+        return [home.appending(path: "Settings"), home.appending(path: "ImportedSettings"),
+                URL(filePath: "/Library/Application Support/Adobe/CameraRaw/Settings")]
     }
 
     /// 扫一遍装好的 Look。名字以「Look 代号」结尾的才算。
