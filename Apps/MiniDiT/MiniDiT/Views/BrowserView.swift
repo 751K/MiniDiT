@@ -111,7 +111,7 @@ struct Sidebar: View {
         }
         .safeAreaInset(edge: .bottom) {
             Button { openSettings() } label: {
-                Label("设置…", systemImage: "gearshape").foregroundStyle(.secondary)
+                Label("设置", systemImage: "gearshape").foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 18).padding(.vertical, 10)
                     .contentShape(Rectangle())
