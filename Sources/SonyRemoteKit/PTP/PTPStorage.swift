@@ -198,15 +198,16 @@ extension PTPIPClient {
     /// - size: ObjectInfo 里的大小；nil 表示未知（≥4GB 的文件在 ObjectInfo 里是 0xFFFFFFFF）。
     /// - largeObjectReads: 相机支持索尼 0x9211（64 位偏移）时用它分块，任何大小都安全。
     /// 每块之间让出命令通道，取景、缩略图等请求可以插进来；也在块之间响应取消。
-    public func download(_ handle: UInt32, size: UInt64?, to url: URL, largeObjectReads: Bool = false,
+    /// - from: 断点续传的起点（`url` 里已有的字节数）；只有分块读取的方式能续传，整体读取时从头来。
+    public func download(_ handle: UInt32, size: UInt64?, to url: URL, from resume: UInt64 = 0, largeObjectReads: Bool = false,
                          chunkSize: UInt32 = 3 * 1024 * 1024,
                          progress: @escaping @Sendable (UInt64, UInt64) -> Void = { _, _ in }) async throws {
-        FileManager.default.createFile(atPath: url.path, contents: nil)
-        let fh = try FileHandle(forWritingTo: url)
+        let chunked = largeObjectReads || (size.map { $0 > 0 && $0 < UInt64(UInt32.max) } ?? false)
+        let (fh, start) = try openForResume(url, offset: chunked ? resume : 0)
         defer { try? fh.close() }
 
         if largeObjectReads {
-            var offset: UInt64 = 0
+            var offset: UInt64 = start
             while size.map({ offset < $0 }) ?? true {
                 try Task.checkCancellation()
                 let want = size.map { UInt32(min(UInt64(chunkSize), $0 - offset)) } ?? chunkSize
@@ -225,7 +226,7 @@ extension PTPIPClient {
         }
 
         if let size, size > 0, size < UInt64(UInt32.max) {
-            var offset: UInt64 = 0
+            var offset: UInt64 = start
             while offset < size {
                 try Task.checkCancellation()
                 let want = UInt32(min(UInt64(chunkSize), size - offset))

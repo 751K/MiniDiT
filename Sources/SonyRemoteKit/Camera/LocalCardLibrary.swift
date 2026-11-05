@@ -192,16 +192,16 @@ public actor LocalCardLibrary: CameraLibrary {
         return out as Data
     }
 
-    public func download(_ item: CameraContentItem, to url: URL,
+    public func download(_ item: CameraContentItem, to url: URL, from offset: UInt64,
                          progress: @escaping @Sendable (UInt64, UInt64) -> Void) async throws {
         let e = try entry(item.id)
         let input = try FileHandle(forReadingFrom: e.url)
         defer { try? input.close() }
-        FileManager.default.createFile(atPath: url.path, contents: nil)
-        let output = try FileHandle(forWritingTo: url)
-        defer { try? output.close() }
         let total = e.item.size
-        var done: UInt64 = 0
+        let (output, start) = try openForResume(url, offset: min(offset, total))
+        defer { try? output.close() }
+        try input.seek(toOffset: start)
+        var done: UInt64 = start
         while true {
             try Task.checkCancellation()
             guard let chunk = try input.read(upToCount: 8 * 1024 * 1024), !chunk.isEmpty else { break }

@@ -320,15 +320,15 @@ public actor SonyRemoteTransferLibrary: CameraLibrary {
         return image
     }
 
-    public func download(_ item: CameraContentItem, to url: URL,
+    public func download(_ item: CameraContentItem, to url: URL, from offset: UInt64,
                          progress: @escaping @Sendable (UInt64, UInt64) -> Void) async throws {
         let e = try entry(item.id)
         let size = e.item.size
-        FileManager.default.createFile(atPath: url.path, contents: nil)
-        let fh = try FileHandle(forWritingTo: url)
+        let (fh, start) = try openForResume(url, offset: min(offset, size))
         defer { try? fh.close() }
         let chunk: UInt64 = 4 * 1024 * 1024
-        var done: UInt64 = 0
+        var done: UInt64 = start
+        if done > 0 { progress(done, size) }
         while done < size {
             try Task.checkCancellation()
             let want = UInt32(min(chunk, size - done))

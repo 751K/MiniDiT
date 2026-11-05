@@ -137,7 +137,7 @@ extension AppModel {
                         Task { @MainActor in
                             if let cur = self.progress?.bytesDone, base + d > cur { self.progress?.bytesDone = base + d }
                         }
-                    }, stage: { self.progress?.current = $0 })
+                    }, stage: { self.progress?.current = $0 }, skipped: { self.progress?.credit($0) })
                     progress?.bytesDone = base + importer.weight(of: item)
                     switch r.outcome {
                     case .alreadyThere: progress?.skipped += 1

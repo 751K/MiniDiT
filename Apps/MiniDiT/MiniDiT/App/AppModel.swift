@@ -156,6 +156,12 @@ final class AppModel {
             while samples.count > 2, now - samples[0].t > 10 { samples.removeFirst() }
         }
 
+        /// 不用传就算完成的字节（续传时已有的部分、本地已有的文件）：进度往前走，但不算进速度。
+        mutating func credit(_ n: UInt64) {
+            for i in samples.indices { samples[i].bytes += n }
+            bytesDone += n
+        }
+
         /// 每秒多少字节；数据不够 2 秒时为 nil。
         var bytesPerSecond: Double? {
             guard let f = samples.first, let l = samples.last, l.t - f.t >= 2, l.bytes > f.bytes else { return nil }

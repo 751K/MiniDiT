@@ -93,7 +93,9 @@ public protocol CameraLibrary: AnyObject, Sendable {
     var deviceInfo: CameraDeviceInfo? { get async }
     /// 用「按格式列文件」一次性得到文件夹里每个文件的类型；相机不支持时返回 nil。
     func kinds(in folder: CameraFolder) async -> [UInt32: CameraContentItem.Kind]?
-    func download(_ item: CameraContentItem, to url: URL,
+    /// 下载到文件。`offset` > 0 时接着 `url` 里已有的前 `offset` 个字节往后写（断点续传）；
+    /// 做不到续传的方式会忽略它，从头写。`progress` 报告的已完成字节数包含 `offset`。
+    func download(_ item: CameraContentItem, to url: URL, from offset: UInt64,
                   progress: @escaping @Sendable (UInt64, UInt64) -> Void) async throws
     /// 连接断开时发出一次。
     var connectionLost: AsyncStream<Void> { get }
@@ -103,6 +105,28 @@ public protocol CameraLibrary: AnyObject, Sendable {
 }
 
 /// 基于标准 PTP 存储操作的实现。
+public extension CameraLibrary {
+    /// 从头下载。
+    func download(_ item: CameraContentItem, to url: URL,
+                  progress: @escaping @Sendable (UInt64, UInt64) -> Void) async throws {
+        try await download(item, to: url, from: 0, progress: progress)
+    }
+}
+
+/// 打开要写入的文件：`offset` > 0 且文件里确实有这么多字节时，截到 `offset` 并定位到末尾；否则清空重写。
+/// 返回实际的起点。
+func openForResume(_ url: URL, offset: UInt64) throws -> (FileHandle, UInt64) {
+    let existing = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? UInt64 ?? 0
+    let start = offset > 0 && existing >= offset ? offset : 0
+    if start == 0 || !FileManager.default.fileExists(atPath: url.path) {
+        FileManager.default.createFile(atPath: url.path, contents: nil)
+    }
+    let fh = try FileHandle(forWritingTo: url)
+    try fh.truncate(atOffset: start)
+    try fh.seek(toOffset: start)
+    return (fh, start)
+}
+
 public actor PTPCameraLibrary: CameraLibrary {
     private let client: PTPIPClient
     private let largeObjectReads: Bool
@@ -344,9 +368,9 @@ public actor PTPCameraLibrary: CameraLibrary {
         return map
     }
 
-    public func download(_ item: CameraContentItem, to url: URL,
+    public func download(_ item: CameraContentItem, to url: URL, from offset: UInt64,
                          progress: @escaping @Sendable (UInt64, UInt64) -> Void) async throws {
-        try await client.download(item.id, size: item.sizeKnown ? item.size : nil, to: url,
+        try await client.download(item.id, size: item.sizeKnown ? item.size : nil, to: url, from: offset,
                                   largeObjectReads: largeObjectReads, progress: progress)
     }
 

@@ -65,11 +65,13 @@ struct FileImporter {
     /// 一个文件要计入进度的字节数（有备份时算两遍）。
     func weight(of item: CameraContentItem) -> UInt64 { item.size * (backupRoot == nil ? 1 : 2) }
 
-    /// `progress` 报告这个文件已经完成了多少字节（0…weight）；`stage` 报告正在做什么。
+    /// `progress` 报告这个文件已经完成了多少字节（0…weight）；`stage` 报告正在做什么；
+    /// `skipped` 报告不用传、直接算完成的字节（续传时已有的部分、本地已有的文件），算速度时不计入。
     func importItem(_ item: CameraContentItem, into dir: URL,
                     progress: @escaping @Sendable (UInt64) -> Void,
-                    stage: (String) -> Void) async throws -> Result {
-        let (outcome, hash, fromCard) = try await primary(item, into: dir, progress: progress, stage: stage)
+                    stage: (String) -> Void,
+                    skipped: (UInt64) -> Void = { _ in }) async throws -> Result {
+        let (outcome, hash, fromCard) = try await primary(item, into: dir, progress: progress, stage: stage, skipped: skipped)
         var matchesSource = fromCard
         if !matchesSource, checkSource, let card = library as? LocalCardLibrary, let src = await card.fileURL(item.id) {
             stage("核对 \(item.filename)")
@@ -96,17 +98,20 @@ struct FileImporter {
 
     private func primary(_ item: CameraContentItem, into dir: URL,
                          progress: @escaping @Sendable (UInt64) -> Void,
-                         stage: (String) -> Void) async throws -> (Outcome, UInt64, fromCard: Bool) {
+                         stage: (String) -> Void,
+                         skipped: (UInt64) -> Void) async throws -> (Outcome, UInt64, fromCard: Bool) {
         let fm = FileManager.default
         let target = dir.appending(path: item.filename)
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         if ImportHistory.matches(target, item) {
+            skipped(item.size)
             stage("校验 \(item.filename)")
             return (.alreadyThere(target), try await FileOps.hash(target), false)
         }
 
         let final = fm.fileExists(atPath: target.path) ? Self.uniqueURL(target) : target
         if let local = Self.localCopy(of: item, root: root, camera: camera), local.standardizedFileURL != final.standardizedFileURL {
+            skipped(item.size)
             // 在下载文件夹里的就移过去，在别处（比如别的会话）的就复制。
             if local.path.hasPrefix(root.path + "/") {
                 try fm.moveItem(at: local, to: final)
@@ -120,7 +125,7 @@ struct FileImporter {
             return (.reused(final), h, false)
         }
 
-        let part = dir.appending(path: ".\(item.filename).part")
+        let part = dir.appending(path: Self.partName(item))
         let hash: UInt64
         var fromCard = false
         if let card = library as? LocalCardLibrary, let src = await card.fileURL(item.id) {
@@ -129,7 +134,17 @@ struct FileImporter {
             fromCard = true
             guard ImportHistory.matches(part, item) else { try? fm.removeItem(at: part); throw CocoaError(.fileReadCorruptFile) }
         } else {
-            try await library.download(item, to: part) { done, _ in progress(done) }
+            // 断点续传：上次没传完的 .part 还在，就从它的末尾接着读。
+            let have = (try? fm.attributesOfItem(atPath: part.path))?[.size] as? UInt64 ?? 0
+            let resume = have <= item.size ? have : 0
+            if resume > 0 {
+                log.add("续传 \(item.filename)：已有 \(resume)/\(item.size) 字节")
+                stage("续传 \(item.filename)")
+                skipped(resume)
+            }
+            if resume < item.size {
+                try await library.download(item, to: part, from: resume) { done, _ in progress(done) }
+            }
             guard ImportHistory.matches(part, item) else { try? fm.removeItem(at: part); throw CocoaError(.fileReadCorruptFile) }
             stage("校验 \(item.filename)")
             hash = try await FileOps.hash(part)
@@ -165,7 +180,7 @@ struct FileImporter {
             if ImportHistory.matches(target, item), try await FileOps.hash(target) == hash { return target }
             target = Self.uniqueURL(target)
         }
-        let part = dir.appending(path: ".\(item.filename).part")
+        let part = dir.appending(path: Self.partName(item))
         let read = try await FileOps.copy(from: file, to: part, progress: progress)
         let written = try await FileOps.hash(part)
         guard read == hash, written == hash else {
@@ -180,6 +195,11 @@ struct FileImporter {
     }
 
     // MARK: 路径
+
+    /// 没传完的文件：「.文件名.大小.拍摄时间.part」。名字里带上大小和时间，换了一张同名的照片不会接错。
+    static func partName(_ item: CameraContentItem) -> String {
+        ".\(item.filename).\(item.size).\(item.captureDateRaw).part"
+    }
 
     /// 「保存位置/年/年-月-日/」。
     static func folder(for item: CameraContentItem, root: URL) -> URL {
