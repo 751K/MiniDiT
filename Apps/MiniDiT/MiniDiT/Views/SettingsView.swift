@@ -74,18 +74,13 @@ private struct ImportSettings: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section {
-                Picker("场次间隔", selection: $model.sceneGap) {
-                    Text("不分场次").tag(0)
-                    Text("30 分钟").tag(30)
-                    Text("1 小时").tag(60)
-                    Text("2 小时").tag(120)
-                    Text("3 小时").tag(180)
-                    Text("4 小时").tag(240)
+                Picker("按时间分场次", selection: $model.sceneGap) {
+                    ForEach(SceneGapMenu.options, id: \.1) { Text($0.0).tag($0.1) }
                 }
             } header: {
                 Text("场次")
             } footer: {
-                Text("同一天内相邻两张照片的拍摄时间相隔超过此间隔时，分为两场，可按场次分别选择和导入。")
+                Text("默认不分。选择间隔后，同一天内相邻两张照片的拍摄时间相隔超过该间隔即分为两场，可按场次查看、选择和导入。也可在侧栏的日期上右键设置。")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("同时有 RAW 和 JPG/HIF 时") {

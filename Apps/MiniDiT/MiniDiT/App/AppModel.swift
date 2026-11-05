@@ -13,6 +13,8 @@ struct ShootingDay: Identifiable, Hashable {
     var newCount: Int { shots.count - importedCount }
     /// 按时间间隔分出的场次（新的在前）；没有分组或只有一场时只有一个。
     var scenes: [ShootingScene] = []
+    /// 只显示了这一天的部分场次（侧栏点的是场次，不是日期）。
+    var partial = false
 }
 
 /// 一天里的一场：相邻两张隔得比「场次间隔」久，就分成两场。
@@ -125,13 +127,12 @@ final class AppModel {
         didSet { UserDefaults.standard.set(onlyNew, forKey: "onlyNew"); rebuild() }
     }
     /// 场次间隔（分钟）：相邻两张隔得比这久就分成两场；0 = 不分场次。
-    var sceneGap = UserDefaults.standard.object(forKey: "sceneGap") as? Int ?? 120 {
+    var sceneGap = UserDefaults.standard.object(forKey: "sceneGap") as? Int ?? 0 {
         didSet { UserDefaults.standard.set(sceneGap, forKey: "sceneGap"); rebuild() }
     }
     var days: [ShootingDay] = []
-    /// 侧栏点了场次：网格滚到这一场（场次 id）。
-    var scrollTarget: String?
     /// 侧栏里点中的日期（右边显示哪几天）。
+    /// 侧栏里点中的日期或场次的 id。
     var shownDays: Set<String> = [] { didSet { updateGridOrder() } }
     /// 选中的拍摄（Shot.id）。
     var grid = GridSelection<UInt32>()

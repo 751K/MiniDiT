@@ -40,7 +40,7 @@ extension AppModel {
                 // 重连后：按文件身份找回原来的选择和查看的日期。
                 let ids = allShots.filter { s in s.handles.contains { items[$0].map { keep.contains(Self.stableKey($0)) } ?? false } }.map(\.id)
                 grid.set(ids, selected: true)
-                let valid = keepDays.intersection(Set(days.map(\.id)))
+                let valid = keepDays.intersection(viewIDs)
                 if !valid.isEmpty { shownDays = valid }
             } else {
                 selectDefault()
@@ -130,8 +130,8 @@ extension AppModel {
         // 被筛掉的内容不再算选中（否则会导入看不见的东西）。
         let visible = Set(days.flatMap(\.shots))
         grid.replace(with: grid.selected.intersection(visible))
-        let validDays = Set(keys)
-        if !shownDays.isSubset(of: validDays) { shownDays = shownDays.intersection(validDays) }
+        let validIDs = viewIDs
+        if !shownDays.isSubset(of: validIDs) { shownDays = shownDays.intersection(validIDs) }
         if shownDays.isEmpty, let first = days.first { shownDays = [first.id] }
         updateGridOrder()
     }
@@ -186,7 +186,25 @@ extension AppModel {
     /// 当前来源上没导入过的拍摄数。
     var newShotCount: Int { days.reduce(0) { $0 + $1.newCount } }
 
-    var visibleDays: [ShootingDay] { days.filter { shownDays.contains($0.id) } }
+    /// 右边显示的内容：点中的日期整天显示；只点中了某几场的，这一天只显示那几场。
+    var visibleDays: [ShootingDay] {
+        days.compactMap { d in
+            if shownDays.contains(d.id) { return d }
+            let picked = d.scenes.count > 1 ? d.scenes.filter { shownDays.contains($0.id) } : []
+            guard !picked.isEmpty else { return nil }
+            var part = d
+            part.scenes = picked
+            part.shots = picked.flatMap(\.shots)
+            part.importedCount = picked.reduce(0) { $0 + $1.importedCount }
+            part.partial = true
+            return part
+        }
+    }
+
+    /// 侧栏里能点中的 id：日期，以及分了场次的日期里的每一场。
+    var viewIDs: Set<String> {
+        Set(days.flatMap { d in [d.id] + (d.scenes.count > 1 ? d.scenes.map(\.id) : []) })
+    }
 
     func item(_ h: UInt32) -> CameraContentItem? { items[h] }
 
@@ -250,18 +268,18 @@ extension AppModel {
     }
 
     /// 侧栏勾选框：勾上 = 这一天没导入过的全部选中（都导过了就全选）；再点一下取消这一天。
-    func toggleDay(_ day: ShootingDay) { toggle(shots: day.shots, day: day.id) }
+    func toggleDay(_ day: ShootingDay) { toggle(shots: day.shots, show: day.id, day: day.id) }
 
     /// 场次的勾选框，规则同一天。
-    func toggleScene(_ scene: ShootingScene, in day: ShootingDay) { toggle(shots: scene.shots, day: day.id) }
+    func toggleScene(_ scene: ShootingScene, in day: ShootingDay) { toggle(shots: scene.shots, show: scene.id, day: day.id) }
 
-    private func toggle(shots: [UInt32], day: String) {
+    private func toggle(shots: [UInt32], show id: String, day: String) {
         if checkState(shots: shots) == .on {
             grid.set(shots, selected: false)
         } else {
             grid.set(toggleTarget(shots), selected: true)
-            // 勾上的那天也显示在右边，选中的照片看得见。
-            if !shownDays.contains(day) { shownDays.insert(day) }
+            // 勾上的那天（或那一场）也显示在右边，选中的照片看得见。
+            if !visibleDays.contains(where: { $0.id == day && shots.first.map($0.shots.contains) == true }) { shownDays.insert(id) }
         }
     }
 

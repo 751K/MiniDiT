@@ -101,7 +101,7 @@ struct Sidebar: View {
                     DayRow(day: day).tag(day.id)
                     if day.scenes.count > 1 {
                         ForEach(day.scenes) { scene in
-                            SceneRow(scene: scene, day: day).selectionDisabled()
+                            SceneRow(scene: scene, day: day).tag(scene.id)
                         }
                     }
                 }
@@ -223,11 +223,13 @@ private struct DayRow: View {
             Button("选这一天没导入过的") { model.selectNew(in: [day.id]) }
             Button("选这一天全部") { model.selectAll(in: [day.id]) }
             Button("取消这一天的选择") { model.deselect(in: [day.id]) }
+            Divider()
+            SceneGapMenu()
         }
     }
 }
 
-/// 侧栏里日期下面的场次：勾选框选这一场，点文字跳到这一场。
+/// 侧栏里日期下面的场次：勾选框选这一场，点中这一行右边只显示这一场。
 private struct SceneRow: View {
     @Environment(AppModel.self) private var model
     let scene: ShootingScene
@@ -235,11 +237,12 @@ private struct SceneRow: View {
 
     var body: some View {
         let state = model.checkState(scene)
+        let shown = model.shownDays.contains(scene.id)
         HStack(spacing: 8) {
             Button { model.toggleScene(scene, in: day) } label: {
                 Image(systemName: state == .on ? "checkmark.square.fill" : state == .mixed ? "minus.square.fill" : "square")
                     .font(.system(size: 13))
-                    .foregroundStyle(state == .off ? Color(nsColor: .tertiaryLabelColor) : .accentColor)
+                    .foregroundStyle(shown ? .white : state == .off ? Color(nsColor: .tertiaryLabelColor) : .accentColor)
                     .frame(width: 18, height: 18)
                     .contentShape(Rectangle())
             }
@@ -247,25 +250,31 @@ private struct SceneRow: View {
             .accessibilityLabel("导入 \(day.title) \(AppModel.sceneTitle(scene))")
             .accessibilityValue(state == .on ? "已勾选" : state == .mixed ? "部分勾选" : "未勾选")
             .help(scene.newCount > 0 ? "勾选这一场没导入过的 \(scene.newCount) 张" : "勾选这一场全部")
-            Button {
-                model.shownDays = [day.id]
-                model.scrollTarget = scene.id
-            } label: {
-                HStack(spacing: 6) {
-                    Text(scene.timeRange.isEmpty ? "第 \(scene.number) 场" : scene.timeRange).font(.system(size: 12)).lineLimit(1)
-                    Spacer(minLength: 4)
-                    if scene.newCount > 0 {
-                        Text("\(scene.newCount) 新").font(.system(size: 11, weight: .semibold))
-                    }
-                    Text("\(scene.shots.count)").font(.system(size: 11).monospacedDigit()).foregroundStyle(.secondary)
-                        .frame(minWidth: 18, alignment: .trailing)
-                }
-                .contentShape(Rectangle())
+            Text(scene.timeRange.isEmpty ? "第 \(scene.number) 场" : scene.timeRange).font(.system(size: 12)).lineLimit(1)
+            Spacer(minLength: 4)
+            if scene.newCount > 0 {
+                Text("\(scene.newCount) 新").font(.system(size: 11, weight: .semibold))
             }
-            .buttonStyle(.plain)
+            Text("\(scene.shots.count)").font(.system(size: 11).monospacedDigit())
+                .foregroundStyle(shown ? .white : .secondary)
+                .frame(minWidth: 18, alignment: .trailing)
         }
         .padding(.leading, 18)
-        .foregroundStyle(.secondary)
+        .contextMenu { SceneGapMenu() }
+    }
+}
+
+/// 「按时间分场次」：不分 / 隔多久分一场。和「设置 › 导入 › 场次」是同一个选项。
+struct SceneGapMenu: View {
+    @Environment(AppModel.self) private var model
+
+    static let options: [(String, Int)] = [("不分场次", 0), ("30 分钟", 30), ("1 小时", 60), ("2 小时", 120), ("3 小时", 180), ("4 小时", 240)]
+
+    var body: some View {
+        @Bindable var model = model
+        Picker("按时间分场次", selection: $model.sceneGap) {
+            ForEach(Self.options, id: \.1) { Text($0.0).tag($0.1) }
+        }
     }
 }
 
@@ -530,16 +539,6 @@ struct GridView: View {
                         .onChange(of: g.size) { width = $1.width; height = $1.height }
                 })
                 .onPreferenceChange(CellFrameKey.self) { frames = $0 }
-                .onChange(of: model.scrollTarget) { _, target in
-                    guard let target else { return }
-                    // 等新显示的日期排好版再滚动；停在置顶的日期标题下面。
-                    let anchor = UnitPoint(x: 0.5, y: min(0.5, 40 / max(height, 1)))
-                    // 刚换了显示的日期时，第一次滚动常常落空（懒加载还没排到），过一会儿再滚一次。
-                    for delay in [0.1, 0.45] {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { withAnimation { proxy.scrollTo(target, anchor: anchor) } }
-                    }
-                    model.scrollTarget = nil
-                }
                 .focusable()
                 .focusEffectDisabled()
                 .focused($focused)
@@ -631,6 +630,9 @@ struct DayHeader: View {
         let picked = day.shots.contains(where: model.grid.contains)
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(day.title).font(.system(size: 15, weight: .semibold)).foregroundStyle(.primary)
+            if day.partial, day.scenes.count == 1 {
+                Text(AppModel.sceneTitle(day.scenes[0])).font(.system(size: 15, weight: .semibold)).foregroundStyle(.primary)
+            }
             Text("\(day.shots.count) 张" + (day.importedCount > 0 ? " · \(day.importedCount) 张导入过" : ""))
                 .font(.system(size: 12))
             Spacer(minLength: 8)
