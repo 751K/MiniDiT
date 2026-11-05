@@ -655,6 +655,11 @@ private struct ImportOptions: View {
                 if !model.canDeleteFromSource {
                     Text("仅适用于读卡器")
                 }
+                if model.canSplitBySlot {
+                    Divider()
+                    Toggle("按卡槽分子文件夹", isOn: $model.splitBySlot)
+                    Text("仅适用于 Wi-Fi 连接的相机")
+                }
             } label: {
                 Image(systemName: "ellipsis").font(.system(size: 13, weight: .semibold))
                     .frame(width: 36, height: 36)
@@ -1213,7 +1218,7 @@ struct FloatingBar: View {
         if model.backupEnabled {
             s += model.backupAvailable ? " · 备份至“\(model.backupFolder!.lastPathComponent)”" : " · ⚠︎ 备份磁盘未连接"
         }
-        if model.isMultiSource { s += " · 按来源分子文件夹" }
+        if model.isMultiSource { s += model.splitBySlot && model.canSplitBySlot ? " · 按来源和卡槽分子文件夹" : " · 按来源分子文件夹" }
         if model.willDeleteFromSource { s += " · 完成后删除存储卡上的照片" }
         return s
     }

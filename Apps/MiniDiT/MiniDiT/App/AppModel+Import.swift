@@ -130,7 +130,7 @@ extension AppModel {
         // 几个来源一起导：每个来源一个子文件夹（「Capture/α7 V/DSC00001.ARW」），文件名不改。
         let folders = sourceFolders()
         @MainActor func sub(_ dir: URL, _ item: CameraContentItem) -> URL {
-            guard let name = folders[source(of: item.id)] else { return dir }
+            guard let name = sourceFolder(for: item, in: folders) else { return dir }
             return dir.appending(path: name, directoryHint: .isDirectory)
         }
         let backupRoot = backupEnabled && backupAvailable && !noBackupThisTime ? backupFolder : nil
@@ -201,7 +201,7 @@ extension AppModel {
                 @MainActor func importer(for item: CameraContentItem) -> FileImporter? {
                     guard let lib = route(item.id)?.library else { return nil }
                     return FileImporter(library: lib, root: root, camera: camera(of: item.id), backupRoot: backupRoot,
-                                        event: event, scene: job.scene, sourceFolder: folders[source(of: item.id)],
+                                        event: event, scene: job.scene, sourceFolder: sourceFolder(for: item, in: folders),
                                         checkSource: deleteRequested)
                 }
                 // 导入到 LrC：收藏夹名就是这一组的名字；RAW 先导，同名的 JPG/HIF 叠到它下面。

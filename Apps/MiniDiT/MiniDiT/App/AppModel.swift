@@ -314,6 +314,10 @@ final class AppModel {
     var backupEnabled: Bool = UserDefaults.standard.object(forKey: "backupEnabled") as? Bool ?? true {
         didSet { UserDefaults.standard.set(backupEnabled, forKey: "backupEnabled") }
     }
+    /// 几个来源一起导时，Wi-Fi 相机的照片再按卡槽分一层（「α7 V/卡 2/」）。
+    var splitBySlot: Bool = UserDefaults.standard.bool(forKey: "splitBySlot") {
+        didSet { UserDefaults.standard.set(splitBySlot, forKey: "splitBySlot") }
+    }
     /// 导入并校验通过以后，删除存储卡上的照片。
     var deleteAfterImport: Bool = UserDefaults.standard.bool(forKey: "deleteAfterImport") {
         didSet { UserDefaults.standard.set(deleteAfterImport, forKey: "deleteAfterImport") }

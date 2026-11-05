@@ -287,6 +287,17 @@ extension AppModel {
         return out
     }
 
+    /// 有没有能按卡槽分的来源（多来源里至少一台 Wi-Fi 相机；读卡器上的卡没有卡槽之分）。
+    var canSplitBySlot: Bool { isMultiSource && openSources.contains { isWiFiCamera($0.id) } }
+
+    /// 一个文件在多来源导入时放进的子文件夹：来源名，打开「按卡槽」时 Wi-Fi 相机再加一层「卡 N」。
+    func sourceFolder(for item: CameraContentItem, in folders: [Int: String]) -> String? {
+        let src = source(of: item.id)
+        guard let name = folders[src] else { return nil }
+        guard splitBySlot, isWiFiCamera(src) else { return name }
+        return name + "/卡 \(item.storageID >> 16)"
+    }
+
     /// 某个来源里的拍摄数（筛选条上显示）。
     func shotCount(source: Int) -> Int { allShots.filter { self.source(of: $0.id) == source }.count }
 
