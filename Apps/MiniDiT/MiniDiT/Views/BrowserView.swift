@@ -129,8 +129,7 @@ private struct SourceCard: View {
                 FormatSafety().padding(.horizontal, 12).padding(.vertical, 10)
             }
         }
-        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.primary.opacity(0.06)))
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .glassRounded(14)
         .accessibilityElement(children: .contain)
         .onChange(of: model.progress != nil) { _, busy in if busy { expanded = false } }
     }
