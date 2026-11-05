@@ -6,13 +6,17 @@ import SwiftUI
 /// 设置窗口：导入 / 连接 / 记录。
 struct SettingsView: View {
     var body: some View {
+        // 每页高度不同，切换时窗口跟着变高变矮，不留大片空白。
         TabView {
-            ImportSettings().tabItem { Label("导入", systemImage: "square.and.arrow.down") }
-            ConnectSettings().tabItem { Label("相机", systemImage: "camera") }
-            AppsSettings().tabItem { Label("软件", systemImage: "square.grid.2x2") }
-            RecordSettings().tabItem { Label("记录", systemImage: "clock.arrow.circlepath") }
+            ImportSettings().frame(width: 600, height: 560)
+                .tabItem { Label("导入", systemImage: "square.and.arrow.down") }
+            ConnectSettings().frame(width: 600, height: 380)
+                .tabItem { Label("连接", systemImage: "camera") }
+            AppsSettings().frame(width: 600, height: 480)
+                .tabItem { Label("软件", systemImage: "square.grid.2x2") }
+            RecordSettings().frame(width: 600, height: 250)
+                .tabItem { Label("记录", systemImage: "list.bullet") }
         }
-        .frame(width: 560, height: 560)
     }
 }
 
@@ -22,51 +26,52 @@ private struct ImportSettings: View {
     var body: some View {
         @Bindable var model = model
         Form {
-            Section("导入方式") {
-                Picker("导入方式", selection: $model.captureOneMode) {
-                    ForEach([CaptureOneMode.newSession, .c1Settings, .inPlace, .lightroom, .off]) { m in
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(Self.title(m))
-                            Text(Self.detail(m)).font(.caption).foregroundStyle(.secondary)
-                        }
-                        .tag(m)
+            Section {
+                ForEach([CaptureOneMode.newSession, .c1Settings, .inPlace, .lightroom, .off]) { m in
+                    ModeRow(title: Self.title(m), detail: Self.detail(m), on: model.captureOneMode == m) {
+                        model.captureOneMode = m
                     }
                 }
-                .pickerStyle(.radioGroup).labelsHidden()
                 if model.captureOneMode == .off {
                     Picker("导入完成后打开", selection: $model.openAfterImport) {
                         ForEach(FolderApp.allCases.filter { $0.isAvailable || $0 == model.openAfterImport }) { Text($0.title).tag($0) }
                     }
                 }
-                if let d = model.captureOneDocument {
-                    Text("Capture One 当前打开的文档：\(d.name)").font(.caption).foregroundStyle(.secondary)
+            } header: {
+                Text("导入方式")
+            } footer: {
+                if let d = model.captureOneDocument, model.captureOneMode != .off, model.captureOneMode != .lightroom {
+                    Text("Capture One 当前打开：\(d.name)").font(.caption).foregroundStyle(.secondary)
                 }
             }
-            Section("存储位置") {
+            Section("存放位置") {
                 LabeledContent {
                     Button("更改…") {
                         if model.captureOneMode == .newSession { choose(\.sessionsFolder) } else { choose(\.destination) }
                     }
                 } label: {
-                    Text(model.captureOneMode == .newSession ? "新会话位置" : "下载位置")
+                    Text(model.captureOneMode == .newSession ? "新会话的位置" : "下载位置")
                     Text(locationText).lineLimit(1).truncationMode(.middle)
                 }
-            }
-            Section {
-                Toggle("同时备份至另一磁盘", isOn: $model.backupEnabled)
-                if model.backupEnabled {
-                    LabeledContent {
-                        Button(model.backupFolder == nil ? "选择…" : "更改…") {
-                            if let u = FolderPicker.choose(start: model.backupFolder) { model.backupFolder = u }
-                        }
-                    } label: {
-                        Text("备份位置")
-                        Text(backupText).lineLimit(1).truncationMode(.middle)
-                            .foregroundStyle(model.backupFolder == nil || !model.backupAvailable ? .orange : .secondary)
+                LabeledContent {
+                    Button(model.backupFolder == nil ? "选择…" : "更改…") {
+                        if let u = FolderPicker.choose(start: model.backupFolder) { model.backupFolder = u }
                     }
+                } label: {
+                    Text("备份位置")
+                    Text(backupText).lineLimit(1).truncationMode(.middle)
+                        .foregroundStyle(model.backupFolder != nil && !model.backupAvailable ? .orange : .secondary)
                 }
-            } header: {
-                Text("备份")
+                // 没设置备份位置时显示为关，设置后恢复原来的选择。
+                Toggle("同时备份至备份位置", isOn: Binding(get: { model.backupEnabled && model.backupFolder != nil },
+                                                    set: { model.backupEnabled = $0 }))
+                    .disabled(model.backupFolder == nil)
+            }
+            Section("同时存在 RAW 与 JPG/HIF 时") {
+                SlidingSegment(options: [("全部导入", PairPolicy.both), ("仅导入 RAW", .rawOnly), ("仅导入 JPG/HIF", .jpegOnly)],
+                               selection: $model.pairPolicy, fill: true)
+                    .accessibilityElement(children: .contain)
+                    .accessibilityLabel("配对规则")
             }
             Section {
                 Toggle("删除存储卡上已导入的照片", isOn: $model.deleteAfterImport)
@@ -87,21 +92,13 @@ private struct ImportSettings: View {
                 Text("同一天内相邻照片的间隔超过所选时间，即分为两场。")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            Section("同时存在 RAW 与 JPG/HIF 时") {
-                Picker("配对规则", selection: $model.pairPolicy) {
-                    Text("全部导入").tag(PairPolicy.both)
-                    Text("仅导入 RAW").tag(PairPolicy.rawOnly)
-                    Text("仅导入 JPG/HIF").tag(PairPolicy.jpegOnly)
-                }
-                .pickerStyle(.segmented).labelsHidden()
-            }
         }
         .formStyle(.grouped)
         .onAppear { model.refreshCaptureOne() }
     }
 
     private var backupText: String {
-        guard let u = model.backupFolder else { return "尚未选择" }
+        guard let u = model.backupFolder else { return "尚未设置；设置后方可为照片另存一份" }
         let p = u.path(percentEncoded: false)
         return model.backupAvailable ? p : p + "（磁盘未连接）"
     }
@@ -145,8 +142,8 @@ private struct ConnectSettings: View {
     var body: some View {
         @Bindable var model = model
         Form {
-            Section {
-                Toggle("启动时自动连接上次使用的相机", isOn: $model.autoConnect)
+            Section("启动") {
+                Toggle("自动连接上次使用的相机", isOn: $model.autoConnect)
             }
             Section {
                 if model.knownCameras.isEmpty {
@@ -154,19 +151,19 @@ private struct ConnectSettings: View {
                 }
                 ForEach(model.knownCameras) { cam in
                     HStack {
-                        Image(systemName: "camera").foregroundStyle(.secondary)
+                        Image(systemName: "camera")
                         VStack(alignment: .leading) {
                             Text(cam.name)
                             Text("上次连接：\(Self.when(cam.lastSeen)) · \(cam.host)").font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
-                        Button("移除") { model.forget(cam) }
+                        Button("忘记") { model.forget(cam) }
                     }
                 }
             } header: {
                 Text("已连接过的相机")
             } footer: {
-                Text("移除后，再次连接时须重新核对指纹。").font(.caption).foregroundStyle(.secondary)
+                Text("忘记后，再次连接时须重新核对指纹并填写账号。").font(.caption).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
@@ -189,10 +186,30 @@ private struct RecordSettings: View {
     var body: some View {
         Form {
             Section("导入记录") {
-                LabeledContent {
-                    Button("清除记录…") { confirmClear = true }.disabled(count == 0)
-                } label: {
-                    Text(count > 0 ? "已记录 \(count.formatted()) 条" : "无导入记录")
+                if confirmClear {
+                    // 就地确认，不另弹窗。
+                    LabeledContent {
+                        HStack(spacing: 6) {
+                            Button("取消") { confirmClear = false }
+                            Button("清除", role: .destructive) {
+                                ImportHistory.shared.clear()
+                                model.rebuild()
+                                count = 0
+                                confirmClear = false
+                            }
+                            .foregroundStyle(.red)
+                        }
+                    } label: {
+                        Text("清除全部导入记录？").fontWeight(.semibold)
+                        Text("所有照片将重新显示为未导入，已下载的文件不受影响。")
+                    }
+                } else {
+                    LabeledContent {
+                        Button("清除…") { confirmClear = true }.disabled(count == 0)
+                    } label: {
+                        Text(count > 0 ? "已记录 \(count.formatted()) 条" : "无导入记录")
+                        Text("用于判断哪些照片已导入。")
+                    }
                 }
             }
             Section("诊断") {
@@ -204,19 +221,36 @@ private struct RecordSettings: View {
                     }
                 } label: {
                     Text("诊断日志")
+                    Text("反馈问题时可附上。")
                 }
             }
         }
         .formStyle(.grouped)
-        .confirmationDialog("清除全部 \(count) 条导入记录？", isPresented: $confirmClear) {
-            Button("清除", role: .destructive) {
-                ImportHistory.shared.clear()
-                model.rebuild()
-                count = 0
+    }
+}
+
+/// 导入方式的一行：左边对勾，标题和说明两行，整行可点。
+private struct ModeRow: View {
+    let title: String
+    let detail: String
+    let on: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: "checkmark").font(.system(size: 12, weight: .semibold))
+                    .opacity(on ? 1 : 0).frame(width: 14)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title).fontWeight(on ? .semibold : .regular)
+                    Text(detail).font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
             }
-        } message: {
-            Text("清除后，所有照片将重新显示为未导入。已导入的文件不会被删除。")
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(on ? .isSelected : [])
     }
 }
 

@@ -609,10 +609,11 @@ struct GridView: View {
     @State private var width: CGFloat = 800
     @State private var height: CGFloat = 600
 
-    private var spacing: CGFloat { 8 }
-    private var columns: [GridItem] { [GridItem(.adaptive(minimum: model.thumbSize, maximum: model.thumbSize * 1.6), spacing: spacing)] }
+    /// 格子四周各有 7 pt 留给选中框和焦点框，所以列间距 2、行间距 4 看起来是 16 / 18。
+    private var spacing: CGFloat { 2 }
+    private var columns: [GridItem] { [GridItem(.adaptive(minimum: model.thumbSize + 14, maximum: (model.thumbSize + 14) * 1.6), spacing: spacing)] }
     /// 和 LazyVGrid 的自适应列数算法一致，方向键上下移动用。
-    private var columnCount: Int { max(1, Int((width - 32 + spacing) / (model.thumbSize + spacing))) }
+    private var columnCount: Int { max(1, Int((width - 26 + spacing) / (model.thumbSize + 14 + spacing))) }
 
     var body: some View {
         if model.visibleDays.isEmpty {
@@ -682,7 +683,7 @@ struct GridView: View {
     }
 
     private func cells(_ shots: [UInt32], bottom: CGFloat) -> some View {
-        LazyVGrid(columns: columns, spacing: spacing) {
+        LazyVGrid(columns: columns, spacing: 4) {
             ForEach(shots, id: \.self) { id in
                 ThumbCell(shotID: id)
                     .id(id)
@@ -691,7 +692,7 @@ struct GridView: View {
                     })
             }
         }
-        .padding(.init(top: 4, leading: 16, bottom: bottom, trailing: 16))
+        .padding(.init(top: 2, leading: 13, bottom: bottom, trailing: 13))
     }
 
     /// 在空白处或缩略图上拖动 = 框选（按住 ⌘ / ⇧ 在原有选择上增减）。
@@ -860,11 +861,11 @@ struct ThumbCell: View {
             .font(.system(size: 11))
             .padding(.horizontal, 1)
         }
-        .padding(4)
+        // 焦点框（方向键移动到的位置）：连同文件名一起框住，离照片 5 pt，细而浅，和照片外 2 pt 的选中蓝框分得开。
         .overlay {
-            // 焦点框（方向键移动到的位置）只在没选中的格子上出现，用灰色细框，免得看着像选中了（选中是蓝框加对勾）。
-            if focused && !selected { RoundedRectangle(cornerRadius: 10).strokeBorder(Color.primary.opacity(0.35), lineWidth: 1.5) }
+            if focused { RoundedRectangle(cornerRadius: 11).strokeBorder(Color.focusRing, lineWidth: 1.5).padding(-6.5) }
         }
+        .padding(7)
         .contentShape(Rectangle())
         .onTapGesture {
             let event = NSApp.currentEvent
@@ -924,48 +925,46 @@ struct FloatingBar: View {
     var body: some View {
         Group {
             if let p = model.progress {
-                capsule {
-                    VStack(alignment: .leading, spacing: 5) {
-                        // 第一行：进度（左）和剩余时间（右）。
+                capsule(maxWidth: 560) {
+                    VStack(alignment: .leading, spacing: 4) {
                         HStack(alignment: .firstTextBaseline) {
-                            Text(p.resumingFrom == nil ? "正在导入" : "正在续传").font(.system(size: 14, weight: .semibold))
-                            Text("\(p.done + p.skipped + p.reused + p.failed.count) / \(p.total)")
-                                .font(.system(size: 14)).foregroundStyle(.secondary).monospacedDigit()
+                            Text(p.resumingFrom == nil ? "正在导入" : "正在续传").fontWeight(.semibold)
                             if let from = p.resumingFrom {
                                 // 续传：明确告诉用户这个文件不是从头来的。
-                                Label("从 \(Self.bytes(from)) 处继续传输", systemImage: "arrow.clockwise")
-                                    .font(.system(size: 12, weight: .medium)).foregroundStyle(.tint)
-                                    .padding(.horizontal, 8).padding(.vertical, 2)
-                                    .background(Capsule().fill(Color.accentColor.opacity(0.12)))
-                                    .fixedSize()
+                                Label("从 \(Self.bytes(from)) 处继续", systemImage: "arrow.clockwise")
+                                    .font(.system(size: 11, weight: .medium)).foregroundStyle(.tint).fixedSize()
                             }
-                            Spacer(minLength: 12)
-                            Text(Self.timeLeft(p.secondsLeft))
-                                .font(.system(size: 12)).foregroundStyle(.secondary).monospacedDigit()
+                            Spacer(minLength: 8)
+                            Text("\(p.done + p.skipped + p.reused + p.failed.count) / \(p.total) 个文件")
+                                .font(.system(size: 12).monospacedDigit())
                         }
-                        ProgressView(value: p.fraction).progressViewStyle(.linear)
-                        // 第三行：当前文件（左）和数据量、速度（右）。
-                        HStack(alignment: .firstTextBaseline) {
+                        ProgressView(value: p.fraction).progressViewStyle(.linear).controlSize(.small)
+                        HStack(spacing: 0) {
                             Text(p.current).lineLimit(1).truncationMode(.middle)
-                            Spacer(minLength: 12)
-                            Text("\(Self.bytes(p.bytesDone)) / \(Self.bytes(p.bytesTotal))"
-                                 + (p.bytesPerSecond.map { " · \(Self.bytes(UInt64($0)))/s" } ?? ""))
-                                .monospacedDigit().layoutPriority(1)
+                            Text(" · \(Self.bytes(p.bytesDone)) / \(Self.bytes(p.bytesTotal)) · \(Self.timeLeft(p.secondsLeft))")
+                                .monospacedDigit().lineLimit(1).layoutPriority(1)
                         }
                         .font(.system(size: 11)).foregroundStyle(.secondary)
+                        .help(p.bytesPerSecond.map { "\(Self.bytes(UInt64($0)))/s" } ?? "")
                     }
-                    Button("取消") { model.cancelImport() }.buttonStyle(.bordered).buttonBorderShape(.capsule)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.trailing, 12)
+                    secondaryButton("取消") { model.cancelImport() }
                 }
             } else if let i = model.interrupted {
-                capsule {
-                    twoLines("导入已中断，已完成 \(i.done)/\(i.total) 个文件",
+                capsule(maxWidth: 560) {
+                    statusIcon(warning: true)
+                    twoLines("导入已中断，已完成 \(i.done) / \(i.total) 个文件",
                              (model.offline ? "相机已断开，" : "") + "未完成的 \(i.total - i.done) 个文件仍处于选中状态"
                              + (i.savedBytes > 0 ? "；已保存 \(Self.bytes(i.savedBytes))，继续时将从断点续传" : ""))
+                    secondaryButton("放弃") { model.dismissInterrupted() }
                     mainButton("继续导入", disabled: model.offline) { model.continueImport() }
                 }
             } else if let r = model.lastResult, r.c1Failed, model.grid.selected.isEmpty {
-                capsule {
+                capsule(maxWidth: 560) {
+                    statusIcon(warning: true)
                     twoLines("未能交由 Capture One 导入", "\(r.files) 个文件已存储至电脑，无需重新下载")
+                    secondaryButton("稍后") { model.dismissResult() }
                     mainButton("重新导入 C1") { model.retryCaptureOne() }
                 }
             } else if !model.grid.selected.isEmpty {
@@ -986,13 +985,24 @@ struct FloatingBar: View {
                         .keyboardShortcut(.return, modifiers: .command)
                 }
             } else if let r = model.lastResult {
-                pill {
-                    Image(systemName: r.needsAttention ? "exclamationmark.triangle.fill" : "checkmark.circle.fill").foregroundStyle(r.needsAttention ? .orange : .green)
-                    Text(resultText(r)).fontWeight(.semibold)
+                let (title, detail) = resultLines(r)
+                capsule(maxWidth: 560) {
+                    statusIcon(warning: r.needsAttention)
+                    twoLines(title, detail).help(detail)
+                    if let folder = AppModel.commonFolder(model.lastBatch) {
+                        secondaryButton("在访达中显示") { NSWorkspace.shared.open(folder) }
+                    }
+                    Button { model.dismissResult() } label: {
+                        Image(systemName: "xmark").font(.system(size: 11, weight: .semibold))
+                            .frame(width: 36, height: 36)
+                            .background(Circle().fill(Color.primary.opacity(0.1)))
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("关闭")
                 }
-                .onTapGesture { model.dismissResult() }
             } else if model.phase == .ready {
-                pill { Text("勾选日期或点选照片（⇧ 连选，⌘ 加选）") }
+                pill { Text("勾选日期或点选照片（⇧ 连选，⌘ 加选）").foregroundStyle(.secondary) }
             }
         }
         .animation(.snappy(duration: 0.2), value: model.grid.selected.isEmpty)
@@ -1018,6 +1028,14 @@ struct FloatingBar: View {
         }
         if model.willDeleteFromSource { s += " · 完成后删除存储卡上的照片" }
         return s
+    }
+
+    /// 完成提示的两行：「已导入 12 个文件」和其余说明。
+    private func resultLines(_ r: AppModel.ImportResult) -> (String, String) {
+        let title = "已导入 \(r.files) 个文件"
+        var rest = resultText(r).dropFirst(title.count)
+        while let c = rest.first, "，；".contains(c) { rest = rest.dropFirst() }
+        return (title, String(rest))
     }
 
     private func resultText(_ r: AppModel.ImportResult) -> String {
@@ -1046,11 +1064,28 @@ struct FloatingBar: View {
         return s
     }
 
-    private func capsule<C: View>(@ViewBuilder _ content: () -> C) -> some View {
+    private func capsule<C: View>(maxWidth: CGFloat = 760, @ViewBuilder _ content: () -> C) -> some View {
         HStack(spacing: 6) { content() }
             .padding(.init(top: 6, leading: 20, bottom: 6, trailing: 6))
-            .frame(maxWidth: 760)
+            .frame(maxWidth: maxWidth)
             .glassCapsule()
+    }
+
+    private func statusIcon(warning: Bool) -> some View {
+        Image(systemName: warning ? "exclamationmark.triangle" : "checkmark")
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(warning ? .orange : .green)
+            .padding(.trailing, 6)
+    }
+
+    private func secondaryButton(_ title: String, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title).padding(.horizontal, 14).frame(height: 36)
+                .background(Capsule().fill(Color.primary.opacity(0.1)))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .fixedSize()
     }
 
     private func pill<C: View>(@ViewBuilder _ content: () -> C) -> some View {
@@ -1061,8 +1096,8 @@ struct FloatingBar: View {
 
     private func twoLines(_ title: String, _ detail: String) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(title).font(.system(size: 15, weight: .semibold)).lineLimit(1)
-            Text(detail).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+            Text(title).font(.system(size: 13, weight: .semibold)).lineLimit(1)
+            Text(detail).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.trailing, 12)
@@ -1231,6 +1266,15 @@ struct PreviewOverlay: View {
         .help(label)
         .accessibilityLabel(label)
     }
+}
+
+extension Color {
+    /// 键盘焦点框：浅色模式深蓝、深色模式浅蓝，比选中的蓝框浅一档。
+    static let focusRing = Color(nsColor: NSColor(name: nil) { a in
+        a.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor(srgbRed: 0x7c / 255, green: 0xc0 / 255, blue: 1, alpha: 1)
+            : NSColor(srgbRed: 0, green: 0x60 / 255, blue: 0xdf / 255, alpha: 1)
+    })
 }
 
 // MARK: - 液态玻璃（macOS 26 起；更早的系统用毛玻璃）

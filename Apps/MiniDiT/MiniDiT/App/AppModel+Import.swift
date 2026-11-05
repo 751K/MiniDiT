@@ -490,6 +490,8 @@ extension AppModel {
     }
 
     func dismissResult() { lastResult = nil }
+    /// 放弃继续导入：没导完的照片仍然选中，可以重新导入。
+    func dismissInterrupted() { interrupted = nil }
 
     func retryCaptureOne() {
         Task {
