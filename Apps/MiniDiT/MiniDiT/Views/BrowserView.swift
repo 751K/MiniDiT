@@ -74,6 +74,14 @@ struct Sidebar: View {
 /// 侧栏顶上的来源卡片：当前相机 / 存储卡、卡槽切换、这张卡能不能格式化。换来源在右边的菜单里。
 private struct SourceCard: View {
     @Environment(AppModel.self) private var model
+    /// 展开换来源的列表。
+    @State private var expanded = false
+    @State private var listHeight: CGFloat = 0
+
+    private struct ListHeight: PreferenceKey {
+        static let defaultValue: CGFloat = 0
+        static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -90,9 +98,28 @@ private struct SourceCard: View {
                     .help(statusHelp)
                 }
                 Spacer(minLength: 4)
-                SourceMenu()
+                Button { withAnimation(.snappy(duration: 0.22)) { expanded.toggle() } } label: {
+                    Image(systemName: expanded ? "chevron.up" : "chevron.up.chevron.down")
+                        .font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+                        .frame(width: 24, height: 28).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(model.progress != nil)
+                .help(expanded ? "收起" : "切换来源")
+                .accessibilityLabel(expanded ? "收起来源列表" : "切换来源")
             }
             .padding(.horizontal, 12).padding(.vertical, 10)
+
+            // 像手风琴一样展开：高度从 0 变到列表的高度，多出来的部分裁掉，不会压到下面的卡槽。
+            SourceList { withAnimation(.snappy(duration: 0.22)) { expanded = false } }
+                .fixedSize(horizontal: false, vertical: true)
+                .background(GeometryReader { g in Color.clear.preference(key: ListHeight.self, value: g.size.height) })
+                .frame(height: expanded ? listHeight : 0, alignment: .top)
+                .clipped()
+                .opacity(expanded ? 1 : 0)
+                .allowsHitTesting(expanded)
+                .accessibilityHidden(!expanded)
+                .onPreferenceChange(ListHeight.self) { listHeight = $0 }
 
             if model.slots.count > 1 {
                 SlotPicker().padding(.horizontal, 10).padding(.bottom, 10)
@@ -103,7 +130,9 @@ private struct SourceCard: View {
             }
         }
         .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.primary.opacity(0.06)))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .accessibilityElement(children: .contain)
+        .onChange(of: model.progress != nil) { _, busy in if busy { expanded = false } }
     }
 
     private var statusText: String {
@@ -120,35 +149,64 @@ private struct SourceCard: View {
     }
 }
 
-/// 换来源：插着的卡、连过的相机；推出存储卡；回到选择来源的界面。
-private struct SourceMenu: View {
+/// 卡片里展开的换来源列表：插着的卡、连过的相机；推出存储卡；回到选择来源的界面。
+private struct SourceList: View {
     @Environment(AppModel.self) private var model
+    let done: () -> Void
 
     var body: some View {
-        Menu {
-            let cards = model.cards.filter { $0.lastPathComponent != model.connectedName || model.sourceKind != .card }
-            let cameras = model.knownCameras.filter { $0.fingerprint != model.currentFingerprint }
-            ForEach(cards, id: \.self) { url in
-                Button { model.switchTo(card: url) } label: { Label("\(url.lastPathComponent)（读卡器）", systemImage: "sdcard") }
+        let cards = model.cards.filter { $0.lastPathComponent != model.connectedName || model.sourceKind != .card }
+        let cameras = model.knownCameras.filter { $0.fingerprint != model.currentFingerprint }
+        VStack(alignment: .leading, spacing: 0) {
+            Divider().padding(.horizontal, 10)
+            VStack(spacing: 2) {
+                ForEach(cards, id: \.self) { url in
+                    row(icon: "sdcard", title: url.lastPathComponent, detail: "读卡器") { model.switchTo(card: url) }
+                }
+                ForEach(cameras) { k in
+                    row(icon: "camera", title: k.name,
+                        detail: model.switchingTo == k.fingerprint ? "正在检查…" : (k.name == k.host ? "上次连接的相机" : "上次连接：\(k.host)")) {
+                        model.switchTo(known: k)
+                    }
+                }
+                if model.sourceKind == .card {
+                    row(icon: "eject", title: "推出存储卡", detail: nil) { model.ejectCard() }
+                }
+                row(icon: "magnifyingglass", title: "搜索相机或选择存储卡…", detail: nil) { model.disconnect() }
             }
-            ForEach(cameras) { k in
-                Button { model.switchTo(known: k) } label: { Label("\(k.name)（上次连接：\(k.host)）", systemImage: "camera") }
-            }
-            if !cards.isEmpty || !cameras.isEmpty { Divider() }
-            if model.sourceKind == .card {
-                Button("推出存储卡") { model.ejectCard() }
-            }
-            Button("搜索相机或选择存储卡…") { model.disconnect() }
-        } label: {
-            Image(systemName: "chevron.up.chevron.down").font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
-                .frame(width: 24, height: 28).contentShape(Rectangle())
+            .padding(6)
+            Divider().padding(.horizontal, 10).padding(.bottom, 10)
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .disabled(model.progress != nil)
-        .help("切换来源")
-        .accessibilityLabel("切换来源")
+    }
+
+    private func row(icon: String, title: String, detail: String?, action: @escaping () -> Void) -> some View {
+        SourceListRow(icon: icon, title: title, detail: detail) { done(); action() }
+    }
+}
+
+private struct SourceListRow: View {
+    let icon: String
+    let title: String
+    let detail: String?
+    let action: () -> Void
+    @State private var hover = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: icon).font(.system(size: 13)).foregroundStyle(.secondary).frame(width: 24)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title).font(.system(size: 12)).lineLimit(1)
+                    if let detail { Text(detail).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1) }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 6).padding(.vertical, 5)
+            .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(hover ? Color.primary.opacity(0.08) : .clear))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hover = $0 }
     }
 }
 
