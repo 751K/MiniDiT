@@ -45,59 +45,6 @@ struct Sidebar: View {
     var body: some View {
         @Bindable var model = model
         List(selection: $model.shownDays) {
-            Section {
-                SourceRow(icon: model.sourceKind == .card ? "sdcard" : "camera",
-                          name: model.connectedName ?? "",
-                          detail: sourceDetail,
-                          current: true,
-                          connected: !model.offline,
-                          eject: model.sourceKind == .card ? { model.ejectCard() } : nil,
-                          pick: { model.slotFilter = nil })
-                    .listRowBackground(rowHighlight(model.slotFilter == nil))
-                if model.slots.count > 1 {
-                    ForEach(model.slots, id: \.self) { slot in
-                        Button { model.slotFilter = slot } label: {
-                            HStack {
-                                Text("卡 \(slot)").fontWeight(model.slotFilter == slot ? .semibold : .regular)
-                                Spacer()
-                                Text("\(model.shotCount(slot: slot))").font(.system(size: 12).monospacedDigit()).foregroundStyle(.secondary)
-                            }
-                            .padding(.leading, 26)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .listRowBackground(rowHighlight(model.slotFilter == slot))
-                        .accessibilityAddTraits(model.slotFilter == slot ? .isSelected : [])
-                    }
-                }
-                // 其他来源：插着的卡、连过的相机，点一下切换过去。
-                ForEach(model.cards.filter { $0.lastPathComponent != model.connectedName || model.sourceKind != .card }, id: \.self) { url in
-                    SourceRow(icon: "sdcard", name: url.lastPathComponent, detail: "读卡器 · 点按以切换", current: false, eject: nil) {
-                        model.switchTo(card: url)
-                    }
-                    .disabled(model.progress != nil)
-                }
-                ForEach(model.knownCameras.filter { $0.fingerprint != model.currentFingerprint }) { k in
-                    SourceRow(icon: "camera", name: k.name,
-                              detail: model.switchingTo == k.fingerprint ? "正在检查…" : "上次连接：\(k.host) · 点按以切换",
-                              current: false, eject: nil) {
-                        model.switchTo(known: k)
-                    }
-                    .opacity(0.75)
-                    .disabled(model.progress != nil)
-                }
-            } header: {
-                HStack {
-                    Text("来源")
-                    Spacer()
-                    Button { model.disconnect() } label: { Image(systemName: "plus") }
-                        .buttonStyle(.plain)
-                        .help("切换来源：搜索相机或选择存储卡")
-                        .accessibilityLabel("切换来源")
-                        .disabled(model.progress != nil)
-                }
-            }
-
             Section("日期") {
                 ForEach(model.days) { day in
                     DayRow(day: day).tag(day.id)
@@ -109,9 +56,12 @@ struct Sidebar: View {
                 }
             }
         }
+        .safeAreaInset(edge: .top, spacing: 6) {
+            SourceCard().padding(.horizontal, 10).padding(.top, 4)
+        }
         .safeAreaInset(edge: .bottom) {
             Button { openSettings() } label: {
-                Label("设置", systemImage: "gearshape").foregroundStyle(.secondary)
+                Label("设置", systemImage: "slider.horizontal.3").foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 18).padding(.vertical, 10)
                     .contentShape(Rectangle())
@@ -119,67 +69,136 @@ struct Sidebar: View {
             .buttonStyle(.plain)
         }
     }
+}
 
-    /// 和日期列表的选中效果一致的圆角底色。
-    @ViewBuilder private func rowHighlight(_ on: Bool) -> some View {
-        if on {
-            RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.1)).padding(.horizontal, 10)
-        } else {
-            Color.clear
+/// 侧栏顶上的来源卡片：当前相机 / 存储卡、卡槽切换、这张卡能不能格式化。换来源在右边的菜单里。
+private struct SourceCard: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Image(systemName: model.sourceKind == .card ? "sdcard" : "camera")
+                    .font(.system(size: 18)).frame(width: 24)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(model.connectedName ?? "").font(.system(size: 14, weight: .semibold)).lineLimit(1)
+                    HStack(spacing: 5) {
+                        Circle().fill(model.offline ? Color.orange : Color.green).frame(width: 6, height: 6)
+                        Text(statusText).lineLimit(1)
+                    }
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                    .help(statusHelp)
+                }
+                Spacer(minLength: 4)
+                SourceMenu()
+            }
+            .padding(.horizontal, 12).padding(.vertical, 10)
+
+            if model.slots.count > 1 {
+                SlotPicker().padding(.horizontal, 10).padding(.bottom, 10)
+            }
+            if !model.items.isEmpty {
+                Divider().padding(.horizontal, 10)
+                FormatSafety().padding(.horizontal, 12).padding(.vertical, 10)
+            }
         }
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.primary.opacity(0.06)))
+        .accessibilityElement(children: .contain)
     }
 
-    private var sourceDetail: String {
+    private var statusText: String {
         if model.offline { return "已断开，正在重新连接…" }
         if model.sourceKind == .card { return "读卡器" }
-        var parts = [model.connectedHost ?? ""]
+        return "已连接 · " + (model.connectedHost ?? "")
+    }
+
+    private var statusHelp: String {
+        var parts: [String] = []
         if let v = model.deviceInfo?.version, !v.isEmpty { parts.append("固件 \(v)") }
-        if !model.usesRemoteTransfer { parts.append("内容传输模式") }
+        if model.sourceKind != .card && !model.usesRemoteTransfer { parts.append("内容传输模式") }
         return parts.joined(separator: " · ")
     }
 }
 
-private struct SourceRow: View {
-    let icon: String
-    let name: String
-    let detail: String
-    let current: Bool
-    var connected = false
-    let eject: (() -> Void)?
-    let pick: () -> Void
+/// 换来源：插着的卡、连过的相机；推出存储卡；回到选择来源的界面。
+private struct SourceMenu: View {
+    @Environment(AppModel.self) private var model
 
     var body: some View {
-        HStack(spacing: 8) {
-            Button(action: pick) {
-                HStack(spacing: 8) {
-                    Image(systemName: icon).frame(width: 18)
-                        .foregroundStyle(current ? Color.accentColor : Color.secondary)
-                        .overlay(alignment: .bottomTrailing) {
-                            if current {
-                                Circle().fill(connected ? Color.green : Color.orange)
-                                    .frame(width: 7, height: 7)
-                                    .overlay(Circle().stroke(Color(nsColor: .windowBackgroundColor), lineWidth: 1.5))
-                                    .offset(x: 3, y: 2)
-                                    .help(connected ? "已连接" : "已断开，正在重新连接")
-                            }
-                        }
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text(name).fontWeight(current ? .semibold : .regular).lineLimit(1)
-                        Text(detail).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
-                    }
-                    Spacer(minLength: 0)
-                }
-                .contentShape(Rectangle())
+        Menu {
+            let cards = model.cards.filter { $0.lastPathComponent != model.connectedName || model.sourceKind != .card }
+            let cameras = model.knownCameras.filter { $0.fingerprint != model.currentFingerprint }
+            ForEach(cards, id: \.self) { url in
+                Button { model.switchTo(card: url) } label: { Label("\(url.lastPathComponent)（读卡器）", systemImage: "sdcard") }
             }
-            .buttonStyle(.plain)
-            if let eject {
-                Button(action: eject) { Image(systemName: "eject") }
-                    .buttonStyle(.plain).foregroundStyle(.secondary)
-                    .help("推出存储卡").accessibilityLabel("推出存储卡")
+            ForEach(cameras) { k in
+                Button { model.switchTo(known: k) } label: { Label("\(k.name)（上次连接：\(k.host)）", systemImage: "camera") }
+            }
+            if !cards.isEmpty || !cameras.isEmpty { Divider() }
+            if model.sourceKind == .card {
+                Button("推出存储卡") { model.ejectCard() }
+            }
+            Button("搜索相机或选择存储卡…") { model.disconnect() }
+        } label: {
+            Image(systemName: "chevron.up.chevron.down").font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+                .frame(width: 24, height: 28).contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .disabled(model.progress != nil)
+        .help("切换来源")
+        .accessibilityLabel("切换来源")
+    }
+}
+
+/// 卡槽：全部 / 卡 1 / 卡 2，下面是张数。
+private struct SlotPicker: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        HStack(spacing: 2) {
+            segment("全部", count: model.allShots.count, on: model.slotFilter == nil) { model.slotFilter = nil }
+            ForEach(model.slots, id: \.self) { slot in
+                segment("卡 \(slot)", count: model.shotCount(slot: slot), on: model.slotFilter == slot) { model.slotFilter = slot }
             }
         }
-        .padding(.vertical, 2)
-        .accessibilityValue(current ? (connected ? "当前来源，已连接" : "当前来源，已断开") : "")
+        .padding(3)
+        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.primary.opacity(0.06)))
+    }
+
+    private func segment(_ title: String, count: Int, on: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 1) {
+                Text(title).font(.system(size: 12, weight: on ? .semibold : .regular))
+                Text(count.formatted()).font(.system(size: 11).monospacedDigit()).foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity).padding(.vertical, 5)
+            .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(on ? Color.primary.opacity(0.12) : .clear))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(on ? .isSelected : [])
+    }
+}
+
+/// 这张卡能不能格式化：卡上每个文件都在电脑上有两份才行。
+private struct FormatSafety: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        let c = model.cardSafety
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: c.canFormat ? "checkmark.shield.fill" : "exclamationmark.shield")
+                .font(.system(size: 15)).foregroundStyle(c.canFormat ? .green : .orange).frame(width: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(c.canFormat ? "可格式化存储卡" : "暂不可格式化存储卡").font(.system(size: 12, weight: .semibold))
+                Text(c.canFormat ? "全部文件均已存有两份" : "\((c.one + c.none).formatted()) 个文件尚未存有两份")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+        }
+        .help("存储卡上共 \(c.total) 个文件：两份 \(c.two) · 一份 \(c.one) · 未导入 \(c.none)（含未显示的类型，如视频）")
     }
 }
 
@@ -209,15 +228,8 @@ private struct DayRow: View {
             .help(day.newCount > 0 ? "勾选当日 \(day.newCount) 张新照片" : "勾选当日全部照片")
             DayTitle(title: day.title)
             Spacer(minLength: 4)
-            if day.newCount > 0 {
-                NewCount(new: day.newCount, total: day.shots.count, size: 12, highlighted: model.shownDays.contains(day.id))
-            } else {
-                let copies = day.shots.map { model.copyCount(shot: $0) }.min() ?? 0
-                Image(systemName: copies >= 2 ? "checkmark.shield.fill" : copies == 1 ? "exclamationmark.shield.fill" : "checkmark")
-                    .font(.system(size: copies >= 1 ? 12 : 10, weight: .semibold))
-                    .foregroundStyle(model.shownDays.contains(day.id) ? .white : copies >= 2 ? .green : copies == 1 ? .orange : .secondary)
-                    .help(copies >= 2 ? "当日照片均已存有两份" : copies == 1 ? "均已导入，部分照片仅存有一份" : "均已导入")
-            }
+            let copies = day.newCount > 0 ? 0 : (day.shots.map { model.copyCount(shot: $0) }.min() ?? 0)
+            ShotCounts(new: day.newCount, total: day.shots.count, copies: copies, size: 12)
         }
         .contextMenu {
             Button("选择当日新照片") { model.selectNew(in: [day.id]) }
@@ -243,7 +255,7 @@ private struct DayTitle: View {
                     Text(parts[0])
                 }
                 .monospacedDigit()
-                Text(parts[1])
+                Text(parts[1]).foregroundStyle(.secondary)
             }
             .lineLimit(1)
         } else {
@@ -252,18 +264,26 @@ private struct DayTitle: View {
     }
 }
 
-/// 侧栏右边的数字：都没导入过时只写张数；导入过一部分时写还有几张新的（总数在提示里）。
-private struct NewCount: View {
+/// 侧栏右边：有新照片时写「6 新」，都导入过时打勾（只有一份的打橙色勾），最右边是总张数。
+private struct ShotCounts: View {
     let new: Int
     let total: Int
+    /// 都导入过时最少的份数（决定勾的颜色）。
+    let copies: Int
     let size: CGFloat
-    let highlighted: Bool
 
     var body: some View {
-        Text(new == total ? "\(total)" : "\(new) 新")
-            .font(.system(size: size, weight: new == total ? .regular : .semibold).monospacedDigit())
-            .foregroundStyle(highlighted ? .white : new == total ? .secondary : .primary)
-            .help(new == total ? "\(total) 张，均未导入" : "共 \(total) 张，\(new) 张未导入")
+        HStack(spacing: 8) {
+            if new > 0 {
+                Text("\(new) 新").font(.system(size: size, weight: .semibold).monospacedDigit())
+            } else {
+                Image(systemName: "checkmark").font(.system(size: size - 2, weight: .semibold))
+                    .foregroundStyle(copies == 1 ? Color.orange : Color.secondary)
+                    .help(copies == 1 ? "均已导入，部分照片仅存有一份" : "均已导入")
+            }
+            Text(total.formatted()).font(.system(size: size).monospacedDigit()).foregroundStyle(.secondary)
+                .frame(minWidth: 22, alignment: .trailing)
+        }
     }
 }
 
@@ -290,12 +310,7 @@ private struct SceneRow: View {
             .help(scene.newCount > 0 ? "勾选该场次 \(scene.newCount) 张新照片" : "勾选该场次全部照片")
             Text(scene.timeRange.isEmpty ? "第 \(scene.number) 场" : scene.timeRange).font(.system(size: 12)).lineLimit(1)
             Spacer(minLength: 4)
-            if scene.newCount > 0 {
-                NewCount(new: scene.newCount, total: scene.shots.count, size: 11, highlighted: shown)
-            } else {
-                Image(systemName: "checkmark").font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(shown ? .white : .secondary).help("均已导入")
-            }
+            ShotCounts(new: scene.newCount, total: scene.shots.count, copies: 2, size: 11)
         }
         .padding(.leading, 18)
         .contextMenu { SceneGapMenu() }
@@ -354,25 +369,13 @@ struct BrowseHeader: View {
     }
 }
 
-/// 标题下面一行：新照片数，以及这张卡能不能格式化（每个文件是否都有两份）。
+/// 标题下面一行：新照片数（能不能格式化在侧栏的来源卡片里）。
 private struct CardSafetyLine: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        let c = model.cardSafety
-        Group {
-            if c.canFormat {
-                Label("全部文件均已存有两份，可格式化存储卡", systemImage: "checkmark.shield.fill")
-                    .foregroundStyle(.green)
-            } else {
-                let newText = model.newShotCount > 0 ? "\(model.newShotCount) 张新照片" : "无新照片"
-                let unsafe = c.one + c.none
-                Text(c.two + c.one == 0 ? newText : newText + " · \(unsafe) 个文件尚未存有两份，请勿格式化")
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .font(.system(size: 11)).lineLimit(1)
-        .help("存储卡上共 \(c.total) 个文件：两份 \(c.two) · 一份 \(c.one) · 未导入 \(c.none)（含未显示的类型，如视频）")
+        Text(model.newShotCount > 0 ? "\(model.newShotCount.formatted()) 张新照片" : "无新照片")
+            .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
     }
 }
 
