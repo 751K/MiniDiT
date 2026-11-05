@@ -73,13 +73,13 @@ enum LightroomLooks {
     }
 
     /// 扫一遍装好的 Look。名字以「Look 代号」结尾的才算。
-    private static let cache = OSAllocatedUnfairLock<(at: Date, list: [Profile])?>(initialState: nil)
+    private static let cache = OSAllocatedUnfairLock<[Profile]?>(initialState: nil)
 
-    /// 扫描结果缓存 30 秒：导入时每张 RAW 都要查一次，不必每张都把预设文件夹重读一遍。
+    /// 装了哪些 Look 很少变：第一次用时扫一遍记住，之后一直用这份；打开“设置 › 软件”时重扫（fresh），新装的 Look 在那之后生效。
     static func installed(fresh: Bool = false) -> [Profile] {
-        if !fresh, let c = cache.withLock({ $0 }), Date().timeIntervalSince(c.at) < 30 { return c.list }
+        if !fresh, let c = cache.withLock({ $0 }) { return c }
         let list = scanInstalled()
-        cache.withLock { $0 = (Date(), list) }
+        cache.withLock { $0 = list }
         return list
     }
 
