@@ -18,6 +18,18 @@ struct SettingsView: View {
                 .tabItem { Label("记录", systemImage: "list.bullet") }
         }
         .frame(width: 600, height: 560)
+        .hiddenToolbarBackground()
+    }
+}
+
+private extension View {
+    /// 顶部标签栏不用系统工具栏的浅色底和分隔线，和下面的内容同一底色（macOS 15 起）。
+    @ViewBuilder func hiddenToolbarBackground() -> some View {
+        if #available(macOS 15.0, *) {
+            toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
+        } else {
+            self
+        }
     }
 }
 
