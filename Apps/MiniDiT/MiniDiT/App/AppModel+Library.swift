@@ -100,6 +100,11 @@ extension AppModel {
                           include: { items[$0].map(kindAccepted) ?? false })
     }
 
+    /// 缩略图角标：只列筛选和配对规则留下的文件类型（只看 RAW 时显示「RAW」，不是「RAW+HIF」）。
+    func badge(of shot: Shot) -> String {
+        Shot.badge(importFiles(of: shot).compactMap { items[$0]?.kind })
+    }
+
     func isFileImported(_ h: UInt32) -> Bool { items[h].map { ImportHistory.shared.contains($0, camera: cameraID) } ?? false }
 
     /// 这次拍摄要导入的文件都导过了。

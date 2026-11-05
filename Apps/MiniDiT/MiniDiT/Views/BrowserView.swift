@@ -703,7 +703,7 @@ struct ThumbCell: View {
                 }
                 .clipped()
             .overlay(alignment: .bottomLeading) {
-                if let shot { Badge(text: shot.badge).padding(5) }
+                if let shot { Badge(text: model.badge(of: shot)).padding(5) }
             }
             .overlay(alignment: .bottomTrailing) {
                 if imported {
@@ -1014,7 +1014,7 @@ struct PreviewOverlay: View {
                     VStack(alignment: .leading, spacing: 0) {
                         Text(item?.baseName ?? "").font(.system(size: 15, weight: .semibold))
                         HStack(spacing: 6) {
-                            Text([shot?.badge ?? "", ThumbCell.time(item)].filter { !$0.isEmpty }.joined(separator: " · ")
+                            Text([shot.map(model.badge(of:)) ?? "", ThumbCell.time(item)].filter { !$0.isEmpty }.joined(separator: " · ")
                                  + (model.previewLoaded ? "" : " · 正在加载大图…"))
                             if model.isImported(shot: id) {
                                 let copies = model.copyCount(shot: id)

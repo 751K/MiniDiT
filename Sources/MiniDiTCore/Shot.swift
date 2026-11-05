@@ -16,12 +16,15 @@ public struct Shot: Identifiable, Hashable, Sendable {
     public var isVideo: Bool { kinds.contains(.video) }
 
     /// 角标，例如「RAW+HIF」「JPG」「视频」。
-    public var badge: String {
+    public var badge: String { Self.badge(kinds) }
+
+    /// 按给定的文件类型拼角标（界面上用筛选后实际要导入的那几种）。
+    public static func badge(_ kinds: [CameraContentItem.Kind]) -> String {
         var parts: [String] = []
-        if hasRaw { parts.append("RAW") }
+        if kinds.contains(.raw) { parts.append("RAW") }
         if kinds.contains(.heif) { parts.append("HIF") }
         if kinds.contains(.jpeg) { parts.append("JPG") }
-        if isVideo { parts.append("视频") }
+        if kinds.contains(.video) { parts.append("视频") }
         return parts.joined(separator: "+")
     }
 }
