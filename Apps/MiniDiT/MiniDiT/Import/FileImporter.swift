@@ -1,10 +1,15 @@
 import Foundation
+import MiniDiTCore
 import SonyRemoteKit
 
-/// 把一个文件从相机 / 存储卡导到本地文件夹。不碰界面状态，只管文件。
+/// 把一个文件从相机 / 存储卡导到本地：第一份 + 备份盘上的第二份，两份都用 xxHash64 校验。不碰界面状态。
 ///
-/// 顺序：目标位置已有同样的文件 → 跳过；本地别处有（上次下载过）→ 移动或复制过来；
-/// 都没有 → 先下载成 `.文件名.part`，大小对了再改名。
+/// 第一份：目标位置已有同样的文件 → 用它；本地别处有（上次下载过）→ 移动或复制过来；
+/// 都没有 → 先下载成 `.文件名.part`，校验通过再改名。
+/// 第二份：「备份位置/年-月-日-事件/文件名」，复制后从盘上读回来比对哈希。
+///
+/// 读卡器来源会在复制时同时算卡上数据的哈希，和写好的文件比对，是真正的端到端校验；
+/// Wi-Fi 下载拿不到相机那边的哈希，第一份只能核对大小，哈希从写好的文件算出来，用来校验第二份。
 @MainActor
 struct FileImporter {
     enum Outcome {
@@ -21,19 +26,75 @@ struct FileImporter {
         }
     }
 
+    enum Backup {
+        /// 没有设置备份位置，或备份盘没接上。
+        case none
+        case done(URL)
+        case failed(String)
+    }
+
+    struct Result {
+        var outcome: Outcome
+        var xxh64: UInt64
+        var backup: Backup
+    }
+
+    enum ImportError: LocalizedError {
+        case verifyFailed(String)
+        var errorDescription: String? {
+            switch self {
+            case .verifyFailed(let name): "\(name) 校验不通过（写到盘上的数据和读到的不一致）"
+            }
+        }
+    }
+
     let library: any CameraLibrary
     /// 「保存位置」，按日期分文件夹的根目录。
     let root: URL
     let camera: String?
+    /// 备份盘上的根目录；nil = 这次不备份。
+    var backupRoot: URL?
+    /// 事件名（会话「3.15-公园」里的「公园」），用在备份文件夹名里。
+    var event: String?
     var log: AppLog = .shared
 
-    /// `progress` 报告这个文件已经传了多少字节。
+    /// 一个文件要计入进度的字节数（有备份时算两遍）。
+    func weight(of item: CameraContentItem) -> UInt64 { item.size * (backupRoot == nil ? 1 : 2) }
+
+    /// `progress` 报告这个文件已经完成了多少字节（0…weight）；`stage` 报告正在做什么。
     func importItem(_ item: CameraContentItem, into dir: URL,
-                    progress: @escaping @Sendable (UInt64) -> Void) async throws -> Outcome {
+                    progress: @escaping @Sendable (UInt64) -> Void,
+                    stage: (String) -> Void) async throws -> Result {
+        let (outcome, hash) = try await primary(item, into: dir, progress: progress, stage: stage)
+        progress(item.size)
+        var backup = Backup.none
+        if let backupRoot {
+            stage("备份 \(item.filename)")
+            do {
+                let u = try await copyToBackup(outcome.url, item: item, root: backupRoot, hash: hash) { d in progress(item.size + d) }
+                backup = .done(u)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                log.add("备份失败 \(item.filename)：\(error.localizedDescription)")
+                backup = .failed(error.localizedDescription)
+            }
+        }
+        return Result(outcome: outcome, xxh64: hash, backup: backup)
+    }
+
+    // MARK: 第一份
+
+    private func primary(_ item: CameraContentItem, into dir: URL,
+                         progress: @escaping @Sendable (UInt64) -> Void,
+                         stage: (String) -> Void) async throws -> (Outcome, UInt64) {
         let fm = FileManager.default
         let target = dir.appending(path: item.filename)
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
-        if ImportHistory.matches(target, item) { return .alreadyThere(target) }
+        if ImportHistory.matches(target, item) {
+            stage("校验 \(item.filename)")
+            return (.alreadyThere(target), try await FileOps.hash(target))
+        }
 
         let final = fm.fileExists(atPath: target.path) ? Self.uniqueURL(target) : target
         if let local = Self.localCopy(of: item, root: root, camera: camera), local.standardizedFileURL != final.standardizedFileURL {
@@ -41,24 +102,70 @@ struct FileImporter {
             if local.path.hasPrefix(root.path + "/") {
                 try fm.moveItem(at: local, to: final)
                 log.add("用本地文件（移动）\(local.path) → \(final.path)")
-            } else {
-                try fm.copyItem(at: local, to: final)
-                log.add("用本地文件（复制）\(local.path) → \(final.path)")
+                stage("校验 \(item.filename)")
+                return (.reused(final), try await FileOps.hash(final))
             }
-            return .reused(final)
+            stage("复制 \(item.filename)")
+            let h = try await verifiedCopy(from: local, to: final, name: item.filename, progress: progress)
+            log.add("用本地文件（复制）\(local.path) → \(final.path)")
+            return (.reused(final), h)
         }
 
         let part = dir.appending(path: ".\(item.filename).part")
-        try await library.download(item, to: part) { done, _ in progress(done) }
-        guard ImportHistory.matches(part, item) else {
-            try? fm.removeItem(at: part)
-            throw CocoaError(.fileReadCorruptFile)
+        let hash: UInt64
+        if let card = library as? LocalCardLibrary, let src = await card.fileURL(item.id) {
+            // 读卡器：自己复制，边读卡边算哈希，再和写好的文件比对。
+            hash = try await verifiedCopy(from: src, to: part, name: item.filename, progress: progress)
+            guard ImportHistory.matches(part, item) else { try? fm.removeItem(at: part); throw CocoaError(.fileReadCorruptFile) }
+        } else {
+            try await library.download(item, to: part) { done, _ in progress(done) }
+            guard ImportHistory.matches(part, item) else { try? fm.removeItem(at: part); throw CocoaError(.fileReadCorruptFile) }
+            stage("校验 \(item.filename)")
+            hash = try await FileOps.hash(part)
         }
         try fm.moveItem(at: part, to: final)
         if let date = item.captureDate {
             try? fm.setAttributes([.creationDate: date, .modificationDate: date], ofItemAtPath: final.path)
         }
-        return .downloaded(final)
+        return (.downloaded(final), hash)
+    }
+
+    /// 复制并读回来比对；返回源数据的哈希。不一致时删掉目标。
+    private func verifiedCopy(from src: URL, to dst: URL, name: String,
+                              progress: @escaping @Sendable (UInt64) -> Void) async throws -> UInt64 {
+        let h = try await FileOps.copy(from: src, to: dst, progress: progress)
+        guard try await FileOps.hash(dst) == h else {
+            try? FileManager.default.removeItem(at: dst)
+            throw ImportError.verifyFailed(name)
+        }
+        return h
+    }
+
+    // MARK: 第二份
+
+    private func copyToBackup(_ file: URL, item: CameraContentItem, root: URL, hash: UInt64,
+                              progress: @escaping @Sendable (UInt64) -> Void) async throws -> URL {
+        let fm = FileManager.default
+        let dir = Self.backupFolder(for: item, root: root, event: event)
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        var target = dir.appending(path: item.filename)
+        if fm.fileExists(atPath: target.path) {
+            // 已经备份过同一个文件：哈希一致就不再复制。
+            if ImportHistory.matches(target, item), try await FileOps.hash(target) == hash { return target }
+            target = Self.uniqueURL(target)
+        }
+        let part = dir.appending(path: ".\(item.filename).part")
+        let read = try await FileOps.copy(from: file, to: part, progress: progress)
+        let written = try await FileOps.hash(part)
+        guard read == hash, written == hash else {
+            try? fm.removeItem(at: part)
+            throw ImportError.verifyFailed(item.filename)
+        }
+        try fm.moveItem(at: part, to: target)
+        if let date = item.captureDate {
+            try? fm.setAttributes([.creationDate: date, .modificationDate: date], ofItemAtPath: target.path)
+        }
+        return target
     }
 
     // MARK: 路径
@@ -69,6 +176,15 @@ struct FileImporter {
         guard key != "unknown" else { return root.appending(path: "没有日期", directoryHint: .isDirectory) }
         let y = String(key.prefix(4)), m = String(key.dropFirst(4).prefix(2)), d = String(key.suffix(2))
         return root.appending(path: y, directoryHint: .isDirectory).appending(path: "\(y)-\(m)-\(d)", directoryHint: .isDirectory)
+    }
+
+    /// 备份盘上：「备份位置/年-月-日-事件/」，没有事件名就是「年-月-日」。
+    static func backupFolder(for item: CameraContentItem, root: URL, event: String?) -> URL {
+        let key = AppModel.dayKey(item)
+        var name = key == "unknown" ? "没有日期"
+            : "\(key.prefix(4))-\(key.dropFirst(4).prefix(2))-\(key.suffix(2))"
+        if let event, !event.isEmpty { name += "-" + event.replacingOccurrences(of: "/", with: "-") }
+        return root.appending(path: name, directoryHint: .isDirectory)
     }
 
     /// 本地已有的同一个文件：先看导入记录里的位置，再看「保存位置/年/年-月-日/」（旧版记录没有位置）。

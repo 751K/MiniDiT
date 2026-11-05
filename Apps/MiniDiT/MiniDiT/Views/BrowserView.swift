@@ -660,7 +660,7 @@ struct FloatingBar: View {
                             ProgressView(value: p.fraction).progressViewStyle(.linear)
                             Text("\(p.done + p.skipped + p.reused + p.failed.count)/\(p.total)").fontWeight(.semibold).monospacedDigit()
                         }
-                        Text("正在导入 \(p.current) · \(Self.bytes(p.bytesDone)) / \(Self.bytes(p.bytesTotal))")
+                        Text("正在\(p.current) · \(Self.bytes(p.bytesDone)) / \(Self.bytes(p.bytesTotal))")
                             .font(.system(size: 11)).lineLimit(1)
                     }
                     Button("取消") { model.cancelImport() }.buttonStyle(.bordered).buttonBorderShape(.capsule)
@@ -684,7 +684,7 @@ struct FloatingBar: View {
                 }
             } else if let r = model.lastResult {
                 pill {
-                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                    Image(systemName: r.backedUp == nil || r.backupFailed > 0 ? "exclamationmark.triangle.fill" : "checkmark.circle.fill").foregroundStyle(r.backedUp == nil || r.backupFailed > 0 ? .orange : .green)
                     Text(resultText(r)).fontWeight(.semibold)
                 }
                 .onTapGesture { model.dismissResult() }
@@ -708,13 +708,19 @@ struct FloatingBar: View {
         let files = model.selectedFiles()
         let days = Set(files.map(AppModel.dayKey)).count
         let dest = model.captureOneMode == .newSession ? model.sessionsFolder : model.destination
-        return "\(files.count) 个文件 · \(days) 天 · 存到 \(Self.short(dest))"
+        let backup = model.backupAvailable ? "备份到 \(Self.short(model.backupFolder!))" : "⚠︎ 没有备份盘"
+        return "\(files.count) 个文件 · \(days) 天 · 存到 \(Self.short(dest)) · \(backup)"
     }
 
     private func resultText(_ r: AppModel.ImportResult) -> String {
         var s = "导入了 \(r.files) 个文件"
         if let session = r.session { s += "，已存入会话「\(session)」" }
         if r.failed > 0 { s += "，\(r.failed) 个失败" }
+        if let b = r.backedUp {
+            s += r.backupFailed > 0 ? "，\(r.backupFailed) 个没备份成功" : (b > 0 ? "，两份都已校验" : "")
+        } else {
+            s += "，只存了一份"
+        }
         if r.cancelled { s += "（已取消）" }
         return s
     }

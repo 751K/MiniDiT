@@ -43,9 +43,18 @@ final class ImportHistory {
         return size == item.size
     }
 
-    func record(_ pairs: [(CameraContentItem, URL)], camera: String?) {
-        for (i, u) in pairs {
-            index.insert(ImportRecord(filename: i.filename, size: i.size, dateRaw: i.captureDateRaw, camera: camera, path: u.path))
+    struct Entry {
+        var item: CameraContentItem
+        var url: URL
+        var xxh64: UInt64?
+        var backup: URL?
+    }
+
+    func record(_ entries: [Entry], camera: String?) {
+        for e in entries {
+            let i = e.item
+            index.insert(ImportRecord(filename: i.filename, size: i.size, dateRaw: i.captureDateRaw, camera: camera, path: e.url.path,
+                                      xxh64: e.xxh64.map(XXH64.hex), backupPath: e.backup?.path))
         }
         save()
     }

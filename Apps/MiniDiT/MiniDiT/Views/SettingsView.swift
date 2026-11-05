@@ -46,6 +46,20 @@ private struct ImportSettings: View {
                     Text(model.captureOneMode == .newSession ? "新会话的位置" : "下载位置")
                     Text(locationText).lineLimit(1).truncationMode(.middle)
                 }
+                LabeledContent {
+                    HStack {
+                        if model.backupFolder != nil {
+                            Button("不备份") { model.backupFolder = nil }
+                        }
+                        Button(model.backupFolder == nil ? "选择…" : "更改…") {
+                            if let u = FolderPicker.choose(start: model.backupFolder) { model.backupFolder = u }
+                        }
+                    }
+                } label: {
+                    Text("备份位置（第二份）")
+                    Text(backupText).lineLimit(1).truncationMode(.middle)
+                        .foregroundStyle(model.backupFolder != nil && !model.backupAvailable ? .orange : .secondary)
+                }
             }
             Section("同时有 RAW 和 JPG/HIF 时") {
                 Picker("配对规则", selection: $model.pairPolicy) {
@@ -58,6 +72,12 @@ private struct ImportSettings: View {
         }
         .formStyle(.grouped)
         .onAppear { model.refreshCaptureOne() }
+    }
+
+    private var backupText: String {
+        guard let u = model.backupFolder else { return "没有设置，导入时只存一份" }
+        let p = u.path(percentEncoded: false)
+        return model.backupAvailable ? p + "，按「年-月-日-事件」分文件夹" : p + "（现在找不到这块盘）"
     }
 
     private var locationText: String {
@@ -87,12 +107,7 @@ private struct ImportSettings: View {
     }
 
     private func choose(_ key: ReferenceWritableKeyPath<AppModel, URL>) {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.canCreateDirectories = true
-        panel.directoryURL = model[keyPath: key]
-        if panel.runModal() == .OK, let url = panel.url { model[keyPath: key] = url }
+        if let url = FolderPicker.choose(start: model[keyPath: key]) { model[keyPath: key] = url }
     }
 }
 

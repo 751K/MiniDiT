@@ -141,6 +141,8 @@ final class AppModel {
         var bytesDone: UInt64 = 0
         var bytesTotal: UInt64
         var current = ""
+        var backedUp = 0
+        var backupFailed: [String] = []
         var fraction: Double { bytesTotal == 0 ? 0 : min(1, Double(bytesDone) / Double(bytesTotal)) }
     }
 
@@ -151,6 +153,9 @@ final class AppModel {
         var session: String?
         var c1Failed: Bool
         var cancelled: Bool
+        /// 备份了几个；nil = 这次没有备份（没设置或备份盘没接上）。
+        var backedUp: Int?
+        var backupFailed = 0
     }
     /// 导入中断（相机掉线）：没导完的仍然选中，重连后可以继续。
     struct Interrupted {
@@ -174,6 +179,27 @@ final class AppModel {
     static var defaultDestination: URL {
         FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask)[0].appending(path: "MiniDiT", directoryHint: .isDirectory)
     }
+
+    /// 第二份放在哪（备份盘上的文件夹）。没设置时为 nil。
+    var backupFolder: URL? {
+        get { _ = destinationVersion; return UserDefaults.standard.url(forKey: "backupFolder") }
+        set { UserDefaults.standard.set(newValue, forKey: "backupFolder"); destinationVersion += 1 }
+    }
+    /// 备份盘现在能不能用（设置了，而且盘接着）。
+    var backupAvailable: Bool {
+        _ = volumeVersion
+        guard let u = backupFolder else { return false }
+        var isDir: ObjCBool = false
+        return FileManager.default.fileExists(atPath: u.path, isDirectory: &isDir) && isDir.boolValue
+    }
+    /// 磁盘插拔时加一，让依赖「备份盘在不在」的界面刷新。
+    var volumeVersion = 0
+    /// 第一次打开时设置两个存放位置。
+    var setupDone: Bool = UserDefaults.standard.bool(forKey: "setupDone") {
+        didSet { UserDefaults.standard.set(setupDone, forKey: "setupDone") }
+    }
+    /// 点「导入」时发现没有备份盘，先问一下。
+    var backupMissingPrompt = false
 
     var captureOneMode: CaptureOneMode = CaptureOneMode(rawValue: UserDefaults.standard.string(forKey: "c1Mode") ?? "") ?? .newSession {
         didSet { UserDefaults.standard.set(captureOneMode.rawValue, forKey: "c1Mode") }

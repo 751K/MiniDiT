@@ -371,6 +371,7 @@ extension AppModel {
 
     func volumesChanged(unmounted: URL?) {
         refreshCards()
+        volumeVersion += 1
         if let unmounted, let cardRoot, unmounted.standardizedFileURL == cardRoot.standardizedFileURL,
            let lib = library as? LocalCardLibrary {
             lib.markLost()

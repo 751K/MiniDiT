@@ -58,6 +58,24 @@ struct RootView: View {
         .sheet(item: $model.credentialRequest) { CredentialSheet(request: $0) }
         .sheet(item: $model.fingerprintRequest) { FingerprintSheet(request: $0) }
         .sheet(item: $model.sessionRequest) { SessionSheet(request: $0) }
+        .sheet(isPresented: Binding(get: { !model.setupDone }, set: { if !$0 { model.setupDone = true } })) {
+            SetupSheet().interactiveDismissDisabled()
+        }
+        .alert(model.backupFolder == nil ? "还没有设置备份盘" : "没有找到备份盘", isPresented: $model.backupMissingPrompt) {
+            Button("只存一份，继续") { model.beginImport(checkBackup: false) }
+            if model.backupFolder == nil {
+                Button("选择备份位置…") {
+                    if let u = FolderPicker.choose(start: nil) { model.backupFolder = u; model.beginImport() }
+                }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            if let u = model.backupFolder {
+                Text("「\(u.path(percentEncoded: false))」现在找不到（备份盘可能没接上）。\n这次只会存一份；接上以后对这些照片再导入一次，会补上第二份。")
+            } else {
+                Text("这次只会存一份。也可以在「设置 › 导入」里选择备份位置。")
+            }
+        }
         .alert("出错了", isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })) {
             Button("好") { model.errorMessage = nil }
         } message: {

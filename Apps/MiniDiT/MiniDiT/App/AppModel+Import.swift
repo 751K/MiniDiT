@@ -11,9 +11,13 @@ extension AppModel {
         captureOneDocument = CaptureOneBridge.currentDocument()
     }
 
-    /// 点「导入」：新建会话模式先问会话名，其他模式直接开始。
-    func beginImport() {
+    /// 点「导入」：没有备份盘先提醒；新建会话模式先问会话名，其他模式直接开始。
+    func beginImport(checkBackup: Bool = true) {
         guard progress == nil, !grid.selected.isEmpty else { return }
+        if checkBackup, !backupAvailable {
+            backupMissingPrompt = true
+            return
+        }
         if captureOneMode == .newSession {
             refreshCaptureOne()
             sessionRequest = SessionRequest(suggestedName: suggestedSessionName(),
@@ -35,9 +39,12 @@ extension AppModel {
         let root = destination
         let mode = captureOneMode
         let camera = cameraID
-        progress = ImportProgress(total: picked.count, bytesTotal: picked.reduce(0) { $0 + $1.size })
+        let backupRoot = backupAvailable ? backupFolder : nil
+        let weight: UInt64 = backupRoot == nil ? 1 : 2
+        progress = ImportProgress(total: picked.count, bytesTotal: picked.reduce(0) { $0 + $1.size } * weight)
         lastSummary = nil
-        log.add("开始导入 \(picked.count) 个文件到 \(root.path)，Capture One：\(mode.title)")
+        log.add("开始导入 \(picked.count) 个文件到 \(root.path)，Capture One：\(mode.title)，"
+                + (backupRoot.map { "备份到 \($0.path)" } ?? "没有备份"))
         let sessionsFolder = self.sessionsFolder
         importTask = Task {
             // 新建 / 打开会话，文件直接下载到它的 Capture 文件夹（C1 会自动显示，不用再导入）。
@@ -71,26 +78,33 @@ extension AppModel {
                 refreshCaptureOne()
             }
             var saved: [URL] = []
-            var done: [(CameraContentItem, URL)] = []
-            let importer = FileImporter(library: library, root: root, camera: camera)
+            var done: [ImportHistory.Entry] = []
+            let event = sessionName.isEmpty ? nil : Self.eventName(of: sessionName)
+            let importer = FileImporter(library: library, root: root, camera: camera, backupRoot: backupRoot, event: event)
             for item in picked {
                 if Task.isCancelled { break }
-                progress?.current = item.filename
+                progress?.current = "导入 \(item.filename)"
                 let dir = captureDir ?? FileImporter.folder(for: item, root: root)
                 let base = progress?.bytesDone ?? 0
                 do {
-                    let outcome = try await importer.importItem(item, into: dir) { d in
+                    let r = try await importer.importItem(item, into: dir, progress: { d in
                         Task { @MainActor in
                             if let cur = self.progress?.bytesDone, base + d > cur { self.progress?.bytesDone = base + d }
                         }
-                    }
-                    progress?.bytesDone = base + item.size
-                    switch outcome {
+                    }, stage: { self.progress?.current = $0 })
+                    progress?.bytesDone = base + importer.weight(of: item)
+                    switch r.outcome {
                     case .alreadyThere: progress?.skipped += 1
                     case .reused(let u): progress?.reused += 1; saved.append(u)
                     case .downloaded(let u): progress?.done += 1; saved.append(u)
                     }
-                    done.append((item, outcome.url))
+                    var backupURL: URL?
+                    switch r.backup {
+                    case .none: break
+                    case .done(let u): progress?.backedUp += 1; backupURL = u
+                    case .failed: progress?.backupFailed.append(item.filename)
+                    }
+                    done.append(.init(item: item, url: r.outcome.url, xxh64: r.xxh64, backup: backupURL))
                 } catch is CancellationError {
                     break
                 } catch {
@@ -105,6 +119,11 @@ extension AppModel {
             if let p = progress, p.reused > 0 { summary += "，其中 \(p.reused) 个用了本地已有的" }
             if let p = progress, p.skipped > 0 { summary += "，\(p.skipped) 个目标文件夹里已有" }
             if let p = progress, !p.failed.isEmpty { summary += "，\(p.failed.count) 个失败" }
+            if let p = progress, backupRoot != nil {
+                summary += "，备份 \(p.backedUp) 个" + (p.backupFailed.isEmpty ? "" : "（\(p.backupFailed.count) 个备份失败）")
+            } else {
+                summary += "，没有备份"
+            }
             if Task.isCancelled { summary += "（已取消）" }
             lastBatch = saved
             if mode == .newSession {
@@ -121,11 +140,13 @@ extension AppModel {
             } else {
                 lastResult = ImportResult(files: done.count, reused: progress?.reused ?? 0, failed: progress?.failed.count ?? 0,
                                           session: mode == .newSession && !sessionName.isEmpty ? sessionName : nil,
-                                          c1Failed: c1Failed, cancelled: Task.isCancelled)
+                                          c1Failed: c1Failed, cancelled: Task.isCancelled,
+                                          backedUp: backupRoot == nil ? nil : progress?.backedUp ?? 0,
+                                          backupFailed: progress?.backupFailed.count ?? 0)
             }
             log.add("导入结束：\(summary)")
             // 全部文件都导好的拍摄取消选中。
-            let doneIDs = Set(done.map(\.0.id))
+            let doneIDs = Set(done.map(\.item.id))
             grid.remove(pickedShots.filter { id in shots[id].map { importFiles(of: $0).allSatisfy(doneIDs.contains) } ?? false })
             progress = nil
             rebuild()
@@ -134,6 +155,13 @@ extension AppModel {
     }
 
     func cancelImport() { importTask?.cancel() }
+
+    /// 会话名「3.15-公园」里的「公园」；没有「-」就用整个名字。
+    static func eventName(of sessionName: String) -> String? {
+        let s = sessionName.firstIndex(of: "-").map { String(sessionName[sessionName.index(after: $0)...]) } ?? sessionName
+        let t = s.trimmingCharacters(in: .whitespaces)
+        return t.isEmpty ? nil : t
+    }
 
     /// 中断后继续：导到同一个会话，不再问名字。
     func continueImport() {

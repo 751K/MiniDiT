@@ -12,14 +12,21 @@ public struct ImportRecord: Codable, Hashable, Sendable {
     /// 本地路径；旧版记录没有。
     public var path: String?
     public var importedAt: Date?
+    /// 导入时算的 xxHash64（16 位十六进制）；v0.3 以前的记录没有。
+    public var xxh64: String?
+    /// 第二份（备份盘上）的路径；没有备份时为 nil。
+    public var backupPath: String?
 
-    public init(filename: String, size: UInt64, dateRaw: String, camera: String?, path: String?, importedAt: Date? = Date()) {
+    public init(filename: String, size: UInt64, dateRaw: String, camera: String?, path: String?, importedAt: Date? = Date(),
+                xxh64: String? = nil, backupPath: String? = nil) {
         self.filename = filename
         self.size = size
         self.dateRaw = dateRaw
         self.camera = camera
         self.path = path
         self.importedAt = importedAt
+        self.xxh64 = xxh64
+        self.backupPath = backupPath
     }
 }
 
@@ -47,6 +54,8 @@ public struct HistoryIndex: Sendable {
             records[i].path = r.path ?? records[i].path
             records[i].camera = records[i].camera ?? r.camera
             records[i].importedAt = r.importedAt ?? records[i].importedAt
+            records[i].xxh64 = r.xxh64 ?? records[i].xxh64
+            records[i].backupPath = r.backupPath ?? records[i].backupPath
             return
         }
         records.append(r)
