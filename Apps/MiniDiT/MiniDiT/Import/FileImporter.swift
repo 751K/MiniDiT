@@ -37,6 +37,8 @@ struct FileImporter {
         var outcome: Outcome
         var xxh64: UInt64
         var backup: Backup
+        /// 确认过第一份和存储卡上的数据一致（只有读卡器来源能确认）。
+        var matchesSource: Bool
     }
 
     enum ImportError: LocalizedError {
@@ -56,6 +58,8 @@ struct FileImporter {
     var backupRoot: URL?
     /// 事件名（会话「3.15-公园」里的「公园」），用在备份文件夹名里。
     var event: String?
+    /// 要删卡上的文件时，对没有重新复制的文件（目标已有 / 用了本地的）也读卡比对一遍。
+    var checkSource = false
     var log: AppLog = .shared
 
     /// 一个文件要计入进度的字节数（有备份时算两遍）。
@@ -65,7 +69,12 @@ struct FileImporter {
     func importItem(_ item: CameraContentItem, into dir: URL,
                     progress: @escaping @Sendable (UInt64) -> Void,
                     stage: (String) -> Void) async throws -> Result {
-        let (outcome, hash) = try await primary(item, into: dir, progress: progress, stage: stage)
+        let (outcome, hash, fromCard) = try await primary(item, into: dir, progress: progress, stage: stage)
+        var matchesSource = fromCard
+        if !matchesSource, checkSource, let card = library as? LocalCardLibrary, let src = await card.fileURL(item.id) {
+            stage("核对 \(item.filename)")
+            matchesSource = (try? await FileOps.hash(src)) == hash
+        }
         progress(item.size)
         var backup = Backup.none
         if let backupRoot {
@@ -80,20 +89,20 @@ struct FileImporter {
                 backup = .failed(error.localizedDescription)
             }
         }
-        return Result(outcome: outcome, xxh64: hash, backup: backup)
+        return Result(outcome: outcome, xxh64: hash, backup: backup, matchesSource: matchesSource)
     }
 
     // MARK: 第一份
 
     private func primary(_ item: CameraContentItem, into dir: URL,
                          progress: @escaping @Sendable (UInt64) -> Void,
-                         stage: (String) -> Void) async throws -> (Outcome, UInt64) {
+                         stage: (String) -> Void) async throws -> (Outcome, UInt64, fromCard: Bool) {
         let fm = FileManager.default
         let target = dir.appending(path: item.filename)
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         if ImportHistory.matches(target, item) {
             stage("校验 \(item.filename)")
-            return (.alreadyThere(target), try await FileOps.hash(target))
+            return (.alreadyThere(target), try await FileOps.hash(target), false)
         }
 
         let final = fm.fileExists(atPath: target.path) ? Self.uniqueURL(target) : target
@@ -103,19 +112,21 @@ struct FileImporter {
                 try fm.moveItem(at: local, to: final)
                 log.add("用本地文件（移动）\(local.path) → \(final.path)")
                 stage("校验 \(item.filename)")
-                return (.reused(final), try await FileOps.hash(final))
+                return (.reused(final), try await FileOps.hash(final), false)
             }
             stage("复制 \(item.filename)")
             let h = try await verifiedCopy(from: local, to: final, name: item.filename, progress: progress)
             log.add("用本地文件（复制）\(local.path) → \(final.path)")
-            return (.reused(final), h)
+            return (.reused(final), h, false)
         }
 
         let part = dir.appending(path: ".\(item.filename).part")
         let hash: UInt64
+        var fromCard = false
         if let card = library as? LocalCardLibrary, let src = await card.fileURL(item.id) {
             // 读卡器：自己复制，边读卡边算哈希，再和写好的文件比对。
             hash = try await verifiedCopy(from: src, to: part, name: item.filename, progress: progress)
+            fromCard = true
             guard ImportHistory.matches(part, item) else { try? fm.removeItem(at: part); throw CocoaError(.fileReadCorruptFile) }
         } else {
             try await library.download(item, to: part) { done, _ in progress(done) }
@@ -127,7 +138,7 @@ struct FileImporter {
         if let date = item.captureDate {
             try? fm.setAttributes([.creationDate: date, .modificationDate: date], ofItemAtPath: final.path)
         }
-        return (.downloaded(final), hash)
+        return (.downloaded(final), hash, fromCard)
     }
 
     /// 复制并读回来比对；返回源数据的哈希。不一致时删掉目标。

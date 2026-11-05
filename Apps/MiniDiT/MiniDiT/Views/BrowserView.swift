@@ -281,6 +281,25 @@ private struct SelectAllButton: View {
     }
 }
 
+/// 导入栏里的两个开关：备份、导入后删除卡上的照片（和设置里是同一个设置）。
+private struct ImportOptions: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        @Bindable var model = model
+        HStack(spacing: 2) {
+            TypeToggle(label: "备份", on: $model.backupEnabled)
+                .help(model.backupEnabled ? "同时备份至另一磁盘" : "仅存储一份")
+            TypeToggle(label: "删除原片", on: $model.deleteAfterImport)
+                .disabled(!model.canDeleteFromSource)
+                .opacity(model.canDeleteFromSource ? 1 : 0.4)
+                .help(model.canDeleteFromSource ? "导入并校验通过后，删除存储卡上的照片（视频不删）"
+                                                : "仅适用于读卡器；经 Wi-Fi 连接相机时不能删除")
+        }
+        .fixedSize()
+    }
+}
+
 private struct TypeToggle: View {
     let label: String
     @Binding var on: Bool
@@ -679,12 +698,13 @@ struct FloatingBar: View {
             } else if !model.grid.selected.isEmpty {
                 capsule {
                     twoLines("已选 \(model.selectedShotCount) 张 · \(Self.bytes(model.selectionBytes))", pickedDetail)
+                    ImportOptions()
                     mainButton(importLabel, disabled: model.offline) { model.beginImport() }
                         .keyboardShortcut(.return, modifiers: .command)
                 }
             } else if let r = model.lastResult {
                 pill {
-                    Image(systemName: r.backedUp == nil || r.backupFailed > 0 ? "exclamationmark.triangle.fill" : "checkmark.circle.fill").foregroundStyle(r.backedUp == nil || r.backupFailed > 0 ? .orange : .green)
+                    Image(systemName: r.needsAttention ? "exclamationmark.triangle.fill" : "checkmark.circle.fill").foregroundStyle(r.needsAttention ? .orange : .green)
                     Text(resultText(r)).fontWeight(.semibold)
                 }
                 .onTapGesture { model.dismissResult() }
@@ -708,8 +728,12 @@ struct FloatingBar: View {
         let files = model.selectedFiles()
         let days = Set(files.map(AppModel.dayKey)).count
         let dest = model.captureOneMode == .newSession ? model.sessionsFolder : model.destination
-        let backup = model.backupAvailable ? "备份到 \(Self.short(model.backupFolder!))" : "⚠︎ 没有备份盘"
-        return "\(files.count) 个文件 · \(days) 天 · 存到 \(Self.short(dest)) · \(backup)"
+        var s = "\(files.count) 个文件 · \(days) 天 · 存到 \(Self.short(dest))"
+        if model.backupEnabled {
+            s += model.backupAvailable ? " · 备份到 \(Self.short(model.backupFolder!))" : " · ⚠︎ 备份磁盘未连接"
+        }
+        if model.willDeleteFromSource { s += " · 完成后删除卡上照片" }
+        return s
     }
 
     private func resultText(_ r: AppModel.ImportResult) -> String {
@@ -721,6 +745,15 @@ struct FloatingBar: View {
         } else {
             s += "，只存了一份"
         }
+        if r.cardReadOnly {
+            s += "；存储卡为只读，未删除文件"
+        } else if r.deleteFailed > 0 {
+            s += "；\(r.deleteFailed) 个文件未能从卡上删除"
+        } else if r.deleted == 0, r.keptOnCard > 0 {
+            s += r.backedUp == nil ? "；因未备份，卡上文件均已保留" : "；卡上文件均已保留"
+        } else if let d = r.deleted {
+            s += "，从卡上删除 \(d) 个" + (r.keptOnCard > 0 ? "（\(r.keptOnCard) 个保留）" : "")
+        }
         if r.cancelled { s += "（已取消）" }
         return s
     }
@@ -728,7 +761,7 @@ struct FloatingBar: View {
     private func capsule<C: View>(@ViewBuilder _ content: () -> C) -> some View {
         HStack(spacing: 16) { content() }
             .padding(.init(top: 8, leading: 24, bottom: 8, trailing: 8))
-            .frame(maxWidth: 640)
+            .frame(maxWidth: 760)
             .glassCapsule()
     }
 

@@ -61,8 +61,8 @@ struct RootView: View {
         .sheet(isPresented: Binding(get: { !model.setupDone }, set: { if !$0 { model.setupDone = true } })) {
             SetupSheet().interactiveDismissDisabled()
         }
-        .alert(model.backupFolder == nil ? "还没有设置备份盘" : "没有找到备份盘", isPresented: $model.backupMissingPrompt) {
-            Button("只存一份，继续") { model.beginImport(checkBackup: false) }
+        .alert(model.backupFolder == nil ? "尚未设置备份位置" : "未找到备份磁盘", isPresented: $model.backupMissingPrompt) {
+            Button("仅存储一份并继续") { model.beginImport(checkBackup: false) }
             if model.backupFolder == nil {
                 Button("选择备份位置…") {
                     if let u = FolderPicker.choose(start: nil) { model.backupFolder = u; model.beginImport() }
@@ -71,9 +71,9 @@ struct RootView: View {
             Button("取消", role: .cancel) {}
         } message: {
             if let u = model.backupFolder {
-                Text("「\(u.path(percentEncoded: false))」现在找不到（备份盘可能没接上）。\n这次只会存一份；接上以后对这些照片再导入一次，会补上第二份。")
+                Text("备份位置“\(u.path(percentEncoded: false))”当前不可用，磁盘可能未连接。\n本次将仅存储一份，且不会删除存储卡上的文件。连接磁盘后再次导入这些照片，即可补全备份。")
             } else {
-                Text("这次只会存一份。也可以在「设置 › 导入」里选择备份位置。")
+                Text("本次将仅存储一份，且不会删除存储卡上的文件。可在“设置 › 导入”中选择备份位置。")
             }
         }
         .alert("出错了", isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })) {

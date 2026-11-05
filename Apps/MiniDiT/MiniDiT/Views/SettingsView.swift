@@ -46,20 +46,32 @@ private struct ImportSettings: View {
                     Text(model.captureOneMode == .newSession ? "新会话的位置" : "下载位置")
                     Text(locationText).lineLimit(1).truncationMode(.middle)
                 }
-                LabeledContent {
-                    HStack {
-                        if model.backupFolder != nil {
-                            Button("不备份") { model.backupFolder = nil }
-                        }
+            }
+            Section {
+                Toggle("同时备份至另一磁盘", isOn: $model.backupEnabled)
+                if model.backupEnabled {
+                    LabeledContent {
                         Button(model.backupFolder == nil ? "选择…" : "更改…") {
                             if let u = FolderPicker.choose(start: model.backupFolder) { model.backupFolder = u }
                         }
+                    } label: {
+                        Text("备份位置")
+                        Text(backupText).lineLimit(1).truncationMode(.middle)
+                            .foregroundStyle(model.backupFolder == nil || !model.backupAvailable ? .orange : .secondary)
                     }
-                } label: {
-                    Text("备份位置（第二份）")
-                    Text(backupText).lineLimit(1).truncationMode(.middle)
-                        .foregroundStyle(model.backupFolder != nil && !model.backupAvailable ? .orange : .secondary)
                 }
+            } header: {
+                Text("备份")
+            } footer: {
+                Text("两份文件均以 xxHash64 校验，校验一致后方视为导入完成。").font(.caption).foregroundStyle(.secondary)
+            }
+            Section {
+                Toggle("删除存储卡上已导入的照片", isOn: $model.deleteAfterImport)
+            } header: {
+                Text("导入完成后")
+            } footer: {
+                Text("仅删除校验通过的照片；启用备份时，须两份均校验通过。视频文件不予删除。此项仅适用于读卡器。")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Section("同时有 RAW 和 JPG/HIF 时") {
                 Picker("配对规则", selection: $model.pairPolicy) {
@@ -75,9 +87,9 @@ private struct ImportSettings: View {
     }
 
     private var backupText: String {
-        guard let u = model.backupFolder else { return "没有设置，导入时只存一份" }
+        guard let u = model.backupFolder else { return "尚未选择" }
         let p = u.path(percentEncoded: false)
-        return model.backupAvailable ? p + "，按「年-月-日-事件」分文件夹" : p + "（现在找不到这块盘）"
+        return model.backupAvailable ? p + "，按“年-月-日-事件”分目录" : p + "（磁盘未连接）"
     }
 
     private var locationText: String {

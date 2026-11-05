@@ -147,6 +147,14 @@ public actor LocalCardLibrary: CameraLibrary {
     /// 卡上文件的位置（读卡器来源可以直接从这里复制）。
     public func fileURL(_ handle: UInt32) -> URL? { entries[handle]?.url }
 
+    /// 删除卡上的文件。上层只在导入并校验通过以后调用。
+    public func delete(_ handle: UInt32) throws {
+        let e = try entry(handle)
+        try FileManager.default.removeItem(at: e.url)
+        entries[handle] = nil
+        listed?.removeAll { $0 == handle }
+    }
+
     public func item(_ handle: UInt32) async throws -> CameraContentItem { try entry(handle).item }
 
     public func kinds(in folder: CameraFolder) async -> [UInt32: CameraContentItem.Kind]? {

@@ -14,7 +14,7 @@ extension AppModel {
     /// 点「导入」：没有备份盘先提醒；新建会话模式先问会话名，其他模式直接开始。
     func beginImport(checkBackup: Bool = true) {
         guard progress == nil, !grid.selected.isEmpty else { return }
-        if checkBackup, !backupAvailable {
+        if checkBackup, backupEnabled, !backupAvailable {
             backupMissingPrompt = true
             return
         }
@@ -39,7 +39,9 @@ extension AppModel {
         let root = destination
         let mode = captureOneMode
         let camera = cameraID
-        let backupRoot = backupAvailable ? backupFolder : nil
+        let backupRoot = backupEnabled && backupAvailable ? backupFolder : nil
+        let wantsBackup = backupEnabled
+        let deleteRequested = willDeleteFromSource
         let weight: UInt64 = backupRoot == nil ? 1 : 2
         progress = ImportProgress(total: picked.count, bytesTotal: picked.reduce(0) { $0 + $1.size } * weight)
         lastSummary = nil
@@ -80,7 +82,10 @@ extension AppModel {
             var saved: [URL] = []
             var done: [ImportHistory.Entry] = []
             let event = sessionName.isEmpty ? nil : Self.eventName(of: sessionName)
-            let importer = FileImporter(library: library, root: root, camera: camera, backupRoot: backupRoot, event: event)
+            let importer = FileImporter(library: library, root: root, camera: camera, backupRoot: backupRoot, event: event,
+                                        checkSource: deleteRequested)
+            // 可以从卡上删的：和卡上数据核对过；要求备份时备份也成功了；不是视频（删视频会让相机的数据库对不上）。
+            var deletable: [UInt32] = []
             for item in picked {
                 if Task.isCancelled { break }
                 progress?.current = "导入 \(item.filename)"
@@ -104,6 +109,9 @@ extension AppModel {
                     case .done(let u): progress?.backedUp += 1; backupURL = u
                     case .failed: progress?.backupFailed.append(item.filename)
                     }
+                    if deleteRequested, r.matchesSource, item.kind != .video, !wantsBackup || backupURL != nil {
+                        deletable.append(item.id)
+                    }
                     done.append(.init(item: item, url: r.outcome.url, xxh64: r.xxh64, backup: backupURL))
                 } catch is CancellationError {
                     break
@@ -114,11 +122,30 @@ extension AppModel {
                 }
             }
             ImportHistory.shared.record(done, camera: camera)
+            var deleted: Int?
+            var deleteFailed = 0
+            var cardReadOnly = false
+            if deleteRequested, let card = library as? LocalCardLibrary {
+                var n = 0
+                cardReadOnly = (try? card.root.resourceValues(forKeys: [.volumeIsReadOnlyKey]).volumeIsReadOnly) ?? false
+                if cardReadOnly {
+                    log.add("存储卡是只读的，没有删除文件")
+                } else {
+                    for h in deletable {
+                        progress?.current = "删除存储卡上的 \(items[h]?.filename ?? "")"
+                        do { try await card.delete(h); n += 1 }
+                        catch { deleteFailed += 1; log.add("删除失败 \(items[h]?.filename ?? "\(h)")：\(error.localizedDescription)") }
+                    }
+                    log.add("从存储卡删除了 \(n) 个文件；\(picked.count - n) 个保留")
+                }
+                deleted = n
+            }
             let wasLost = lostDuringImport || (progress.map { !$0.failed.isEmpty } ?? false) && offline
             var summary = "导入 \(done.count) 个文件"
             if let p = progress, p.reused > 0 { summary += "，其中 \(p.reused) 个用了本地已有的" }
             if let p = progress, p.skipped > 0 { summary += "，\(p.skipped) 个目标文件夹里已有" }
             if let p = progress, !p.failed.isEmpty { summary += "，\(p.failed.count) 个失败" }
+            if let deleted { summary += "，从存储卡删除了 \(deleted) 个" }
             if let p = progress, backupRoot != nil {
                 summary += "，备份 \(p.backedUp) 个" + (p.backupFailed.isEmpty ? "" : "（\(p.backupFailed.count) 个备份失败）")
             } else {
@@ -142,7 +169,9 @@ extension AppModel {
                                           session: mode == .newSession && !sessionName.isEmpty ? sessionName : nil,
                                           c1Failed: c1Failed, cancelled: Task.isCancelled,
                                           backedUp: backupRoot == nil ? nil : progress?.backedUp ?? 0,
-                                          backupFailed: progress?.backupFailed.count ?? 0)
+                                          backupFailed: progress?.backupFailed.count ?? 0,
+                                          deleted: deleted, keptOnCard: deleted.map { picked.count - $0 } ?? 0,
+                                          deleteFailed: deleteFailed, cardReadOnly: cardReadOnly)
             }
             log.add("导入结束：\(summary)")
             // 全部文件都导好的拍摄取消选中。
@@ -151,6 +180,8 @@ extension AppModel {
             progress = nil
             rebuild()
             importTask = nil
+            // 删了卡上的文件：重新列一遍卡。
+            if let deleted, deleted > 0 { await loadAll(restoring: selectedKeys(), days: shownDays) }
         }
     }
 

@@ -156,6 +156,15 @@ final class AppModel {
         /// 备份了几个；nil = 这次没有备份（没设置或备份盘没接上）。
         var backedUp: Int?
         var backupFailed = 0
+        /// 从存储卡删除了几个；nil = 这次没有要求删除。
+        var deleted: Int?
+        /// 要求删除、但没有删的（没通过校验、没有备份，或是视频）。
+        var keptOnCard = 0
+        var deleteFailed = 0
+        /// 存储卡是只读的（写保护开关，或文件系统不能写），没有删。
+        var cardReadOnly = false
+        /// 结果里有需要注意的（只有一份、备份失败、没删成功）。
+        var needsAttention: Bool { backedUp == nil || backupFailed > 0 || cardReadOnly || deleteFailed > 0 }
     }
     /// 导入中断（相机掉线）：没导完的仍然选中，重连后可以继续。
     struct Interrupted {
@@ -194,7 +203,19 @@ final class AppModel {
     }
     /// 磁盘插拔时加一，让依赖「备份盘在不在」的界面刷新。
     var volumeVersion = 0
-    /// 第一次打开时设置两个存放位置。
+    /// 是否另存一份到备份盘。
+    var backupEnabled: Bool = UserDefaults.standard.object(forKey: "backupEnabled") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(backupEnabled, forKey: "backupEnabled") }
+    }
+    /// 导入并校验通过以后，删除存储卡上的照片。
+    var deleteAfterImport: Bool = UserDefaults.standard.bool(forKey: "deleteAfterImport") {
+        didSet { UserDefaults.standard.set(deleteAfterImport, forKey: "deleteAfterImport") }
+    }
+    /// 当前来源能不能删文件：只有读卡器可以，Wi-Fi 相机不支持删除。
+    var canDeleteFromSource: Bool { sourceKind == .card && connectedName != nil }
+    /// 这次导入会不会删卡上的文件。
+    var willDeleteFromSource: Bool { deleteAfterImport && canDeleteFromSource }
+    /// 第一次打开时选择导入方式。
     var setupDone: Bool = UserDefaults.standard.bool(forKey: "setupDone") {
         didSet { UserDefaults.standard.set(setupDone, forKey: "setupDone") }
     }

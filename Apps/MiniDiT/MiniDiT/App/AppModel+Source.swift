@@ -348,7 +348,7 @@ extension AppModel {
     /// 选择的「身份」：卡槽 + 文件名 + 拍摄时间。重新列目录后句柄会变，用它把选择找回来。
     static func stableKey(_ i: CameraContentItem) -> String { "\(i.storageID >> 16)|\(i.filename)|\(i.captureDateRaw)" }
 
-    private func selectedKeys() -> Set<String> {
+    func selectedKeys() -> Set<String> {
         Set(grid.selected.compactMap { shots[$0] }.flatMap(\.handles).compactMap { items[$0].map(Self.stableKey) })
     }
 
