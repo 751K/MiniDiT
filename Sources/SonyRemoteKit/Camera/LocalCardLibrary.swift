@@ -156,6 +156,18 @@ public actor LocalCardLibrary: CameraLibrary {
     }
     private var clipCache: [UInt32: ClipInfo] = [:]
 
+    public func rating(_ handle: UInt32) -> Int? {
+        guard let e = entries[handle], e.item.kind != .video, let h = try? FileHandle(forReadingFrom: e.url) else { return nil }
+        defer { try? h.close() }
+        return (try? h.read(upToCount: PhotoRating.headLength)).flatMap(PhotoRating.parse)
+    }
+
+    public func refresh() {
+        listed = nil
+        entries = [:]
+        clipCache = [:]
+    }
+
     /// 有 M01.XML 读它，没有就读 MP4 末尾内嵌的那份。
     public func clipXML(_ handle: UInt32) -> Data? {
         guard let e = entries[handle], e.item.kind == .video else { return nil }

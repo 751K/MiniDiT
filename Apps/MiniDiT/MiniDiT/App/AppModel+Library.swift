@@ -11,7 +11,7 @@ extension AppModel {
         let sources = openSources
         guard !sources.isEmpty else { return }
         phase = .loading
-        thumbnails = [:]; clipInfos = [:]; proxySizes = [:]; thumbOrder = []; pendingThumbs = []   // 句柄会变，旧缩略图不能再用
+        thumbnails = [:]; clipInfos = [:]; ratings = [:]; proxySizes = [:]; thumbOrder = []; pendingThumbs = []   // 句柄会变，旧缩略图不能再用
         do {
             // 几个来源的句柄会重复：界面上统一重新编号（全局句柄），origins 记着它在哪个来源、原来是几号。
             var all: [UInt32: CameraContentItem] = [:]
@@ -73,6 +73,7 @@ extension AppModel {
                 selectDefault()
             }
             phase = .ready
+            lastListed = Date()
             log.add("读卡完成：\(all.count) 个文件，\(allShots.count) 次拍摄，\(days.count) 天" + (sources.count > 1 ? "，\(sources.count) 个来源" : ""))
         } catch {
             log.add("读取存储卡失败：\(error.localizedDescription)")
@@ -408,6 +409,23 @@ extension AppModel {
 
     // MARK: 缩略图
 
+    /// 重新读所有来源的列表（相机里新拍的照片、卡上新加的文件才会出现），保留选择和查看的日期。
+    func refreshSources() {
+        guard progress == nil, phase == .ready, !openSources.isEmpty else { return }
+        Task {
+            let keep = selectedKeys(), keepDays = shownDays
+            for (_, lib) in openSources { await lib.refresh() }
+            await loadAll(restoring: keep, days: keepDays)
+            log.add("已重新读取列表")
+        }
+    }
+
+    /// 这次拍摄的星级：RAW 和 JPG/HIF 里取打过的那个（两者都有时取大的）。
+    func rating(of shot: Shot) -> Int? {
+        let vs = shot.handles.compactMap { ratings[$0] }
+        return vs.isEmpty ? nil : vs.max()
+    }
+
     func requestThumbnail(_ h: UInt32) {
         guard thumbnails[h] == nil, !pendingThumbs.contains(h) else { return }
         pendingThumbs.append(h)
@@ -425,6 +443,9 @@ extension AppModel {
             guard let r = route(h) else { continue }
             if items[h]?.kind == .video, clipInfos[h] == nil, let info = await r.library.clipInfo(r.local) {
                 clipInfos[h] = info
+            }
+            if items[h]?.kind != .video, ratings[h] == nil, let v = await r.library.rating(r.local) {
+                ratings[h] = v
             }
             if items[h]?.kind == .video, proxySizes[h] == nil, !(r.library is LocalCardLibrary),
                let p = await r.library.proxy(of: r.local) {

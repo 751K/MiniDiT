@@ -22,6 +22,22 @@ public struct ClipInfo: Sendable, Hashable {
     public var timecode: String = ""
     /// 有代理（SubStream）。
     public var hasProxy = false
+    /// 片段里的标记：Shot Mark 等（KlvPacketTable 里的「_ShotMark1」），按帧号排。
+    public var marks: [Mark] = []
+
+    public struct Mark: Sendable, Hashable {
+        /// 第几帧（按 formatFps）。
+        public var frame: Int
+        /// 原名「_ShotMark1」。
+        public var name: String
+        /// Shot Mark 的编号（1、2…）；不是 Shot Mark 时 nil。
+        public var shotMark: Int? {
+            guard name.hasPrefix("_ShotMark") else { return nil }
+            return Int(name.dropFirst("_ShotMark".count)) ?? 1
+        }
+    }
+
+    public var shotMarks: [Mark] { marks.filter { $0.shotMark != nil } }
 
     public init() {}
 
@@ -145,6 +161,7 @@ public struct ClipInfo: Sendable, Hashable {
         let x = XMLParser(data: data)
         x.delegate = p
         guard x.parse() || p.info.frames > 0 else { return nil }
+        p.info.marks.sort { $0.frame < $1.frame }
         return p.info
     }
 
@@ -166,6 +183,11 @@ public struct ClipInfo: Sendable, Hashable {
                 info.width = Int(a["pixel"] ?? "") ?? 0
                 info.height = Int(a["numOfVerticalLine"] ?? "") ?? 0
             case "SubStream": info.hasProxy = true
+            case "KlvPacket":
+                // lengthValue：一个字节的长度 + ASCII，比如「095F5265635374617274」= 9 字节「_RecStart」。
+                if let hex = a["lengthValue"], let frame = Int(a["frameCount"] ?? ""), let name = Self.klvText(hex) {
+                    info.marks.append(Mark(frame: frame, name: name))
+                }
             case "Device": info.model = a["modelName"] ?? ""
             case "Lens": info.lens = a["modelName"] ?? ""
             case "Item":
@@ -176,6 +198,18 @@ public struct ClipInfo: Sendable, Hashable {
                 }
             default: break
             }
+        }
+
+        static func klvText(_ hex: String) -> String? {
+            var bytes: [UInt8] = []
+            var i = hex.startIndex
+            while let j = hex.index(i, offsetBy: 2, limitedBy: hex.endIndex), i < hex.endIndex {
+                guard let b = UInt8(hex[i..<j], radix: 16) else { return nil }
+                bytes.append(b)
+                i = j
+            }
+            guard let n = bytes.first, bytes.count > Int(n) else { return nil }
+            return String(bytes: bytes[1...Int(n)], encoding: .ascii)
         }
 
         /// 「61090506」：按「帧 秒 分 时」排的 4 个 BCD 字节，高位是标志（帧字节的 0x40 是丢帧，秒字节的 0x80 是 60p 的第二场）。

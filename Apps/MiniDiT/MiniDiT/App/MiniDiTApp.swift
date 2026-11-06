@@ -23,6 +23,9 @@ struct MiniDiTApp: App {
                 Button("切换来源…") { model.disconnect() }
                     .keyboardShortcut("o", modifiers: [.command, .shift])
                     .disabled(model.progress != nil || model.connectedName == nil)
+                Button("重新读取") { model.refreshSources() }
+                    .keyboardShortcut("r", modifiers: .command)
+                    .disabled(model.progress != nil || model.phase != .ready)
             }
             CommandMenu("选择") {
                 Button("选择全部新照片") { model.selectNew(in: Set(model.days.map(\.id))) }

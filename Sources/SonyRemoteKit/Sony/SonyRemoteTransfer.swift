@@ -402,6 +402,30 @@ public actor SonyRemoteTransferLibrary: CameraLibrary {
     }
     private var xmlCache: [UInt32: Data] = [:]
 
+    /// 照片星级：只读文件开头 16 KB（XMP 在这里）。
+    public func rating(_ handle: UInt32) async -> Int? {
+        if let r = ratingCache[handle] { return r }
+        guard let e = entries[handle], e.item.kind != .video, e.item.size > 0 else { return nil }
+        let length = min(UInt64(PhotoRating.headLength), e.item.size)
+        let last: UInt32 = length >= e.item.size ? 1 << 31 : 0
+        guard let r = try? await client.transaction(SonyOperation.getContentsData,
+                                                    [e.contentID, e.slot << 24 | UInt32(e.fileID), 0, 0, UInt32(length) | last]),
+              let v = PhotoRating.parse(r.data) else { return nil }
+        ratingCache[handle] = v
+        return v
+    }
+    private var ratingCache: [UInt32: Int] = [:]
+
+    public func refresh() {
+        slotHandles = [:]
+        entries = [:]
+        proxies = [:]
+        clipCache = [:]
+        xmlCache = [:]
+        ratingCache = [:]
+        listingNotes = []
+    }
+
     public func close() async {
         await client.shutdown()
     }

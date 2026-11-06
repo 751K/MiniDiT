@@ -66,6 +66,24 @@ public extension CameraLibrary {
     func clipInfo(_ handle: UInt32) async -> ClipInfo? { nil }
     func clipXML(_ handle: UInt32) async -> Data? { nil }
     func proxy(of handle: UInt32) async -> CameraContentItem? { nil }
+    func rating(_ handle: UInt32) async -> Int? { nil }
+    func refresh() async {}
+}
+
+/// 照片星级：索尼把它写在文件开头的 XMP 里（ARW 约第 600 字节，HIF 约第 4300 字节）。
+public enum PhotoRating {
+    /// 读文件开头多少字节。
+    public static let headLength = 16 * 1024
+
+    public static func parse(_ head: Data) -> Int? {
+        let s = String(decoding: head.prefix(headLength), as: UTF8.self)
+        for pattern in ["<xmp:Rating>", "xmp:Rating=\""] {
+            guard let r = s.range(of: pattern) else { continue }
+            let digits = s[r.upperBound...].prefix { $0 == "-" || $0.isNumber }
+            if let v = Int(digits) { return v }
+        }
+        return nil
+    }
 }
 
 public struct CameraFolder: Identifiable, Hashable, Sendable {
@@ -111,6 +129,10 @@ public protocol CameraLibrary: AnyObject, Sendable {
     func clipXML(_ handle: UInt32) async -> Data?
     /// 视频片段的代理（相机列表里和原片同一次拍摄的 SUB/C0001S03.MP4），用来下载；没有时 nil。
     func proxy(of handle: UInt32) async -> CameraContentItem?
+    /// 照片在相机里打的星级（文件开头 XMP 的 xmp:Rating，0 = 没打星，-1 = 删除标记）；读不到时 nil。
+    func rating(_ handle: UInt32) async -> Int?
+    /// 丢掉列表缓存，下次 handles(in:) 重新读（相机里新拍的才会出现）。之前的句柄作废。
+    func refresh() async
     /// 连接断开时发出一次。
     var connectionLost: AsyncStream<Void> { get }
     /// 列目录过程的诊断信息。

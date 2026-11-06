@@ -152,6 +152,10 @@ final class AppModel {
     }
     /// 视频片段的拍摄信息（读卡器来源，读 M01.XML），随缩略图一起读。
     var clipInfos: [UInt32: ClipInfo] = [:]
+    /// 照片在相机里打的星级（按句柄，读到才有）。
+    var ratings: [UInt32: Int] = [:]
+    /// 上次读完列表的时间：窗口回到前台时，隔得久了就重新读一次。
+    var lastListed: Date?
     /// Wi-Fi 相机上视频片段的代理大小（只导代理时算选中大小用），随缩略图一起读。
     var proxySizes: [UInt32: UInt64] = [:]
     var onlyNew = UserDefaults.standard.object(forKey: "onlyNew") as? Bool ?? true {
