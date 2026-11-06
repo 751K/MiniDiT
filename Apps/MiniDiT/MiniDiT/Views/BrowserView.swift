@@ -716,6 +716,23 @@ private struct ImportOptions: View {
     var body: some View {
         @Bindable var model = model
         HStack(spacing: 6) {
+            // 选中了 Wi-Fi 相机上的视频时才出现：只导代理，原片留在卡上。
+            if model.selectionHasWiFiVideo {
+                Button { model.proxyOnlyWiFi.toggle() } label: {
+                    HStack(spacing: 5) {
+                        if model.proxyOnlyWiFi { Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)) }
+                        Text("仅代理")
+                    }
+                    .padding(.horizontal, 14).frame(height: 36)
+                    .foregroundStyle(model.proxyOnlyWiFi ? Color.primary : Color.secondary)
+                    .background(Capsule().fill(Color.primary.opacity(model.proxyOnlyWiFi ? 0.12 : 0.06)))
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(model.proxyOnlyWiFi ? .isSelected : [])
+                .help(model.proxyOnlyWiFi ? "视频只导入代理和 XML，原片留在存储卡上；点按改为导入原片"
+                                          : "导入视频原片；点按改为只导入代理，原片留在存储卡上，之后可用读卡器导入")
+            }
             Button { model.backupEnabled.toggle() } label: {
                 HStack(spacing: 5) {
                     if model.backupEnabled { Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)) }
@@ -737,11 +754,6 @@ private struct ImportOptions: View {
                     .disabled(!model.canDeleteFromSource)
                 if !model.canDeleteFromSource {
                     Text("仅适用于读卡器")
-                }
-                if model.selectionHasWiFiVideo {
-                    Divider()
-                    Toggle("视频只导代理", isOn: $model.proxyOnlyWiFi)
-                    Text("原片留在存储卡上，之后可用读卡器导入")
                 }
                 if model.canSplitBySlot {
                     Divider()
