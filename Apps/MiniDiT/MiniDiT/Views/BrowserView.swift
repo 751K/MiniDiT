@@ -710,7 +710,7 @@ extension View {
 }
 
 /// 导入栏里的「备份」开关和「…」菜单（存放位置、导入后删除原片；和设置里是同一个设置）。
-/// 底栏上的开关按钮（「仅代理」「备份」）：打开时用强调色（蓝字、浅蓝底、✓），关着时是灰的，一眼能分清。
+/// 底栏上的开关按钮（「仅代理」「备份」）：打开时是蓝色玻璃、白字、✓，关着时是普通玻璃、灰字，一眼能分清。
 private struct ChipToggle: View {
     let title: String
     let on: Bool
@@ -723,13 +723,44 @@ private struct ChipToggle: View {
                 Text(title).fontWeight(on ? .semibold : .regular)
             }
             .padding(.horizontal, 14).frame(height: 36)
-            .foregroundStyle(on ? Color.accentColor : Color.secondary)
-            .background(Capsule().fill(on ? Color.accentColor.opacity(0.18) : Color.primary.opacity(0.06)))
-            .overlay(Capsule().strokeBorder(on ? Color.accentColor.opacity(0.45) : .clear, lineWidth: 1))
+            .foregroundStyle(on ? Self.onText : Color.secondary)
+            .chipGlass(on: on)
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(on ? .isSelected : [])
+    }
+
+    /// 打开时的文字：玻璃上是蓝底白字，更早的系统是浅蓝底蓝字。
+    private static var onText: Color {
+        if #available(macOS 26.0, *) { return .white }
+        return .accentColor
+    }
+}
+
+private extension View {
+    /// 底栏小按钮的底：macOS 26 起用玻璃（打开时带蓝色调），更早的系统用淡色填充。
+    @ViewBuilder func chipGlass(on: Bool) -> some View {
+        if #available(macOS 26.0, *) {
+            // 玻璃的色调在窗口不在前台时会被系统去掉，打开状态用实心蓝底，上面再叠一层透明玻璃的高光。
+            if on {
+                background(Capsule().fill(Color.accentColor))
+                    .glassEffect(.clear.interactive(), in: Capsule())
+            } else {
+                glassEffect(.regular.interactive(), in: Capsule())
+            }
+        } else {
+            background(Capsule().fill(on ? Color.accentColor.opacity(0.18) : Color.primary.opacity(0.06)))
+                .overlay(Capsule().strokeBorder(on ? Color.accentColor.opacity(0.45) : .clear, lineWidth: 1))
+        }
+    }
+
+    @ViewBuilder func circleGlass(highlighted: Bool) -> some View {
+        if #available(macOS 26.0, *) {
+            glassEffect(.regular.interactive(), in: Circle())
+        } else {
+            background(Circle().fill(Color.primary.opacity(highlighted ? 0.12 : 0.06)))
+        }
     }
 }
 
@@ -764,7 +795,7 @@ private struct ImportOptions: View {
             } label: {
                 Image(systemName: "ellipsis").font(.system(size: 13, weight: .semibold))
                     .frame(width: 36, height: 36)
-                    .background(Circle().fill(Color.primary.opacity(model.willDeleteFromSource ? 0.12 : 0.06)))
+                    .circleGlass(highlighted: model.willDeleteFromSource)
                     .contentShape(Circle())
             }
             .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
