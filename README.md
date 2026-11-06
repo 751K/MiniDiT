@@ -2,7 +2,7 @@
 
 Mac 上的「小号 DIT」：通过 Wi-Fi 连接索尼 α 相机（或者插读卡器），按拍摄日期浏览卡里的照片，下载后直接建好 Capture One 会话。
 
-> 早期版本（v0.3）。功能规划见 [docs/MiniDiT-ROADMAP.md](docs/MiniDiT-ROADMAP.md)。
+> 早期版本（v0.8）。功能规划见 [docs/MiniDiT-ROADMAP.md](docs/MiniDiT-ROADMAP.md)。
 >
 > **Sony / 索尼是索尼集团的商标，本项目与索尼没有关联。** 本项目根据公开资料独立实现了 PTP/IP 和索尼 SDIO 扩展协议，参考了 libgphoto2、alpha2go 等开源项目，没有复制它们的代码。协议笔记见 [docs/PROTOCOL.md](docs/PROTOCOL.md)。
 
