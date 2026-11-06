@@ -332,6 +332,12 @@ private struct VideoSettings: View {
                         Text("加入 DaVinci Resolve 当前项目")
                         Text("每个视频文件夹建一个媒体夹，代理自动链接。须在 Resolve 的“偏好设置 › 系统 › 常规”中把“外部脚本使用”设为“本地”。")
                     }
+                    Toggle(isOn: $model.resolveColorSpace) {
+                        Text("设置片段的输入色彩空间")
+                        Text("按拍摄时的伽马，为 S-Log3、S-Log2、HLG 片段设置输入色彩空间，不套用 LUT。项目须开启色彩管理（RCM 或 ACES）。")
+                    }
+                    .padding(.leading, 16)
+                    .disabled(!model.sendToResolve)
                 }
                 if fcp {
                     Toggle(isOn: $model.sendToFCP) {

@@ -332,6 +332,11 @@ final class AppModel {
         didSet { UserDefaults.standard.set(sendToResolve, forKey: "sendToResolve") }
     }
 
+    /// 加入 Resolve 时按片段的伽马 / 色域写上输入色彩空间（不套 LUT）。
+    var resolveColorSpace: Bool = UserDefaults.standard.object(forKey: "resolveColorSpace") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(resolveColorSpace, forKey: "resolveColorSpace") }
+    }
+
     /// 第二份放在哪（备份盘上的文件夹）。没设置时为 nil。
     var backupFolder: URL? {
         get { _ = destinationVersion; return UserDefaults.standard.url(forKey: "backupFolder") }

@@ -415,9 +415,15 @@ extension AppModel {
                         // 不挡着导入收尾：Resolve 可能要先启动。
                         Task {
                             do {
-                                let r = try await ResolveBridge.send(events)
+                                let r = try await ResolveBridge.send(events, setColorSpace: self.resolveColorSpace)
                                 self.log.add("加入 DaVinci Resolve 项目“\(r.project)”：导入 \(r.imported) 个片段，链接代理 \(r.proxies) 个"
+                                             + (r.colored > 0 ? "，设置输入色彩空间 \(r.colored) 个" : "")
                                              + (r.skipped > 0 ? "，\(r.skipped) 个已在媒体夹中" : ""))
+                                if r.unmanaged > 0 {
+                                    self.log.add("DaVinci Resolve 项目“\(r.project)”未开启色彩管理，\(r.unmanaged) 个 Log / HLG 片段未设置输入色彩空间")
+                                    Notifier.shared.post(id: "resolve", title: "已加入 DaVinci Resolve，未设置色彩空间",
+                                                         body: "项目“\(r.project)”未开启色彩管理，\(r.unmanaged) 个 Log / HLG 片段需在 Resolve 中手动设置。", info: [:])
+                                }
                             } catch {
                                 self.log.add("加入 DaVinci Resolve 失败：\(error.localizedDescription)")
                                 Notifier.shared.post(id: "resolve", title: "未能加入 DaVinci Resolve", body: error.localizedDescription, info: [:])

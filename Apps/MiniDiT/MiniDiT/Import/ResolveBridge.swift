@@ -1,8 +1,11 @@
 import AppKit
+import SonyRemoteKit
 
 /// 导入的视频加进 DaVinci Resolve：通过 Resolve 的外部脚本接口（系统自带的 python3 加载 Resolve 里的 fusionscript），
 /// 在当前打开的项目里每个视频文件夹建一个媒体夹（已有同名的就用它），导入片段；
 /// Resolve 会自动认出旁边「Proxy」文件夹里的同名代理，没认出的再手动链接。
+/// 按片段 XML 里记录的伽马 / 色域写上输入色彩空间（S-Log3、S-Log2、HLG），不套 LUT；
+/// 项目要开着色彩管理（RCM 或 ACES）才写得进去，没开的不动项目设置，只在结果里说明。
 /// Resolve 没开时先打开它，等它能接受脚本。
 enum ResolveBridge {
     static let bundleIDs = ["com.blackmagic-design.DaVinciResolve", "com.blackmagic-design.DaVinciResolveLite"]
@@ -16,6 +19,10 @@ enum ResolveBridge {
         let imported: Int
         let proxies: Int
         let skipped: Int
+        /// 写上了输入色彩空间的片段数。
+        let colored: Int
+        /// 是 Log / HLG、但项目没开色彩管理而没写的片段数。
+        let unmanaged: Int
     }
 
     enum Failure: LocalizedError {
@@ -30,13 +37,17 @@ enum ResolveBridge {
     }
 
     /// 在后台跑，可能要等 Resolve 启动（最多 2 分钟）。
-    static func send(_ events: [FCPXMLWriter.Event]) async throws -> Result {
+    static func send(_ events: [FCPXMLWriter.Event], setColorSpace: Bool) async throws -> Result {
         guard let app = appURL else { throw Failure.notInstalled }
         let lib = app.appending(path: "Contents/Libraries/Fusion/fusionscript.so").path
         let payload = events.map { e in
-            ["bin": e.name, "clips": e.clips.map { ["path": $0.url.path, "proxy": $0.proxy?.path ?? ""] }] as [String: Any]
+            ["bin": e.name, "clips": e.clips.map { c in
+                let info = ClipInfo.sidecar(for: c.url).flatMap(ClipInfo.read)
+                return ["path": c.url.path, "proxy": c.proxy?.path ?? "",
+                        "gamma": info?.gamma ?? "", "primaries": info?.primaries ?? ""]
+            }] as [String: Any]
         }
-        let input = try JSONSerialization.data(withJSONObject: payload)
+        let input = try JSONSerialization.data(withJSONObject: ["events": payload, "color": setColorSpace] as [String: Any])
         let running = !NSRunningApplication.runningApplications(withBundleIdentifier: bundleIDs[0]).isEmpty
             || !NSRunningApplication.runningApplications(withBundleIdentifier: bundleIDs[1]).isEmpty
         if !running {
@@ -92,10 +103,49 @@ if not resolve:
 project = resolve.GetProjectManager().GetCurrentProject()
 if not project:
     sys.exit(3)
-events = json.load(sys.stdin)
+request = json.load(sys.stdin)
+events = request["events"]
+want_color = request.get("color", False)
 mp = project.GetMediaPool()
 root = mp.GetRootFolder()
-imported = proxies = skipped = 0
+imported = proxies = skipped = colored = unmanaged = 0
+mode = project.GetSetting("colorScienceMode") or ""
+separate = project.GetSetting("separateColorSpaceAndGamma") == "1"
+
+def plan(gamma, primaries):
+    g, pr = gamma.lower(), primaries.lower()
+    if "s-log3" in g:
+        cine = "cine" in pr
+        gamut = "S-Gamut3.Cine" if cine else "S-Gamut3"
+        return {"combo": [gamut + "/S-Log3"], "cs": ["Sony " + gamut], "gamma": ["Sony S-Log3", "S-Log3"],
+                "idt": ["Sony SLog3 SGamut3Cine" if cine else "Sony SLog3 SGamut3"]}
+    if "s-log2" in g:
+        return {"combo": ["S-Gamut/S-Log2"], "cs": ["Sony S-Gamut"], "gamma": ["Sony S-Log2", "S-Log2"], "idt": ["Sony SLog2 SGamut"]}
+    if "hlg" in g:
+        return {"combo": ["Rec.2100 HLG"], "cs": ["Rec.2020"], "gamma": ["Rec.2100 HLG"], "idt": []}
+    return None
+
+def first(item, key, values):
+    return any(item.SetClipProperty(key, v) for v in values)
+
+def set_color(item, c):
+    global colored, unmanaged
+    pl = plan(c.get("gamma", ""), c.get("primaries", "")) if want_color else None
+    if not pl:
+        return
+    if mode.startswith("aces"):
+        ok = first(item, "IDT", pl["idt"])
+    elif "ColorManaged" in mode:
+        if separate:
+            ok = first(item, "Input Color Space", pl["cs"])
+            first(item, "Input Gamma", pl["gamma"])
+        else:
+            ok = first(item, "Input Color Space", pl["combo"])
+    else:
+        unmanaged += 1
+        return
+    if ok:
+        colored += 1
 for e in events:
     folder = next((f for f in (root.GetSubFolderList() or []) if f.GetName() == e["bin"]), None) or mp.AddSubFolder(root, e["bin"])
     have = {c.GetClipProperty("File Path") for c in (folder.GetClipList() or [])}
@@ -106,15 +156,18 @@ for e in events:
     mp.SetCurrentFolder(folder)
     items = mp.ImportMedia([c["path"] for c in todo]) or []
     imported += len(items)
-    proxy_of = {c["path"]: c["proxy"] for c in todo}
+    by_path = {c["path"]: c for c in todo}
     for it in items:
-        p = proxy_of.get(it.GetClipProperty("File Path"), "")
+        c = by_path.get(it.GetClipProperty("File Path"), {})
+        set_color(it, c)
+        p = c.get("proxy", "")
         if not p:
             continue
         if not it.GetClipProperty("Proxy Media Path"):
             it.LinkProxyMedia(p)
         if it.GetClipProperty("Proxy Media Path"):
             proxies += 1
-print(json.dumps({"project": project.GetName(), "imported": imported, "proxies": proxies, "skipped": skipped}))
+print(json.dumps({"project": project.GetName(), "imported": imported, "proxies": proxies, "skipped": skipped,
+                  "colored": colored, "unmanaged": unmanaged}))
 """#
 }
