@@ -134,6 +134,8 @@ public actor SonyRemoteTransferLibrary: CameraLibrary {
     /// 视频原片的句柄 → 它的代理的句柄（代理不在列表里，只用来下载）。
     private var proxies: [UInt32: UInt32] = [:]
     private var clipCache: [UInt32: ClipInfo] = [:]
+    /// 上一次下载的速度统计（写进日志用）。
+    public private(set) var lastDownloadNote: String?
     public nonisolated let connectionLost: AsyncStream<Void>
     public private(set) var listingNotes: [String] = []
     private var thumbNoted = false
@@ -340,16 +342,31 @@ public actor SonyRemoteTransferLibrary: CameraLibrary {
         let size = e.item.size
         let (fh, start) = try openForResume(url, offset: min(offset, size))
         defer { try? fh.close() }
-        let chunk: UInt64 = 4 * 1024 * 1024
+        // 每块多大：一块一个请求来回。实测 a7 V：4 MB 14.0 MB/s，16 MB 15.2 MB/s（每个来回约 20 ms），瓶颈在相机一侧。
+        let mb = UserDefaults.standard.integer(forKey: "remoteChunkMB")
+        let chunk: UInt64 = UInt64(mb > 0 ? mb : 16) * 1024 * 1024
         var done: UInt64 = start
         if done > 0 { progress(done, size) }
+        let t0 = Date()
+        var waits: [Double] = []
+        defer {
+            let secs = Date().timeIntervalSince(t0), got = Double(done - start)
+            if got > 8_000_000 {
+                let w = waits.sorted()
+                lastDownloadNote = String(format: "下载 %@：%.0f MB，%.1f 秒，%.1f MB/s；每块 %d MB，单块用时中位 %.0f ms、最长 %.0f ms",
+                                          item.filename, got / 1e6, secs, got / 1e6 / max(secs, 0.001), Int(chunk >> 20),
+                                          (w.isEmpty ? 0 : w[w.count / 2]) * 1000, (w.last ?? 0) * 1000)
+            }
+        }
         while done < size {
             try Task.checkCancellation()
             let want = UInt32(min(chunk, size - done))
             let last: UInt32 = done + UInt64(want) >= size ? 1 << 31 : 0
+            let ts = Date()
             let r = try await client.transaction(SonyOperation.getContentsData,
                                                  [e.contentID, e.slot << 24 | UInt32(e.fileID),
                                                   UInt32(done & 0xFFFF_FFFF), UInt32(done >> 32), want | last])
+            waits.append(Date().timeIntervalSince(ts))
             guard !r.data.isEmpty else { throw PTPDecodeError.invalid("相机返回了空数据块") }
             guard r.data.count <= Int(want) else { throw PTPDecodeError.invalid("相机多发了数据：\(r.data.count)/\(want)") }
             try fh.write(contentsOf: r.data)

@@ -402,7 +402,8 @@ public final class SSHSession: @unchecked Sendable {
         var channels: [Int: OpaquePointer] = [:]   // live channels; an id missing here means closed
         var closing: [Int: OpaquePointer] = [:]
         var nextID = 1
-        var buf = [UInt8](repeating: 0, count: 64 * 1024)
+        let kb = UserDefaults.standard.integer(forKey: "sshReadKB")
+        var buf = [UInt8](repeating: 0, count: (kb > 0 ? kb : 64) * 1024)
         var lastKeepalive = Date()
         var replacement: Op?
 
