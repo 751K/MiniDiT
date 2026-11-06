@@ -47,13 +47,24 @@ struct AppsSettings: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section {
-                ForEach(apps.filter { $0.kind != .captureOne && $0.kind != .lightroom }) { app in
-                    FolderAppRow(app: app, inUse: model.captureOneMode == .off && model.openAfterImport.appKind == app.kind)
+                ForEach(apps.filter { $0.kind != .captureOne && $0.kind != .lightroom && !$0.kind.isEditor }) { app in
+                    FolderAppRow(app: app, usage: model.captureOneMode == .off && model.openAfterImport.appKind == app.kind ? "导入后打开" : nil)
                 }
             } header: {
                 Text("按文件夹管理")
             } footer: {
-                Text("导入方式选“只下载”时，可在“设置 › 导入”中设置导入完成后用哪个软件打开下载的文件夹。")
+                Text("导入方式选“只下载”时，可在“设置 › 照片”中设置导入完成后用哪个软件打开下载的文件夹。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section {
+                ForEach(apps.filter(\.kind.isEditor)) { app in
+                    let on = app.kind == .resolve ? model.sendToResolve : model.sendToFCP
+                    FolderAppRow(app: app, usage: app.isInstalled && on ? (app.kind == .resolve ? "导入后加入当前项目" : "导入后交给 FCP") : nil)
+                }
+            } header: {
+                Text("视频剪辑")
+            } footer: {
+                Text("可在“设置 › 视频”中设置导入视频后交给哪个剪辑软件。")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
@@ -102,7 +113,10 @@ struct AppsSettings: View {
 
 struct AppInfo: Identifiable {
     enum Kind: String, CaseIterable {
-        case captureOne, lightroom, bridge, dxo
+        case captureOne, lightroom, bridge, dxo, resolve, finalCut
+
+        /// 剪辑软件：视频导完交给它们，不在「按文件夹管理」里。
+        var isEditor: Bool { self == .resolve || self == .finalCut }
 
         var title: String {
             switch self {
@@ -110,6 +124,8 @@ struct AppInfo: Identifiable {
             case .lightroom: "Lightroom Classic"
             case .bridge: "Adobe Bridge"
             case .dxo: "DxO PhotoLab"
+            case .resolve: "DaVinci Resolve"
+            case .finalCut: "Final Cut Pro"
             }
         }
         /// Bundle ID 的前缀（版本号会出现在 ID 里，比如 captureone16、bridge2025）。
@@ -119,6 +135,8 @@ struct AppInfo: Identifiable {
             case .lightroom: ["com.adobe.LightroomClassicCC"]
             case .bridge: ["com.adobe.bridge"]
             case .dxo: ["com.dxo.PhotoLab", "com.dxo.photolab"]
+            case .resolve: ["com.blackmagic-design.DaVinciResolve"]
+            case .finalCut: ["com.apple.FinalCutApp", "com.apple.FinalCut"]
             }
         }
     }
@@ -327,7 +345,8 @@ private struct CaptureOneRow: View {
 
 private struct FolderAppRow: View {
     let app: AppInfo
-    let inUse: Bool
+    /// 正在用它做什么（「导入后打开」），没在用时为 nil。
+    let usage: String?
 
     var body: some View {
         HStack(spacing: 12) {
@@ -341,7 +360,7 @@ private struct FolderAppRow: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
-            if inUse { Text("导入后打开").font(.caption).foregroundStyle(.secondary) }
+            if let usage { Text(usage).font(.caption).foregroundStyle(.secondary) }
         }
     }
 }

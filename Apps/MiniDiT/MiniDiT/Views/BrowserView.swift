@@ -647,7 +647,7 @@ private struct SceneRow: View {
     }
 }
 
-/// 「按时间分场次」：不分 / 隔多久分一场。和「设置 › 导入 › 场次」是同一个选项。
+/// 「按时间分场次」：不分 / 隔多久分一场。和「设置 › 照片 › 场次」是同一个选项。
 struct SceneGapMenu: View {
     @Environment(AppModel.self) private var model
 

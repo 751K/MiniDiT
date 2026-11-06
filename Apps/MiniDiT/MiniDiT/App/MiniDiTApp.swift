@@ -134,7 +134,7 @@ struct RootView: View {
             if let u = model.backupFolder {
                 Text("备份位置“\(u.path(percentEncoded: false))”当前不可用，磁盘可能未连接。\n本次将仅存储一份，且不会删除存储卡上的文件。连接磁盘后再次导入这些照片，即可补全备份。")
             } else {
-                Text("本次将仅存储一份，且不会删除存储卡上的文件。可在“设置 › 导入”中选择备份位置。")
+                Text("本次将仅存储一份，且不会删除存储卡上的文件。可在“设置 › 备份”中选择备份位置。")
             }
         }
         .alert(model.spaceProblem?.isBackup == true ? "备份磁盘空间不足" : "存储空间不足",
@@ -176,7 +176,7 @@ struct RootView: View {
             }
         } message: {
             switch model.lightroomPrompt {
-            case .appMissing: Text("未找到 Lightroom Classic。请先安装，或在“设置 › 导入”中更换导入方式。")
+            case .appMissing: Text("未找到 Lightroom Classic。请先安装，或在“设置 › 照片”中更换导入方式。")
             case .pluginOutdated(let v): Text("已安装的 MiniDiT 插件版本为 \(v)，须更新至 \(LightroomPlugin.version)。更新后须重新打开 Lightroom Classic。")
             default: Text("导入到 Lightroom Classic 前，须先安装 MiniDiT 插件（安装至 Lightroom 的 Modules 文件夹，将自动加载）。若 Lightroom Classic 正在运行，安装后须重新打开。")
             }

@@ -10,7 +10,7 @@ struct SetupSheet: View {
         VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("导入设置").font(.title2.weight(.semibold))
-                Text("以后可在“设置 › 导入”中修改。")
+                Text("以后可在“设置 › 照片”中修改。")
                     .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
 

@@ -3,23 +3,26 @@ import MiniDiTCore
 import SonyRemoteKit
 import SwiftUI
 
-/// 设置窗口：导入 / 连接 / 记录。
+/// 设置窗口：通用 / 照片 / 视频 / 备份 / 软件。
 struct SettingsView: View {
     var body: some View {
         // 各页同一尺寸：高度不同时，切换标签会让窗口改变大小，标题栏和工具栏随之闪一下。
         TabView {
-            ImportSettings()
-                .clipped()
-                .tabItem { Label("导入", systemImage: "square.and.arrow.down") }
             ConnectSettings()
                 .clipped()
-                .tabItem { Label("连接", systemImage: "camera") }
+                .tabItem { Label("通用", systemImage: "gearshape") }
+            ImportSettings()
+                .clipped()
+                .tabItem { Label("照片", systemImage: "photo") }
+            VideoSettings()
+                .clipped()
+                .tabItem { Label("视频", systemImage: "video") }
+            BackupSettings()
+                .clipped()
+                .tabItem { Label("备份", systemImage: "externaldrive") }
             AppsSettings()
                 .clipped()
                 .tabItem { Label("软件", systemImage: "square.grid.2x2") }
-            RecordSettings()
-                .clipped()
-                .tabItem { Label("记录", systemImage: "list.bullet") }
         }
         .frame(width: 600, height: 560)
         // 标签栏没有底色，内容滚上去会和标签叠在一起；各页裁在标签栏下方。
@@ -71,21 +74,7 @@ private struct ImportSettings: View {
                     Text(model.captureOneMode == .newSession ? "新会话的位置" : "下载位置")
                     Text(locationText).lineLimit(1).truncationMode(.middle)
                 }
-                LabeledContent {
-                    Button(model.backupFolder == nil ? "选择…" : "更改…") {
-                        if let u = FolderPicker.choose(start: model.backupFolder) { model.backupFolder = u }
-                    }
-                } label: {
-                    Text("备份位置")
-                    Text(backupText).lineLimit(1).truncationMode(.middle)
-                        .foregroundStyle(model.backupFolder != nil && !model.backupAvailable ? .orange : .secondary)
-                }
-                // 没设置备份位置时显示为关，设置后恢复原来的选择。
-                Toggle("同时备份至备份位置", isOn: Binding(get: { model.backupEnabled && model.backupFolder != nil },
-                                                    set: { model.backupEnabled = $0 }))
-                    .disabled(model.backupFolder == nil)
             }
-            VideoSection()
             Section("同时存在 RAW 与 JPG/HIF 时") {
                 SlidingSegment(options: [("全部导入", PairPolicy.both), ("仅导入 RAW", .rawOnly), ("仅导入 JPG/HIF", .jpegOnly)],
                                selection: $model.pairPolicy, fill: true)
@@ -114,12 +103,6 @@ private struct ImportSettings: View {
         }
         .formStyle(.grouped)
         .onAppear { model.refreshCaptureOne() }
-    }
-
-    private var backupText: String {
-        guard let u = model.backupFolder else { return "尚未设置；设置后方可为照片另存一份" }
-        let p = u.path(percentEncoded: false)
-        return model.backupAvailable ? p : p + "（磁盘未连接）"
     }
 
     private var locationText: String {
@@ -208,6 +191,7 @@ private struct ConnectSettings: View {
             } footer: {
                 Text("忘记后，再次连接时须重新核对指纹并填写账号。").font(.caption).foregroundStyle(.secondary)
             }
+            RecordSections()
         }
         .formStyle(.grouped)
         .onAppear { Notifier.shared.refreshPermission() }
@@ -224,14 +208,14 @@ private struct ConnectSettings: View {
     }
 }
 
-private struct RecordSettings: View {
+private struct RecordSections: View {
     @Environment(AppModel.self) private var model
     @State private var confirmClear = false
     @State private var copied = false
     @State private var count = ImportHistory.shared.count
 
     var body: some View {
-        Form {
+        Group {
             Section("导入记录") {
                 if confirmClear {
                     // 就地确认，不另弹窗。
@@ -272,7 +256,6 @@ private struct RecordSettings: View {
                 }
             }
         }
-        .formStyle(.grouped)
     }
 }
 
@@ -301,9 +284,8 @@ private struct ModeRow: View {
     }
 }
 
-/// 命名模板：会话、下载文件夹、备份文件夹。
-/// 视频单独存放：保存位置、文件夹命名、代理。
-private struct VideoSection: View {
+/// 视频：存放位置和文件夹命名、代理、导完交给剪辑软件。
+private struct VideoSettings: View {
     @Environment(AppModel.self) private var model
     @AppStorage(NameTemplate.Kind.video.key) private var template = ""
 
@@ -311,46 +293,110 @@ private struct VideoSection: View {
         @Bindable var model = model
         let t = template.trimmingCharacters(in: .whitespaces).isEmpty ? NameTemplate.Kind.video.defaultValue : template
         let example = NameTemplate.render(t, allowsFolders: true, day: "20261021", event: "采访", scene: nil)
-        Section {
-            LabeledContent {
-                Button("更改…") {
-                    if let u = FolderPicker.choose(start: model.videoDestination) { model.videoDestination = u }
+        let resolve = ResolveBridge.appURL != nil, fcp = FCPXMLWriter.appURL != nil
+        Form {
+            Section {
+                LabeledContent {
+                    Button("更改…") {
+                        if let u = FolderPicker.choose(start: model.videoDestination) { model.videoDestination = u }
+                    }
+                } label: {
+                    Text("保存位置")
+                    Text(model.videoDestination.path(percentEncoded: false)).lineLimit(1).truncationMode(.middle)
                 }
-            } label: {
-                Text("保存位置")
-                Text(model.videoDestination.path(percentEncoded: false)).lineLimit(1).truncationMode(.middle)
+                VStack(alignment: .leading, spacing: 3) {
+                    TextField("文件夹", text: $template, prompt: Text(NameTemplate.Kind.video.defaultValue))
+                    Text("示例：\(example)/C0001.MP4").font(.caption).foregroundStyle(.secondary)
+                }
+            } header: {
+                Text("存放")
+            } footer: {
+                Text("视频不导入 Capture One 或 Lightroom Classic，按原文件名平铺存放，同名的 XML 元数据文件一并导入；同时连接多台相机时按相机分开存放。")
+                    .font(.caption).foregroundStyle(.secondary)
             }
-            VStack(alignment: .leading, spacing: 3) {
-                TextField("文件夹", text: $template, prompt: Text(NameTemplate.Kind.video.defaultValue))
-                Text("示例：\(example)/C0001.MP4").font(.caption).foregroundStyle(.secondary)
+            Section {
+                Toggle(isOn: $model.importProxies) {
+                    Text("同时导入代理文件")
+                    Text("存入旁边的“Proxy”文件夹，改为与原片同名。")
+                }
+                Toggle(isOn: $model.proxyOnlyWiFi) {
+                    Text("通过 Wi-Fi 导入时只导入代理")
+                    Text("原片留在存储卡上并标为“仅代理”，之后用读卡器导入原片即可。")
+                }
+            } header: {
+                Text("代理")
             }
-            Toggle("同时导入代理文件", isOn: $model.importProxies)
-            Toggle("通过 Wi-Fi 导入时只导入代理", isOn: $model.proxyOnlyWiFi)
-            if ResolveBridge.appURL != nil {
-                Toggle("导入后加入 DaVinci Resolve 当前项目", isOn: $model.sendToResolve)
+            Section {
+                if resolve {
+                    Toggle(isOn: $model.sendToResolve) {
+                        Text("加入 DaVinci Resolve 当前项目")
+                        Text("每个视频文件夹建一个媒体夹，代理自动链接。须在 Resolve 的“偏好设置 › 系统 › 常规”中把“外部脚本使用”设为“本地”。")
+                    }
+                }
+                if fcp {
+                    Toggle(isOn: $model.sendToFCP) {
+                        Text("交给 Final Cut Pro")
+                        Text("每个视频文件夹建一个事件，片段原地引用、不复制进资源库，代理一并链接。")
+                    }
+                }
+                if !resolve && !fcp {
+                    Text("未找到 DaVinci Resolve 或 Final Cut Pro。").foregroundStyle(.secondary)
+                }
+            } header: {
+                Text("导入完成后")
             }
-            if FCPXMLWriter.appURL != nil {
-                Toggle("导入后交给 Final Cut Pro", isOn: $model.sendToFCP)
-            }
-        } header: {
-            Text("视频")
-        } footer: {
-            Text("视频不导入 Capture One 或 Lightroom Classic，按原文件名平铺存放，同名的 XML 元数据文件一并导入；同时连接多台相机时按相机分开存放。代理文件存入旁边的“Proxy”文件夹并改为与原片同名，DaVinci Resolve 导入原片时会自动链接。加入 DaVinci Resolve 时，在当前打开的项目里每个视频文件夹建一个媒体夹；Resolve 未打开时会先打开它，需要在 Resolve 的“偏好设置 › 系统 › 常规”中把“外部脚本使用”设为“本地”。备份时存入备份文件夹中的“视频”文件夹。通过 Wi-Fi 只导入代理时，原片留在存储卡上并标为“仅代理”，之后用读卡器导入原片即可，已有的代理和 XML 文件不会重复复制。交给 Final Cut Pro 时，每个视频文件夹建一个事件，片段原地引用、不复制进资源库，代理一并链接；由 Final Cut Pro 询问放入哪个资源库。")
-                .font(.caption).foregroundStyle(.secondary)
         }
+        .formStyle(.grouped)
     }
 }
 
-private struct NamingSection: View {
-    @AppStorage(NameTemplate.Kind.session.key) private var session = ""
-    @AppStorage(NameTemplate.Kind.folder.key) private var folder = ""
+/// 备份：第二份放在哪、要不要备份、备份文件夹怎么命名。照片和视频都备份。
+private struct BackupSettings: View {
+    @Environment(AppModel.self) private var model
     @AppStorage(NameTemplate.Kind.backup.key) private var backup = ""
 
     var body: some View {
+        @Bindable var model = model
+        Form {
+            Section {
+                LabeledContent {
+                    Button(model.backupFolder == nil ? "选择…" : "更改…") {
+                        if let u = FolderPicker.choose(start: model.backupFolder) { model.backupFolder = u }
+                    }
+                } label: {
+                    Text("备份位置")
+                    Text(backupText).lineLimit(1).truncationMode(.middle)
+                        .foregroundStyle(model.backupFolder != nil && !model.backupAvailable ? .orange : .secondary)
+                }
+                // 没设置备份位置时显示为关，设置后恢复原来的选择。
+                Toggle("导入时同时备份", isOn: Binding(get: { model.backupEnabled && model.backupFolder != nil },
+                                                 set: { model.backupEnabled = $0 }))
+                    .disabled(model.backupFolder == nil)
+                NameField(title: "备份文件夹", kind: .backup, text: $backup)
+            } footer: {
+                Text("照片和视频都会备份，视频存入备份文件夹中的“视频”文件夹。导入窗口底部的“备份”按钮与此开关相同。可用标记：{YYYY} {MM} {DD} {M} {D} {事件} {场次}。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private var backupText: String {
+        guard let u = model.backupFolder else { return "尚未设置；设置后方可另存一份" }
+        let p = u.path(percentEncoded: false)
+        return model.backupAvailable ? p : p + "（磁盘未连接）"
+    }
+}
+
+/// 命名模板：会话、下载文件夹（备份文件夹在“备份”里）。
+private struct NamingSection: View {
+    @AppStorage(NameTemplate.Kind.session.key) private var session = ""
+    @AppStorage(NameTemplate.Kind.folder.key) private var folder = ""
+
+    var body: some View {
         Section {
-            field("会话", .session, $session)
-            field("下载文件夹", .folder, $folder)
-            field("备份文件夹", .backup, $backup)
+            NameField(title: "会话", kind: .session, text: $session)
+            NameField(title: "下载文件夹", kind: .folder, text: $folder)
         } header: {
             Text("命名")
         } footer: {
@@ -358,12 +404,19 @@ private struct NamingSection: View {
                 .font(.caption).foregroundStyle(.secondary)
         }
     }
+}
 
-    private func field(_ title: String, _ kind: NameTemplate.Kind, _ text: Binding<String>) -> some View {
-        let t = text.wrappedValue.trimmingCharacters(in: .whitespaces).isEmpty ? kind.defaultValue : text.wrappedValue
+/// 一个命名模板：输入框和示例。
+private struct NameField: View {
+    let title: String
+    let kind: NameTemplate.Kind
+    @Binding var text: String
+
+    var body: some View {
+        let t = text.trimmingCharacters(in: .whitespaces).isEmpty ? kind.defaultValue : text
         let example = NameTemplate.render(t, allowsFolders: kind.allowsFolders, day: "20261028", event: "卢森堡", scene: 2)
-        return VStack(alignment: .leading, spacing: 3) {
-            TextField(title, text: text, prompt: Text(kind.defaultValue))
+        VStack(alignment: .leading, spacing: 3) {
+            TextField(title, text: $text, prompt: Text(kind.defaultValue))
             Text("示例：" + example).font(.caption).foregroundStyle(.secondary)
         }
     }
