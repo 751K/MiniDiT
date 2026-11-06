@@ -344,6 +344,12 @@ private struct VideoSettings: View {
                         Text("交给 Final Cut Pro")
                         Text("每个视频文件夹建一个事件，片段原地引用、不复制进资源库，代理一并链接。")
                     }
+                    Toggle(isOn: $model.fcpLogProcessing) {
+                        Text("设置片段的 Log 处理")
+                        Text("为 S-Log3 / S-Gamut3.Cine 片段选用 Final Cut Pro 内置的“Sony S-Log3/S-Gamut3.Cine”Log 处理。")
+                    }
+                    .padding(.leading, 16)
+                    .disabled(!model.sendToFCP)
                 }
                 if !resolve && !fcp {
                     Text("未找到 DaVinci Resolve 或 Final Cut Pro。").foregroundStyle(.secondary)

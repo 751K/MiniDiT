@@ -332,6 +332,11 @@ final class AppModel {
         didSet { UserDefaults.standard.set(sendToResolve, forKey: "sendToResolve") }
     }
 
+    /// 交给 FCP 时给 S-Log3 片段打开 FCP 内置的 Log 处理。
+    var fcpLogProcessing: Bool = UserDefaults.standard.object(forKey: "fcpLogProcessing") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(fcpLogProcessing, forKey: "fcpLogProcessing") }
+    }
+
     /// 加入 Resolve 时按片段的伽马 / 色域写上输入色彩空间（不套 LUT）。
     var resolveColorSpace: Bool = UserDefaults.standard.object(forKey: "resolveColorSpace") as? Bool ?? true {
         didSet { UserDefaults.standard.set(resolveColorSpace, forKey: "resolveColorSpace") }

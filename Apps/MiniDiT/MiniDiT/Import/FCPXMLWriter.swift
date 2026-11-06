@@ -18,7 +18,15 @@ enum FCPXMLWriter {
 
     static var appURL: URL? { NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) }
 
-    static func xml(_ events: [Event]) -> String {
+    /// FCP 内置的 Log 处理（customLUTOverride，「编号 (名字)」）。编号是 FCP 12.4 自己导出的；
+    /// 其他 Sony 模式（S-Gamut3、S-Log2）的编号还没核实过，先不写。
+    static func logProcessing(_ info: ClipInfo) -> String? {
+        let g = info.gamma.lowercased(), p = info.primaries.lowercased()
+        if g.contains("s-log3"), p.contains("cine") { return "35 (Sony_SLog3_SGamut3Cine_v2)" }
+        return nil
+    }
+
+    static func xml(_ events: [Event], logProcessing setLog: Bool = false) -> String {
         var res: [String] = [], body: [String] = []
         var formats: [String: String] = [:]
         var n = 0
@@ -34,6 +42,7 @@ enum FCPXMLWriter {
                 let info = ClipInfo.sidecar(for: c.url).flatMap(ClipInfo.read)
                 var attrs = "id=\"\(id)\" name=\"\(esc(c.url.deletingPathExtension().lastPathComponent))\" hasVideo=\"1\" hasAudio=\"1\""
                 var clipAttrs = ""
+                if setLog, let info, let lut = logProcessing(info) { attrs += " customLUTOverride=\"\(lut)\"" }
                 if let info, let fd = frameDuration(info.formatFps), info.width > 0 {
                     let key = "\(info.width)x\(info.height)@\(fd.text)"
                     let fid = formats[key] ?? {
@@ -94,7 +103,7 @@ enum FCPXMLWriter {
 
     /// 写到 Application Support/SonyImport/FCP/ 里，用 FCP 打开。返回写下的文件。
     @MainActor
-    static func send(_ events: [Event]) throws -> URL? {
+    static func send(_ events: [Event], logProcessing: Bool) throws -> URL? {
         guard let app = appURL, !events.isEmpty else { return nil }
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appending(path: "SonyImport/FCP", directoryHint: .isDirectory)
@@ -102,7 +111,7 @@ enum FCPXMLWriter {
         let f = DateFormatter()
         f.dateFormat = "yyyyMMdd-HHmmss"
         let url = dir.appending(path: "MiniDiT-\(f.string(from: Date())).fcpxml")
-        try xml(events).write(to: url, atomically: true, encoding: .utf8)
+        try xml(events, logProcessing: logProcessing).write(to: url, atomically: true, encoding: .utf8)
         NSWorkspace.shared.open([url], withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration())
         return url
     }

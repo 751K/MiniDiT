@@ -407,7 +407,7 @@ extension AppModel {
                     }
                     if sendToFCP {
                         do {
-                            if let u = try FCPXMLWriter.send(events) { log.add("交给 Final Cut Pro：\(fcpClips.values.joined().count) 个片段，\(u.path)") }
+                            if let u = try FCPXMLWriter.send(events, logProcessing: fcpLogProcessing) { log.add("交给 Final Cut Pro：\(fcpClips.values.joined().count) 个片段，\(u.path)") }
                             else { log.add("未找到 Final Cut Pro，未交给 FCP") }
                         } catch { log.add("写 FCPXML 失败：\(error.localizedDescription)") }
                     }
