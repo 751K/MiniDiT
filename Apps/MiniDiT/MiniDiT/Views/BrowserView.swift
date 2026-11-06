@@ -1170,10 +1170,10 @@ struct ThumbCell: View {
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: 6))
-            // 选中：照片外面隔 2 pt 一圈蓝框（不压住照片边缘）。
+            // 选中：照片外面隔 2 pt 一圈蓝框（不压住照片边缘）；同时是焦点时加粗，不再另画一圈焦点框。
             .overlay {
                 if selected {
-                    RoundedRectangle(cornerRadius: 10).strokeBorder(Color.accentColor, lineWidth: 2).padding(-4)
+                    RoundedRectangle(cornerRadius: 10).strokeBorder(Color.accentColor, lineWidth: focused ? 3 : 2).padding(-4)
                 }
             }
             HStack(spacing: 6) {
@@ -1186,9 +1186,9 @@ struct ThumbCell: View {
             .font(.system(size: 11))
             .padding(.horizontal, 1)
         }
-        // 焦点框（方向键移动到的位置）：连同文件名一起框住，离照片 5 pt，细而浅，和照片外 2 pt 的选中蓝框分得开。
+        // 焦点框（方向键移动到的位置，且未选中）：连同文件名一起框住，离照片 5 pt，细而浅。
         .overlay {
-            if focused { RoundedRectangle(cornerRadius: 11).strokeBorder(Color.focusRing, lineWidth: 1.5).padding(-6.5) }
+            if focused, !selected { RoundedRectangle(cornerRadius: 11).strokeBorder(Color.focusRing, lineWidth: 1.5).padding(-6.5) }
         }
         .padding(7)
         .contentShape(Rectangle())
