@@ -515,6 +515,7 @@ extension AppModel {
                 if let sessionText { summary += "，已存入会话“\(sessionText)”" }
                 if !saved.isEmpty { for n in Set(sessionNames) { CaptureOneBridge.refreshCapture(session: n) } }
                 if applyCreativeLook, !saved.isEmpty, let t = await applyLooks(saved, sessions: Array(Set(sessionNames))) { summary += t }
+                if !saved.isEmpty, let t = await applyRatings(saved, sessions: Array(Set(sessionNames))) { summary += t }
             } else if mode == .lightroom {
                 if !lightroomJobs.isEmpty {
                     summary += "，已交由 Lightroom Classic 导入" + (lightroomText.map { "（收藏夹“\($0)”）" } ?? "")
@@ -696,6 +697,30 @@ extension AppModel {
 }
 
 extension AppModel {
+    /// 按相机里打的星级给 C1 会话里的照片设星级（从下载好的文件开头读）。C1 还没建好变体的隔一会儿再试。
+    func applyRatings(_ saved: [URL], sessions: [String]) async -> String? {
+        var applied = 0
+        for name in sessions {
+            var pairs: [String: Int] = [:]
+            for u in saved where u.path.contains("/\(name)/Capture/") {
+                guard let r = PhotoRating.read(fileAt: u), r > 0 else { continue }
+                let n = u.deletingPathExtension().lastPathComponent
+                pairs[n] = max(pairs[n] ?? 0, r)
+            }
+            var todo = pairs.map { (variant: $0.key, rating: $0.value) }
+            for attempt in 0..<6 where !todo.isEmpty {
+                if attempt > 0 { try? await Task.sleep(for: .seconds(1.5)) }
+                let done = CaptureOneBridge.applyRatings(session: name, todo)
+                applied += done.count
+                todo = todo.filter { !done.contains($0.variant) }
+            }
+            if !todo.isEmpty { log.add("星级：\(todo.count) 张在 C1 里没找到") }
+        }
+        guard applied > 0 else { return nil }
+        log.add("星级：已按相机里的星级设置 \(applied) 张")
+        return "，已设置星级 \(applied) 张"
+    }
+
     /// 按创意外观设 C1 的 ICC 配置文件和曲线（只看 RAW：HIF / JPG 已经带着相机的外观）。
     /// C1 刚收到文件时可能还没建好变体，找不到的隔一会儿再试几次。返回加在导入结果后面的说明。
     func applyLooks(_ saved: [URL], sessions: [String]) async -> String? {

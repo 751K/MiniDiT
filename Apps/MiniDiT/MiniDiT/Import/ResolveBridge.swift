@@ -44,6 +44,7 @@ enum ResolveBridge {
             ["bin": e.name, "clips": e.clips.map { c in
                 let info = ClipInfo.sidecar(for: c.url).flatMap(ClipInfo.read)
                 return ["path": c.url.path, "proxy": c.proxy?.path ?? "", "roll": c.roll ?? "",
+                        "marks": (info?.shotMarks ?? []).map { ["frame": $0.frame, "name": "Shot Mark \($0.shotMark ?? 1)"] as [String: Any] },
                         "gamma": info?.gamma ?? "", "primaries": info?.primaries ?? ""]
             }] as [String: Any]
         }
@@ -160,6 +161,9 @@ for e in events:
     for it in items:
         c = by_path.get(it.GetClipProperty("File Path"), {})
         set_color(it, c)
+        for m in c.get("marks", []):
+            # Shot Mark → 片段标记（蓝色，一帧长）。
+            it.AddMarker(m["frame"], "Blue", m["name"], "", 1)
         if c.get("roll"):
             # Reel Name 由项目设置从文件名推出来，改不了；卷号写进元数据的 Reel Number 和 Roll Card #。
             it.SetMetadata({"Reel Number": c["roll"], "Roll Card #": c["roll"]})

@@ -75,6 +75,13 @@ public enum PhotoRating {
     /// 读文件开头多少字节。
     public static let headLength = 16 * 1024
 
+    /// 读本地文件开头的星级。
+    public static func read(fileAt url: URL) -> Int? {
+        guard let h = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? h.close() }
+        return (try? h.read(upToCount: headLength)).flatMap(parse)
+    }
+
     public static func parse(_ head: Data) -> Int? {
         let s = String(decoding: head.prefix(headLength), as: UTF8.self)
         for pattern in ["<xmp:Rating>", "xmp:Rating=\""] {

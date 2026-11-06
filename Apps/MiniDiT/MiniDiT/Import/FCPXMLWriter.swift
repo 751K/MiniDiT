@@ -72,7 +72,15 @@ enum FCPXMLWriter {
                     if !items.isEmpty { md = "      <metadata>\n" + items.joined(separator: "\n") + "\n      </metadata>\n" }
                 }
                 res.append("    <asset \(attrs)>\n\(reps)\(md)    </asset>")
-                clips.append("    <asset-clip ref=\"\(id)\" name=\"\(esc(c.url.deletingPathExtension().lastPathComponent))\"\(clipAttrs)/>")
+                // Shot Mark → 片段上的标记点（时间从片段开头算，一帧长）。
+                var markers: [String] = []
+                if let info, let fd = frameDuration(info.formatFps) {
+                    for m in info.shotMarks {
+                        markers.append("      <marker start=\"\(Int64(m.frame) * fd.num)/\(fd.den)s\" duration=\"\(fd.text)\" value=\"Shot Mark \(m.shotMark ?? 1)\"/>")
+                    }
+                }
+                let clipOpen = "    <asset-clip ref=\"\(id)\" name=\"\(esc(c.url.deletingPathExtension().lastPathComponent))\"\(clipAttrs)"
+                clips.append(markers.isEmpty ? clipOpen + "/>" : clipOpen + ">\n" + markers.joined(separator: "\n") + "\n    </asset-clip>")
             }
             body.append("  <event name=\"\(esc(e.name))\">\n" + clips.joined(separator: "\n") + "\n  </event>")
         }

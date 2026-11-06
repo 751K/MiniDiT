@@ -149,6 +149,35 @@ enum CaptureOneBridge {
     }
 
     /// C1 里打开着的文档名（不带扩展名）。C1 没在运行时为空。
+    /// 按相机里打的星级给会话里的照片设星级（同名的 RAW 和 HIF 变体都设）。返回设上的变体名；还没出现的不在里面。
+    static func applyRatings(session name: String, _ pairs: [(variant: String, rating: Int)]) -> Set<String> {
+        guard isRunning, !pairs.isEmpty else { return [] }
+        let list = pairs.map { "{\(quote($0.variant)), \(max(0, min($0.rating, 5)))}" }.joined(separator: ", ")
+        let src = """
+        tell application "Capture One"
+            tell document \(quote(name + ".cosessiondb"))
+                set c to (first collection whose name is "Capture")
+                set out to {}
+                repeat with p in {\(list)}
+                    set n to item 1 of p
+                    try
+                        set vs to (every variant of c whose name is n)
+                        if (count of vs) > 0 then
+                            repeat with v in vs
+                                set rating of v to (item 2 of p)
+                            end repeat
+                            set end of out to n
+                        end if
+                    end try
+                end repeat
+                return out
+            end tell
+        end tell
+        """
+        guard let res = try? run(src) else { return [] }
+        return Set((1...max(res.numberOfItems, 1)).compactMap { res.atIndex($0)?.stringValue })
+    }
+
     static func openDocumentNames() -> Set<String> {
         guard isRunning, let list = try? run("tell application \"Capture One\" to return name of every document") else { return [] }
         var names: Set<String> = []

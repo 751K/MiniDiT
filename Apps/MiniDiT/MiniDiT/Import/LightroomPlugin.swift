@@ -19,7 +19,7 @@ import Foundation
 /// 回执每行：`ok|skip|fail <Tab> 路径 [<Tab> 原因]`（skip = 目录里本来就有，只加进收藏夹）。
 enum LightroomPlugin {
     /// 改了插件代码就加版本号，App 会提示用户更新。
-    static let version = "1.1.2"
+    static let version = "1.1.3"
     static let toolkitID = "com.kong.minidit"
     static let folderName = "MiniDiT.lrplugin"
 
@@ -147,7 +147,8 @@ enum LightroomPlugin {
             elseif f[1] == 'select' then job.select = (f[2] == '1')
             elseif f[1] == 'photo' and f[2] and f[2] ~= '' then
               job.photos[#job.photos + 1] = { path = f[2], stackWith = (f[3] and f[3] ~= '') and f[3] or nil,
-                                              look = (f[4] and f[4] ~= '') and f[4] or nil }
+                                              look = (f[4] and f[4] ~= '') and f[4] or nil,
+                                              rating = tonumber(f[5] or '') }
             end
           end
           return job
@@ -223,6 +224,16 @@ enum LightroomPlugin {
                 local got = type(st.Look) == 'table' and st.Look.Name or nil
                 C.log('配置文件 ' .. LrPathUtils.leafName(p.path) .. '：' .. tostring(got)
                       .. ((lok and got == (look and look.Name)) and '' or ('（要 ' .. tostring(look and look.Name) .. '，' .. oneLine(lerr or '未生效') .. '）')))
+              end
+              -- 相机里打的星级：1–5 设星级，-1（相机里标为删除）设为「排除」。只给这次新加的照片设。
+              if p.rating and status == 'ok' then
+                local rok, rerr = LrTasks.pcall(function()
+                  write(catalog, 'MiniDiT：设置星级', function()
+                    if p.rating < 0 then photo:setRawMetadata('pickStatus', -1)
+                    else photo:setRawMetadata('rating', math.min(p.rating, 5)) end
+                  end)
+                end)
+                if not rok then C.log('星级 ' .. LrPathUtils.leafName(p.path) .. '：' .. oneLine(rerr)) end
               end
               results[#results + 1] = status .. '\\t' .. p.path
             end)

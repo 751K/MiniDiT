@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import SonyRemoteKit
 
 /// 和 Lightroom Classic 里的 MiniDiT 插件打交道：安装插件、看它在不在跑、交任务。
 ///
@@ -144,7 +145,9 @@ enum LightroomBridge {
         if let collection, !collection.isEmpty { lines.append("collection\t" + clean(collection)) }
         if select { lines.append("select\t1") }
         for p in photos {
-            lines.append("photo\t" + p.url.path + "\t" + (p.stackWith?.path ?? "") + (p.look.map { "\t" + clean($0) } ?? ""))
+            // 第 5 栏：相机里打的星级（从下载好的文件开头读；没打星不写）。
+            let rating = PhotoRating.read(fileAt: p.url).flatMap { $0 != 0 ? String($0) : nil } ?? ""
+            lines.append("photo\t" + p.url.path + "\t" + (p.stackWith?.path ?? "") + "\t" + (p.look.map(clean) ?? "") + "\t" + rating)
         }
         // 先写成 .tmp 再改名，插件只认 .job，不会读到写了一半的文件。
         let tmp = jobsFolder.appending(path: name + ".tmp")
