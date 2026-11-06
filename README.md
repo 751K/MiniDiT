@@ -51,6 +51,7 @@ Mac 上的「小号 DIT」：通过 Wi-Fi 连接索尼 α 相机（或者插读�
 | 按创意外观套 Look（可选，「设置 › 软件 › Capture One 会话」）：导入到 C1 会话后，读 RAW 厂商信息 0xb020 里的创意外观（Standard→ST、Portrait→PT、Neutral→NT、Vivid→VV、Sepia→SE，VV2 / FL / FL2 / FL3 / IN / SH / BW 直接是代号），把 ICC 配置文件设为「<机型> Look-ST」等（自己装在 ~/Library/ColorSync/Profiles 的 `SonyA7M5-Look-ST.icc`），曲线设为 Linear Response；没装对应 Look 的保持原样；只处理 RAW | ✅ 实测（ST / FL / SH，FL / SH 为改过 EXIF 的测试文件；FL2、FL3 在文件里的写法是推测） |
 | 按创意外观套 Look（LrC）：同一个开关，导入到 LrC 时插件读装在 Camera Raw 里的 Look XMP（`~/Library/Application Support/Adobe/CameraRaw/Settings`，按 crs:CameraModelRestriction 和名字「SonyA7M5 Look FL」匹配机型和外观），把它拼成 LrC 的 Look 设置（底层是它自带的 Linear Base DCP）；只给这次新加进目录的 RAW 设 | ✅ 临时目录实测（ST / FL / SH），插件 1.1.2 |
 | 视频（读卡器）：视频单独存放（「设置 › 导入 › 视频」，默认 ~/Movies/MiniDiT，文件夹模板默认「{M}.{D}-{事件}」），不进 C1 / LrC；片段按原名平铺，同名的 M01.XML 一起导；多台相机按相机分一层；代理（PRIVATE/M4ROOT/SUB/C0001S03.MP4）放进旁边的 Proxy/ 并改名为 C0001.MP4，DaVinci Resolve 导入原片时自动链接（可关）；XML 和代理一样校验、备份（备份文件夹里的「视频/」）、写进视频文件夹自己的 MHL；缩略图上显示时长、伽马和帧率（升格写成「120p→23.98p」），预览里显示分辨率、帧率、编码、伽马 / 色域、起始时间码、镜头；视频开关会记住 | ✅ v0.7，用 3 段 a7 V 实拍片段（S-Log3 / 709，H.264 / H.265 4:2:2 10bit）做的测试卡实测，ascmhl 复核通过 |
+| 视频（Wi-Fi）：远程传输列表里同一次拍摄的代理（M4ROOT/SUB/C0001S03.MP4）挂在原片上，不再单独显示成一个片段，导入时跟着下载到 Proxy/；相机不提供 XML 文件，但 MP4 末尾的 meta 盒子里内嵌了一字不差的同一份：浏览时只读 MP4 最后 64 KB 显示时长、伽马、帧率等，导入后从下载好的 MP4 切出来存成 C0001M01.XML（读卡器上缺 XML 的片段也这样补）；XML、代理一样校验、备份、写进 MHL | ✅ a7 V 真机实测（C2682：原片 68 MB + 代理 17 MB + XML，8 秒；ascmhl 复核通过） |
 
 ## 项目结构
 

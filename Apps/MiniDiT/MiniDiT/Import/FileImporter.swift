@@ -221,37 +221,84 @@ struct FileImporter {
         var alreadyThere: Bool
     }
 
-    /// 读卡器上视频片段的附属文件，跟着片段放：XML 放在片段旁边（C0001M01.XML），
+    /// 视频片段的附属文件，跟着片段放：XML 放在片段旁边（C0001M01.XML），
     /// 代理放进旁边的 Proxy/ 并改成和片段同名（Proxy/C0001.MP4，Resolve 导入片段时会自动链接）。
     /// 片段因为重名改成了「C0001-2.MP4」时，附属文件跟着改。`clip` / `backupClip` 是片段最终的位置。
+    /// 读卡器：从卡上复制 XML 和 SUB 里的代理。Wi-Fi：相机列表里有代理就下载；XML 相机不给，
+    /// 从下载好的 MP4 末尾切出内嵌的那份（和卡上的 M01.XML 一字不差）。
     func importSidecars(of item: CameraContentItem, clip: URL, backupClip: URL?, proxies: Bool,
                         stage: (String) -> Void) async -> [SidecarCopy] {
-        guard let card = library as? LocalCardLibrary else { return [] }
         let base = clip.deletingPathExtension().lastPathComponent
+        let dir = clip.deletingLastPathComponent()
         var out: [SidecarCopy] = []
-        for s in await card.sidecars(item.id) where s.kind == .metadata || proxies {
-            let name = s.url.lastPathComponent
-            // 「C0001M01.XML」去掉原来的「C0001」，换成片段最终的名字。
-            let rel = s.kind == .proxy ? "Proxy/" + base + "." + s.url.pathExtension
-                : base + String(name.dropFirst(item.baseName.count))
-            stage(s.kind == .proxy ? "复制代理 \(name)" : "复制 \(name)")
-            do {
-                let dst = clip.deletingLastPathComponent().appending(path: rel)
-                let (h, there) = try await copySidecar(s.url, to: dst)
-                var backup: URL?
-                if let backupClip {
-                    let b = backupClip.deletingLastPathComponent().appending(path: rel)
-                    do { _ = try await copySidecar(dst, to: b, expect: h); backup = b }
-                    catch { log.add("备份失败 \(name)：\(error.localizedDescription)") }
+        var haveXML = false
+        @MainActor func backup(_ file: URL, rel: String, hash: UInt64) async -> URL? {
+            guard let backupClip else { return nil }
+            let b = backupClip.deletingLastPathComponent().appending(path: rel)
+            do { _ = try await copySidecar(file, to: b, expect: hash); return b }
+            catch { log.add("备份失败 \(rel)：\(error.localizedDescription)"); return nil }
+        }
+        if let card = library as? LocalCardLibrary {
+            for s in await card.sidecars(item.id) where s.kind == .metadata || proxies {
+                let name = s.url.lastPathComponent
+                // 「C0001M01.XML」去掉原来的「C0001」，换成片段最终的名字。
+                let rel = s.kind == .proxy ? "Proxy/" + base + "." + s.url.pathExtension
+                    : base + String(name.dropFirst(item.baseName.count))
+                stage(s.kind == .proxy ? "复制代理 \(name)" : "复制 \(name)")
+                do {
+                    let dst = dir.appending(path: rel)
+                    let (h, there) = try await copySidecar(s.url, to: dst)
+                    out.append(SidecarCopy(url: dst, xxh64: h, backup: await backup(dst, rel: rel, hash: h), alreadyThere: there))
+                    if s.kind == .metadata { haveXML = true }
+                } catch is CancellationError {
+                    return out
+                } catch {
+                    log.add("复制失败 \(name)：\(error.localizedDescription)")
                 }
-                out.append(SidecarCopy(url: dst, xxh64: h, backup: backup, alreadyThere: there))
+            }
+        } else if proxies, let p = await library.proxy(of: item.id) {
+            let rel = "Proxy/" + base + "." + (p.filename as NSString).pathExtension
+            stage("下载代理 \(p.filename)")
+            do {
+                let dst = dir.appending(path: rel)
+                let (h, there) = try await downloadSidecar(p, to: dst)
+                out.append(SidecarCopy(url: dst, xxh64: h, backup: await backup(dst, rel: rel, hash: h), alreadyThere: there))
             } catch is CancellationError {
-                break
+                return out
             } catch {
-                log.add("复制失败 \(name)：\(error.localizedDescription)")
+                log.add("下载代理失败 \(p.filename)：\(error.localizedDescription)")
+            }
+        }
+        if !haveXML, let xml = ClipInfo.embeddedXML(inFile: clip) {
+            let rel = base + "M01.XML"
+            let dst = dir.appending(path: rel)
+            do {
+                let there = (try? Data(contentsOf: dst)) == xml
+                if !there { try xml.write(to: dst, options: .atomic) }
+                if let d = item.captureDate { try? FileManager.default.setAttributes([.creationDate: d, .modificationDate: d], ofItemAtPath: dst.path) }
+                let h = try await FileOps.hash(dst)
+                out.append(SidecarCopy(url: dst, xxh64: h, backup: await backup(dst, rel: rel, hash: h), alreadyThere: there))
+            } catch {
+                log.add("写入 \(rel) 失败：\(error.localizedDescription)")
             }
         }
         return out
+    }
+
+    /// Wi-Fi 下载代理：目标已有同样大小的文件就不再下载（相机给不出哈希，只能比大小）。
+    private func downloadSidecar(_ p: CameraContentItem, to dst: URL) async throws -> (UInt64, Bool) {
+        let fm = FileManager.default
+        try fm.createDirectory(at: dst.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if ImportHistory.matches(dst, p) { return (try await FileOps.hash(dst), true) }
+        let part = dst.deletingLastPathComponent().appending(path: Self.partName(p))
+        let have = (try? fm.attributesOfItem(atPath: part.path))?[.size] as? UInt64 ?? 0
+        try await library.download(p, to: part, from: have <= p.size ? have : 0) { _, _ in }
+        guard ImportHistory.matches(part, p) else { try? fm.removeItem(at: part); throw CocoaError(.fileReadCorruptFile) }
+        let h = try await FileOps.hash(part)
+        if fm.fileExists(atPath: dst.path) { try fm.removeItem(at: dst) }
+        try fm.moveItem(at: part, to: dst)
+        if let d = p.captureDate { try? fm.setAttributes([.creationDate: d, .modificationDate: d], ofItemAtPath: dst.path) }
+        return (h, false)
     }
 
     /// 复制并校验一个附属文件；目标已有且哈希一致就不再复制。返回哈希和「是不是已经有了」。

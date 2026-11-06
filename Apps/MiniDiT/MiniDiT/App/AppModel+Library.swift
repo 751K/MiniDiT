@@ -386,8 +386,7 @@ extension AppModel {
             // 下载时让出通道，优先传文件。
             if progress != nil { try? await Task.sleep(for: .milliseconds(300)) }
             guard let r = route(h) else { continue }
-            if items[h]?.kind == .video, clipInfos[h] == nil, let card = r.library as? LocalCardLibrary,
-               let info = await card.clipInfo(r.local) {
+            if items[h]?.kind == .video, clipInfos[h] == nil, let info = await r.library.clipInfo(r.local) {
                 clipInfos[h] = info
             }
             guard let data = try? await r.library.thumbnail(r.local), let img = NSImage(data: data) else { continue }

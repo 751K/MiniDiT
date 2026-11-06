@@ -131,6 +131,9 @@ public actor SonyRemoteTransferLibrary: CameraLibrary {
     private var entries: [UInt32: Entry] = [:]
     private var slotHandles: [UInt32: [UInt32]] = [:]
     private var nextHandle: UInt32 = 1
+    /// 视频原片的句柄 → 它的代理的句柄（代理不在列表里，只用来下载）。
+    private var proxies: [UInt32: UInt32] = [:]
+    private var clipCache: [UInt32: ClipInfo] = [:]
     public nonisolated let connectionLost: AsyncStream<Void>
     public private(set) var listingNotes: [String] = []
     private var thumbNoted = false
@@ -248,11 +251,22 @@ public actor SonyRemoteTransferLibrary: CameraLibrary {
 
         var made: [(UInt64, UInt32)] = []
         for c in contents {
-            for f in c.files {
+            // 视频那次拍摄里同时有原片（M4ROOT/CLIP/C0001.MP4）和代理（M4ROOT/SUB/C0001S03.MP4）：
+            // 代理不单独列出来，挂在原片上，导入时跟着原片下载。XML 相机不给（MP4 末尾内嵌了同一份）。
+            let isProxy: (SonyContent.File) -> Bool = { $0.path.uppercased().contains("/SUB/") }
+            var videoHandle: UInt32?
+            for f in c.files where !isProxy(f) {
                 let item = Self.makeItem(handle: nextHandle, slot: slot, content: c, file: f)
                 guard item.kind != .other else { continue }   // XML 附属文件等
                 entries[nextHandle] = Entry(slot: slot, contentID: c.id, fileID: f.id, item: item)
+                if item.kind == .video { videoHandle = nextHandle }
                 made.append((c.createdUTC, nextHandle))
+                nextHandle += 1
+            }
+            if let videoHandle, let f = c.files.first(where: isProxy) {
+                let item = Self.makeItem(handle: nextHandle, slot: slot, content: c, file: f)
+                entries[nextHandle] = Entry(slot: slot, contentID: c.id, fileID: f.id, item: item)
+                proxies[videoHandle] = nextHandle
                 nextHandle += 1
             }
         }
@@ -342,6 +356,24 @@ public actor SonyRemoteTransferLibrary: CameraLibrary {
             done += UInt64(r.data.count)
             progress(done, size)
         }
+    }
+
+    public func proxy(of handle: UInt32) async -> CameraContentItem? {
+        proxies[handle].flatMap { entries[$0]?.item }
+    }
+
+    /// 视频片段的拍摄信息：只读 MP4 的最后 64 KB，里面内嵌着 M01.XML。
+    public func clipInfo(_ handle: UInt32) async -> ClipInfo? {
+        if let c = clipCache[handle] { return c }
+        guard let e = entries[handle], e.item.kind == .video, e.item.size > 0 else { return nil }
+        let length = min(ClipInfo.tailLength, e.item.size)
+        let offset = e.item.size - length
+        guard let r = try? await client.transaction(SonyOperation.getContentsData,
+                                                    [e.contentID, e.slot << 24 | UInt32(e.fileID),
+                                                     UInt32(offset & 0xFFFF_FFFF), UInt32(offset >> 32), UInt32(length) | 1 << 31]),
+              let xml = ClipInfo.embeddedXML(in: r.data), let info = ClipInfo.parse(xml) else { return nil }
+        clipCache[handle] = info
+        return info
     }
 
     public func close() async {

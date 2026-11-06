@@ -62,6 +62,11 @@ public struct CameraContentItem: Identifiable, Hashable, Sendable {
     public var baseName: String { (filename as NSString).deletingPathExtension }
 }
 
+public extension CameraLibrary {
+    func clipInfo(_ handle: UInt32) async -> ClipInfo? { nil }
+    func proxy(of handle: UInt32) async -> CameraContentItem? { nil }
+}
+
 public struct CameraFolder: Identifiable, Hashable, Sendable {
     public let id: UInt32
     public let storageID: UInt32
@@ -99,6 +104,10 @@ public protocol CameraLibrary: AnyObject, Sendable {
     /// 做不到续传的方式会忽略它，从头写。`progress` 报告的已完成字节数包含 `offset`。
     func download(_ item: CameraContentItem, to url: URL, from offset: UInt64,
                   progress: @escaping @Sendable (UInt64, UInt64) -> Void) async throws
+    /// 视频片段的拍摄信息（M01.XML，或 MP4 末尾内嵌的同一份 XML）；拿不到时 nil。
+    func clipInfo(_ handle: UInt32) async -> ClipInfo?
+    /// 视频片段的代理（相机列表里和原片同一次拍摄的 SUB/C0001S03.MP4），用来下载；没有时 nil。
+    func proxy(of handle: UInt32) async -> CameraContentItem?
     /// 连接断开时发出一次。
     var connectionLost: AsyncStream<Void> { get }
     /// 列目录过程的诊断信息。

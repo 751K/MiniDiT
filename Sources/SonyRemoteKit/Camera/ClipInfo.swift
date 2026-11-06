@@ -116,6 +116,29 @@ public struct ClipInfo: Sendable, Hashable {
 
     public static func read(_ xml: URL) -> ClipInfo? {
         guard let data = try? Data(contentsOf: xml) else { return nil }
+        return parse(data)
+    }
+
+    /// 索尼 MP4 末尾的 meta 盒子里内嵌着和 M01.XML 一字不差的同一份 XML。从文件末尾一段数据里把它切出来。
+    public static func embeddedXML(in tail: Data) -> Data? {
+        guard let start = tail.range(of: Data("<?xml".utf8)),
+              let end = tail.range(of: Data("</NonRealTimeMeta>".utf8), in: start.upperBound..<tail.endIndex) else { return nil }
+        return tail.subdata(in: start.lowerBound..<end.upperBound)
+    }
+
+    /// 读本地 MP4 末尾 64 KB 里内嵌的 XML。
+    public static func embeddedXML(inFile url: URL) -> Data? {
+        guard let h = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? h.close() }
+        guard let size = try? h.seekToEnd() else { return nil }
+        try? h.seek(toOffset: size > tailLength ? size - tailLength : 0)
+        return (try? h.readToEnd()).flatMap(embeddedXML(in:))
+    }
+
+    /// 末尾读多少：XML 只有几 KB，留足余量。
+    public static let tailLength: UInt64 = 64 * 1024
+
+    public static func parse(_ data: Data) -> ClipInfo? {
         let p = Parser()
         let x = XMLParser(data: data)
         x.delegate = p

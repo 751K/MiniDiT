@@ -302,7 +302,7 @@ extension AppModel {
                         if let backupURL { mhlBackup.append(.init(url: backupURL, xxh64: r.xxh64, action: .original)) }
                         if isVideo {
                             // XML 和代理跟着片段走，一样校验、备份、写进 MHL。
-                            for c in await importer.importSidecars(of: item, clip: r.outcome.url, backupClip: backupURL,
+                            for c in await importer.importSidecars(of: localItem(item), clip: r.outcome.url, backupClip: backupURL,
                                                                    proxies: proxies, stage: { self.progress?.current = $0 }) {
                                 mhlVideo[videoFolder(item), default: []].append(.init(url: c.url, xxh64: c.xxh64,
                                                                                       action: c.alreadyThere ? .verified : .original))

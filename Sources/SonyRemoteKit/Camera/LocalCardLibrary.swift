@@ -150,8 +150,10 @@ public actor LocalCardLibrary: CameraLibrary {
     /// 视频片段的拍摄信息（读同名的 M01.XML）。
     public func clipInfo(_ handle: UInt32) -> ClipInfo? {
         if let c = clipCache[handle] { return c }
-        guard let e = entries[handle], e.item.kind == .video, let xml = ClipInfo.sidecar(for: e.url),
-              let info = ClipInfo.read(xml) else { return nil }
+        guard let e = entries[handle], e.item.kind == .video else { return nil }
+        // 有 M01.XML 读它，没有就读 MP4 末尾内嵌的那份。
+        let data = ClipInfo.sidecar(for: e.url).flatMap { try? Data(contentsOf: $0) } ?? ClipInfo.embeddedXML(inFile: e.url)
+        guard let data, let info = ClipInfo.parse(data) else { return nil }
         clipCache[handle] = info
         return info
     }
