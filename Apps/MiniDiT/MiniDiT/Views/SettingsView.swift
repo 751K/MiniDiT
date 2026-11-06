@@ -346,7 +346,7 @@ private struct VideoSettings: View {
                     }
                     Toggle(isOn: $model.fcpLogProcessing) {
                         Text("设置片段的 Log 处理")
-                        Text("为 S-Log3 / S-Gamut3.Cine 片段选用 Final Cut Pro 内置的“Sony S-Log3/S-Gamut3.Cine”Log 处理。")
+                        Text("为 S-Log3 片段选用 Final Cut Pro 内置的 Sony S-Log3 Log 处理（S-Gamut3.Cine 或 S-Gamut3，按拍摄设置）。")
                     }
                     .padding(.leading, 16)
                     .disabled(!model.sendToFCP)

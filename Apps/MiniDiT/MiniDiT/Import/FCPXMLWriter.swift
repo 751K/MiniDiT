@@ -19,10 +19,10 @@ enum FCPXMLWriter {
     static var appURL: URL? { NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) }
 
     /// FCP 内置的 Log 处理（customLUTOverride，「编号 (名字)」）。编号是 FCP 12.4 自己导出的；
-    /// 其他 Sony 模式（S-Gamut3、S-Log2）的编号还没核实过，先不写。
+    /// S-Log2 的编号还没核实过，先不写。
     static func logProcessing(_ info: ClipInfo) -> String? {
         let g = info.gamma.lowercased(), p = info.primaries.lowercased()
-        if g.contains("s-log3"), p.contains("cine") { return "35 (Sony_SLog3_SGamut3Cine_v2)" }
+        if g.contains("s-log3") { return p.contains("cine") ? "35 (Sony_SLog3_SGamut3Cine_v2)" : "36 (Sony_SLog3_SGamut3)" }
         return nil
     }
 
