@@ -326,13 +326,16 @@ private struct VideoSection: View {
             }
             Toggle("同时导入代理文件", isOn: $model.importProxies)
             Toggle("通过 Wi-Fi 导入时只导入代理", isOn: $model.proxyOnlyWiFi)
+            if ResolveBridge.appURL != nil {
+                Toggle("导入后加入 DaVinci Resolve 当前项目", isOn: $model.sendToResolve)
+            }
             if FCPXMLWriter.appURL != nil {
                 Toggle("导入后交给 Final Cut Pro", isOn: $model.sendToFCP)
             }
         } header: {
             Text("视频")
         } footer: {
-            Text("视频不导入 Capture One 或 Lightroom Classic，按原文件名平铺存放，同名的 XML 元数据文件一并导入；同时连接多台相机时按相机分开存放。代理文件存入旁边的“Proxy”文件夹并改为与原片同名，DaVinci Resolve 导入原片时会自动链接。备份时存入备份文件夹中的“视频”文件夹。通过 Wi-Fi 只导入代理时，原片留在存储卡上并标为“仅代理”，之后用读卡器导入原片即可，已有的代理和 XML 文件不会重复复制。交给 Final Cut Pro 时，每个视频文件夹建一个事件，片段原地引用、不复制进资源库，代理一并链接；由 Final Cut Pro 询问放入哪个资源库。")
+            Text("视频不导入 Capture One 或 Lightroom Classic，按原文件名平铺存放，同名的 XML 元数据文件一并导入；同时连接多台相机时按相机分开存放。代理文件存入旁边的“Proxy”文件夹并改为与原片同名，DaVinci Resolve 导入原片时会自动链接。加入 DaVinci Resolve 时，在当前打开的项目里每个视频文件夹建一个媒体夹；Resolve 未打开时会先打开它，需要在 Resolve 的“偏好设置 › 系统 › 常规”中把“外部脚本使用”设为“本地”。备份时存入备份文件夹中的“视频”文件夹。通过 Wi-Fi 只导入代理时，原片留在存储卡上并标为“仅代理”，之后用读卡器导入原片即可，已有的代理和 XML 文件不会重复复制。交给 Final Cut Pro 时，每个视频文件夹建一个事件，片段原地引用、不复制进资源库，代理一并链接；由 Final Cut Pro 询问放入哪个资源库。")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }

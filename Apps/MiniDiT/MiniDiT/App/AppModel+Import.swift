@@ -397,18 +397,33 @@ extension AppModel {
                     do { reports.append(try MHLWriter.append(root: folder, entries: entries)) }
                     catch { log.add("写视频校验清单失败：\(error.localizedDescription)") }
                 }
-                // 交给 Final Cut Pro：事件名用视频文件夹相对保存位置的路径（「11.04-公园」「11.04-公园 · a7 V」）。
-                if sendToFCP, !fcpClips.isEmpty {
+                // 交给 Final Cut Pro / DaVinci Resolve：事件（媒体夹）名用视频文件夹相对保存位置的路径（「11.04-公园」「11.04-公园 · a7 V」）。
+                if sendToFCP || sendToResolve, !fcpClips.isEmpty {
                     let base = videoRoot.standardizedFileURL.pathComponents
                     let events = fcpClips.sorted { $0.key.path < $1.key.path }.map { folder, clips in
                         let parts = folder.standardizedFileURL.pathComponents
                         let rel = parts.starts(with: base) ? Array(parts.dropFirst(base.count)) : [folder.lastPathComponent]
                         return FCPXMLWriter.Event(name: rel.isEmpty ? folder.lastPathComponent : rel.joined(separator: " · "), clips: clips)
                     }
-                    do {
-                        if let u = try FCPXMLWriter.send(events) { log.add("交给 Final Cut Pro：\(fcpClips.values.joined().count) 个片段，\(u.path)") }
-                        else { log.add("未找到 Final Cut Pro，未交给 FCP") }
-                    } catch { log.add("写 FCPXML 失败：\(error.localizedDescription)") }
+                    if sendToFCP {
+                        do {
+                            if let u = try FCPXMLWriter.send(events) { log.add("交给 Final Cut Pro：\(fcpClips.values.joined().count) 个片段，\(u.path)") }
+                            else { log.add("未找到 Final Cut Pro，未交给 FCP") }
+                        } catch { log.add("写 FCPXML 失败：\(error.localizedDescription)") }
+                    }
+                    if sendToResolve {
+                        // 不挡着导入收尾：Resolve 可能要先启动。
+                        Task {
+                            do {
+                                let r = try await ResolveBridge.send(events)
+                                self.log.add("加入 DaVinci Resolve 项目“\(r.project)”：导入 \(r.imported) 个片段，链接代理 \(r.proxies) 个"
+                                             + (r.skipped > 0 ? "，\(r.skipped) 个已在媒体夹中" : ""))
+                            } catch {
+                                self.log.add("加入 DaVinci Resolve 失败：\(error.localizedDescription)")
+                                Notifier.shared.post(id: "resolve", title: "未能加入 DaVinci Resolve", body: error.localizedDescription, info: [:])
+                            }
+                        }
+                    }
                 }
                 // 导入报告：ASC MHL 清单。会话模式写在 Capture 文件夹里（C1 自己的 CaptureOne/ 子文件夹不算），其他模式写在保存位置根目录。
                 if !mhlPrimary.isEmpty {

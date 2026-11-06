@@ -1,0 +1,120 @@
+import AppKit
+
+/// 导入的视频加进 DaVinci Resolve：通过 Resolve 的外部脚本接口（系统自带的 python3 加载 Resolve 里的 fusionscript），
+/// 在当前打开的项目里每个视频文件夹建一个媒体夹（已有同名的就用它），导入片段；
+/// Resolve 会自动认出旁边「Proxy」文件夹里的同名代理，没认出的再手动链接。
+/// Resolve 没开时先打开它，等它能接受脚本。
+enum ResolveBridge {
+    static let bundleIDs = ["com.blackmagic-design.DaVinciResolve", "com.blackmagic-design.DaVinciResolveLite"]
+
+    static var appURL: URL? {
+        bundleIDs.lazy.compactMap { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }.first
+    }
+
+    struct Result: Decodable {
+        let project: String
+        let imported: Int
+        let proxies: Int
+        let skipped: Int
+    }
+
+    enum Failure: LocalizedError {
+        case notInstalled, notReachable, script(String)
+        var errorDescription: String? {
+            switch self {
+            case .notInstalled: "未找到 DaVinci Resolve"
+            case .notReachable: "DaVinci Resolve 没有响应脚本：请在 Resolve 的“偏好设置 › 系统 › 常规”中把“外部脚本使用”设为“本地”"
+            case .script(let s): s
+            }
+        }
+    }
+
+    /// 在后台跑，可能要等 Resolve 启动（最多 2 分钟）。
+    static func send(_ events: [FCPXMLWriter.Event]) async throws -> Result {
+        guard let app = appURL else { throw Failure.notInstalled }
+        let lib = app.appending(path: "Contents/Libraries/Fusion/fusionscript.so").path
+        let payload = events.map { e in
+            ["bin": e.name, "clips": e.clips.map { ["path": $0.url.path, "proxy": $0.proxy?.path ?? ""] }] as [String: Any]
+        }
+        let input = try JSONSerialization.data(withJSONObject: payload)
+        let running = !NSRunningApplication.runningApplications(withBundleIdentifier: bundleIDs[0]).isEmpty
+            || !NSRunningApplication.runningApplications(withBundleIdentifier: bundleIDs[1]).isEmpty
+        if !running {
+            let cfg = NSWorkspace.OpenConfiguration()
+            cfg.activates = false
+            _ = try? await NSWorkspace.shared.openApplication(at: app, configuration: cfg)
+        }
+        // 刚启动的 Resolve 要过一阵才接脚本，隔几秒试一次。
+        let deadline = Date().addingTimeInterval(running ? 10 : 120)
+        while true {
+            let (code, out, err) = try await run(lib: lib, input: input)
+            if code == 0, let r = try? JSONDecoder().decode(Result.self, from: Data(out.utf8)) { return r }
+            if code != 3 { throw Failure.script(err.isEmpty ? out : err) }
+            if Date() > deadline { throw Failure.notReachable }
+            try await Task.sleep(for: .seconds(3))
+        }
+    }
+
+    private static func run(lib: String, input: Data) async throws -> (Int32, String, String) {
+        try await withCheckedThrowingContinuation { cont in
+            let p = Process()
+            p.executableURL = URL(filePath: "/usr/bin/python3")
+            p.arguments = ["-I", "-c", script, lib]
+            let inPipe = Pipe(), outPipe = Pipe(), errPipe = Pipe()
+            p.standardInput = inPipe
+            p.standardOutput = outPipe
+            p.standardError = errPipe
+            p.terminationHandler = { p in
+                let out = String(decoding: outPipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+                let err = String(decoding: errPipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+                cont.resume(returning: (p.terminationStatus, out.trimmingCharacters(in: .whitespacesAndNewlines),
+                                        err.trimmingCharacters(in: .whitespacesAndNewlines)))
+            }
+            do {
+                try p.run()
+                inPipe.fileHandleForWriting.write(input)
+                try? inPipe.fileHandleForWriting.close()
+            } catch { cont.resume(throwing: error) }
+        }
+    }
+
+    /// 退出码 3：Resolve 还连不上（没开 / 还在启动 / 没开外部脚本）。
+    private static let script = #"""
+import importlib.machinery, importlib.util, json, sys
+lib = sys.argv[1]
+loader = importlib.machinery.ExtensionFileLoader("fusionscript", lib)
+spec = importlib.util.spec_from_file_location("fusionscript", lib, loader=loader)
+fs = importlib.util.module_from_spec(spec)
+loader.exec_module(fs)
+resolve = fs.scriptapp("Resolve")
+if not resolve:
+    sys.exit(3)
+project = resolve.GetProjectManager().GetCurrentProject()
+if not project:
+    sys.exit(3)
+events = json.load(sys.stdin)
+mp = project.GetMediaPool()
+root = mp.GetRootFolder()
+imported = proxies = skipped = 0
+for e in events:
+    folder = next((f for f in (root.GetSubFolderList() or []) if f.GetName() == e["bin"]), None) or mp.AddSubFolder(root, e["bin"])
+    have = {c.GetClipProperty("File Path") for c in (folder.GetClipList() or [])}
+    todo = [c for c in e["clips"] if c["path"] not in have]
+    skipped += len(e["clips"]) - len(todo)
+    if not todo:
+        continue
+    mp.SetCurrentFolder(folder)
+    items = mp.ImportMedia([c["path"] for c in todo]) or []
+    imported += len(items)
+    proxy_of = {c["path"]: c["proxy"] for c in todo}
+    for it in items:
+        p = proxy_of.get(it.GetClipProperty("File Path"), "")
+        if not p:
+            continue
+        if not it.GetClipProperty("Proxy Media Path"):
+            it.LinkProxyMedia(p)
+        if it.GetClipProperty("Proxy Media Path"):
+            proxies += 1
+print(json.dumps({"project": project.GetName(), "imported": imported, "proxies": proxies, "skipped": skipped}))
+"""#
+}

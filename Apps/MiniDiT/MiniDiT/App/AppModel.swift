@@ -327,6 +327,11 @@ final class AppModel {
         didSet { UserDefaults.standard.set(sendToFCP, forKey: "sendToFCP") }
     }
 
+    /// 视频导完加进 DaVinci Resolve 当前打开的项目（每个视频文件夹一个媒体夹）。
+    var sendToResolve: Bool = UserDefaults.standard.bool(forKey: "sendToResolve") {
+        didSet { UserDefaults.standard.set(sendToResolve, forKey: "sendToResolve") }
+    }
+
     /// 第二份放在哪（备份盘上的文件夹）。没设置时为 nil。
     var backupFolder: URL? {
         get { _ = destinationVersion; return UserDefaults.standard.url(forKey: "backupFolder") }
