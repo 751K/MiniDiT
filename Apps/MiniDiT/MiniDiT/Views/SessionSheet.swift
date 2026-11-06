@@ -36,7 +36,7 @@ struct SessionSheet: View {
         @Bindable var model = model
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Text("导入 \(model.selectedShotCount) 张照片").font(.system(size: 15, weight: .semibold))
+                Text("导入 \(model.countText(model.grid.selected, noun: true))").font(.system(size: 15, weight: .semibold))
                 Spacer(minLength: 0)
                 Text("\(model.selectedFiles().count) 个文件 · \(FloatingBar.bytes(model.selectionBytes))")
                     .font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
@@ -230,7 +230,7 @@ struct SessionSheet: View {
                         .focused($focusedRow, equals: g.id)
                         .onSubmit { if canStart { start() } }
                 }
-                Text("\(g.shotCount) 张").font(.system(size: 12).monospacedDigit()).foregroundStyle(.secondary)
+                Text(AppModel.countText(photos: g.shotCount - g.videoCount, videos: g.videoCount)).font(.system(size: 12).monospacedDigit()).foregroundStyle(.secondary)
                     .frame(minWidth: 44, alignment: .trailing)
             }
             if request.resume[g.id] == nil, groups.count > 1 {

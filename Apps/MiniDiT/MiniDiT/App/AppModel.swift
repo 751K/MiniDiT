@@ -439,6 +439,8 @@ final class AppModel {
         let scene: Int?
         let title: String
         let shotCount: Int
+        /// 其中的视频片段数。
+        var videoCount: Int { files.filter { $0.kind == .video }.count }
         /// 旧的在前。
         let files: [CameraContentItem]
     }

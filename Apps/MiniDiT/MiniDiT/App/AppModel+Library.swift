@@ -360,6 +360,22 @@ extension AppModel {
     }
 
     var selectedShotCount: Int { grid.selected.count }
+
+    /// 「12 张」「3 个片段」「12 张照片、3 个片段」；fresh 时「12 张新照片」「3 个新片段」。
+    /// noun：只有照片时也说「12 张照片」。
+    func countText(_ ids: some Sequence<UInt32>, fresh: Bool = false, noun: Bool = false) -> String {
+        var p = 0, v = 0
+        for id in ids { if shots[id]?.isVideo == true { v += 1 } else { p += 1 } }
+        return Self.countText(photos: p, videos: v, fresh: fresh, noun: noun)
+    }
+
+    static func countText(photos p: Int, videos v: Int, fresh: Bool = false, noun: Bool = false) -> String {
+        let n = fresh ? "新" : ""
+        let photo = "\(p.formatted()) 张\(n)照片", clip = "\(v.formatted()) 个\(n)片段"
+        if v == 0 { return fresh || noun ? photo : "\(p.formatted()) 张" }
+        if p == 0 { return clip }
+        return photo + "、" + clip
+    }
     var selectionBytes: UInt64 { selectedFiles().reduce(0) { $0 + transferSize($1) } }
 
     /// 这个文件这次会只导代理（Wi-Fi 相机上的视频，打开了「视频只导代理」）。

@@ -103,7 +103,10 @@ extension AppModel {
             guard phase == .ready, progress == nil else { return }
             // 读完以后用来源的名字（存储卡读出的机型、改过的名字），和导入完成的通知一致。
             let name = sources.first?.name ?? name
-            let fresh = allShots.map(\.id).filter { !isImported(shot: $0) && !importFiles(of: shots[$0]!).isEmpty }
+            // 视频不自动导入：动辄几 GB，Wi-Fi 上要拉很久，留给手动选。
+            let fresh = allShots.map(\.id).filter {
+                shots[$0]?.isVideo != true && !isImported(shot: $0) && !importFiles(of: shots[$0]!).isEmpty
+            }
             guard !fresh.isEmpty else {
                 log.add("自动导入：“\(name)”没有新照片")
                 if isCard {
@@ -285,7 +288,7 @@ extension AppModel {
         case .searching: return "正在查找相机…"
         case .connecting: return "正在连接…"
         case .loading: return "正在读取…"
-        case .ready: return newShotCount > 0 ? "\(newShotCount.formatted()) 张新照片" : "无新照片"
+        case .ready: return countTitle.new
         case .idle: return library == nil ? "未连接" : ""
         }
     }

@@ -555,7 +555,7 @@ private struct DayRow: View {
             .buttonStyle(.plain)
             .accessibilityLabel("导入 \(day.title)")
             .accessibilityValue(state == .on ? "已勾选" : state == .mixed ? "部分勾选" : "未勾选")
-            .help(day.newCount > 0 ? "勾选当日 \(day.newCount) 张新照片" : "勾选当日全部照片")
+            .help(day.newCount > 0 ? "勾选当日 \(model.countText(day.shots.filter { !model.isImported(shot: $0) }, fresh: true))" : "勾选当日全部内容")
             DayTitle(title: day.title)
             Spacer(minLength: 4)
             let copies = day.newCount > 0 ? 0 : (day.shots.map { model.copyCount(shot: $0) }.min() ?? 0)
@@ -637,7 +637,7 @@ private struct SceneRow: View {
             .buttonStyle(.plain)
             .accessibilityLabel("导入 \(day.title) \(AppModel.sceneTitle(scene))")
             .accessibilityValue(state == .on ? "已勾选" : state == .mixed ? "部分勾选" : "未勾选")
-            .help(scene.newCount > 0 ? "勾选该场次 \(scene.newCount) 张新照片" : "勾选该场次全部照片")
+            .help(scene.newCount > 0 ? "勾选该场次 \(model.countText(scene.shots.filter { !model.isImported(shot: $0) }, fresh: true))" : "勾选该场次全部内容")
             Text(scene.timeRange.isEmpty ? "第 \(scene.number) 场" : scene.timeRange).font(.system(size: 12)).lineLimit(1)
             Spacer(minLength: 4)
             ShotCounts(new: scene.newCount, total: scene.shots.count, copies: 2, size: 11)
@@ -1067,7 +1067,7 @@ struct DayHeader: View {
             if day.partial, day.scenes.count == 1 {
                 Text(AppModel.sceneTitle(day.scenes[0])).font(.system(size: 13, weight: .semibold)).foregroundStyle(.primary)
             }
-            Text(GroupMeta.text(total: day.shots.count, new: day.newCount))
+            Text(GroupMeta.text(model, shots: day.shots))
             Spacer(minLength: 8)
             Button(picked ? "取消选择" : day.newCount > 0 ? "选择新照片" : "全选") {
                 if picked { model.deselect(in: [day.id]) }
@@ -1093,7 +1093,7 @@ struct SceneHeader: View {
         let picked = scene.shots.contains(where: model.grid.contains)
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(AppModel.sceneTitle(scene)).font(.system(size: 13, weight: .medium)).foregroundStyle(.primary)
-            Text(GroupMeta.text(total: scene.shots.count, new: scene.newCount))
+            Text(GroupMeta.text(model, shots: scene.shots))
             Spacer(minLength: 8)
             Button(picked ? "取消选择" : scene.newCount > 0 ? "选择新照片" : "全选") {
                 if picked { model.grid.set(scene.shots, selected: false) }
@@ -1108,10 +1108,15 @@ struct SceneHeader: View {
     }
 }
 
-/// 「870 张 · 6 张新照片」/「112 张 · 均已导入」。
+/// 「870 张 · 6 张新照片」/「112 张 · 均已导入」/「12 张照片、3 个片段 · 2 个新片段」。
 enum GroupMeta {
-    static func text(total: Int, new: Int) -> String {
-        "\(total.formatted()) 张 · " + (new > 0 ? (new == total ? "均为新照片" : "\(new.formatted()) 张新照片") : "均已导入")
+    @MainActor static func text(_ model: AppModel, shots: [UInt32]) -> String {
+        let fresh = shots.filter { !model.isImported(shot: $0) }
+        let videos = shots.filter { model.shots[$0]?.isVideo == true }.count
+        let all = fresh.count == shots.count
+            ? (videos == 0 ? "均为新照片" : videos == shots.count ? "均为新片段" : "均未导入")
+            : model.countText(fresh, fresh: true)
+        return model.countText(shots) + " · " + (fresh.isEmpty ? "均已导入" : all)
     }
 }
 
@@ -1305,14 +1310,14 @@ struct FloatingBar: View {
                 capsule {
                     if let r = model.lastResult, r.cancelled, r.savedBytes > 0, !model.sourcesOffline {
                         VStack(alignment: .leading, spacing: 1) {
-                            Text("已选 \(model.selectedShotCount) 张 · \(Self.bytes(model.selectionBytes))")
+                            Text("已选 \(model.countText(model.grid.selected)) · \(Self.bytes(model.selectionBytes))")
                                 .font(.system(size: 15, weight: .semibold)).lineLimit(1)
                             Label("已保存未传输完成的 \(Self.bytes(r.savedBytes))，再次导入时将从断点续传", systemImage: "arrow.clockwise")
                                 .font(.system(size: 11, weight: .medium)).foregroundStyle(.tint).lineLimit(1)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                     } else {
-                        twoLines("已选 \(model.selectedShotCount) 张 · \(Self.bytes(model.selectionBytes))", pickedDetail)
+                        twoLines("已选 \(model.countText(model.grid.selected)) · \(Self.bytes(model.selectionBytes))", pickedDetail)
                     }
                     ImportOptions()
                     mainButton(importLabel, disabled: model.sourcesOffline) { model.beginImport() }
