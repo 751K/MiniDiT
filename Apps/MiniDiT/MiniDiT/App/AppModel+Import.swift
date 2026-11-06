@@ -267,6 +267,8 @@ extension AppModel {
                 // 写 MHL 校验清单用：第一份（这个会话 / 保存位置），备份盘（整次导入一份）。
                 var mhlPrimary: [MHLWriter.Entry] = []
                 var mhlVideo: [URL: [MHLWriter.Entry]] = [:]
+                // 交给 Final Cut Pro 的片段，按视频文件夹分（一个文件夹一个事件）。
+                var fcpClips: [URL: [FCPXMLWriter.Clip]] = [:]
                 for item in job.files {
                     if Task.isCancelled { break }
                     progress?.current = "导入 \(item.filename)"
@@ -343,12 +345,16 @@ extension AppModel {
                         if let backupURL { mhlBackup.append(.init(url: backupURL, xxh64: r.xxh64, action: .original)) }
                         if isVideo {
                             // XML 和代理跟着片段走，一样校验、备份、写进 MHL。
+                            var proxy: URL?
                             for c in await importer.importSidecars(of: localItem(item), clip: r.outcome.url, backupClip: backupURL,
                                                                    proxies: proxies, stage: { self.progress?.current = $0 }) {
                                 mhlVideo[videoFolder(item), default: []].append(.init(url: c.url, xxh64: c.xxh64,
                                                                                       action: c.alreadyThere ? .verified : .original))
                                 if let b = c.backup { mhlBackup.append(.init(url: b, xxh64: c.xxh64, action: .original)) }
+                                if c.url.deletingLastPathComponent().lastPathComponent == "Proxy" { proxy = c.url }
                             }
+                            // 已经在电脑上的（之前导过）不再交给 FCP，免得事件里出现重复的片段。
+                            if !there { fcpClips[videoFolder(item), default: []].append(.init(url: r.outcome.url, proxy: proxy)) }
                         }
                         if mode == .lightroom, !isVideo {
                             let url = r.outcome.url
@@ -390,6 +396,19 @@ extension AppModel {
                 for (folder, entries) in mhlVideo {
                     do { reports.append(try MHLWriter.append(root: folder, entries: entries)) }
                     catch { log.add("写视频校验清单失败：\(error.localizedDescription)") }
+                }
+                // 交给 Final Cut Pro：事件名用视频文件夹相对保存位置的路径（「11.04-公园」「11.04-公园 · a7 V」）。
+                if sendToFCP, !fcpClips.isEmpty {
+                    let base = videoRoot.standardizedFileURL.pathComponents
+                    let events = fcpClips.sorted { $0.key.path < $1.key.path }.map { folder, clips in
+                        let parts = folder.standardizedFileURL.pathComponents
+                        let rel = parts.starts(with: base) ? Array(parts.dropFirst(base.count)) : [folder.lastPathComponent]
+                        return FCPXMLWriter.Event(name: rel.isEmpty ? folder.lastPathComponent : rel.joined(separator: " · "), clips: clips)
+                    }
+                    do {
+                        if let u = try FCPXMLWriter.send(events) { log.add("交给 Final Cut Pro：\(fcpClips.values.joined().count) 个片段，\(u.path)") }
+                        else { log.add("未找到 Final Cut Pro，未交给 FCP") }
+                    } catch { log.add("写 FCPXML 失败：\(error.localizedDescription)") }
                 }
                 // 导入报告：ASC MHL 清单。会话模式写在 Capture 文件夹里（C1 自己的 CaptureOne/ 子文件夹不算），其他模式写在保存位置根目录。
                 if !mhlPrimary.isEmpty {

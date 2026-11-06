@@ -322,6 +322,11 @@ final class AppModel {
         didSet { UserDefaults.standard.set(importProxies, forKey: "importProxies") }
     }
 
+    /// 视频导完交给 Final Cut Pro（原地引用，不复制）。
+    var sendToFCP: Bool = UserDefaults.standard.bool(forKey: "sendToFCP") {
+        didSet { UserDefaults.standard.set(sendToFCP, forKey: "sendToFCP") }
+    }
+
     /// 第二份放在哪（备份盘上的文件夹）。没设置时为 nil。
     var backupFolder: URL? {
         get { _ = destinationVersion; return UserDefaults.standard.url(forKey: "backupFolder") }
