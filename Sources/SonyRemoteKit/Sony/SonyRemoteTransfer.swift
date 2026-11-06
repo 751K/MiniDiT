@@ -382,16 +382,25 @@ public actor SonyRemoteTransferLibrary: CameraLibrary {
     /// 视频片段的拍摄信息：只读 MP4 的最后 64 KB，里面内嵌着 M01.XML。
     public func clipInfo(_ handle: UInt32) async -> ClipInfo? {
         if let c = clipCache[handle] { return c }
+        guard let xml = await clipXML(handle), let info = ClipInfo.parse(xml) else { return nil }
+        clipCache[handle] = info
+        return info
+    }
+
+    /// MP4 末尾内嵌的 XML（相机不单独提供 M01.XML）。
+    public func clipXML(_ handle: UInt32) async -> Data? {
+        if let x = xmlCache[handle] { return x }
         guard let e = entries[handle], e.item.kind == .video, e.item.size > 0 else { return nil }
         let length = min(ClipInfo.tailLength, e.item.size)
         let offset = e.item.size - length
         guard let r = try? await client.transaction(SonyOperation.getContentsData,
                                                     [e.contentID, e.slot << 24 | UInt32(e.fileID),
                                                      UInt32(offset & 0xFFFF_FFFF), UInt32(offset >> 32), UInt32(length) | 1 << 31]),
-              let xml = ClipInfo.embeddedXML(in: r.data), let info = ClipInfo.parse(xml) else { return nil }
-        clipCache[handle] = info
-        return info
+              let xml = ClipInfo.embeddedXML(in: r.data) else { return nil }
+        xmlCache[handle] = xml
+        return xml
     }
+    private var xmlCache: [UInt32: Data] = [:]
 
     public func close() async {
         await client.shutdown()

@@ -151,7 +151,7 @@ extension AppModel {
         let wantsBackup = backupEnabled
         let deleteRequested = willDeleteFromSource
         let weight: UInt64 = backupRoot == nil ? 1 : 2
-        progress = ImportProgress(total: picked.count, bytesTotal: picked.reduce(0) { $0 + $1.size } * weight)
+        progress = ImportProgress(total: picked.count, bytesTotal: picked.reduce(0) { $0 + transferSize($1) } * weight)
         lastSummary = nil
         log.add("开始导入 \(picked.count) 个文件到 \(root.path)，Capture One：\(mode.title)，"
                 + (backupRoot.map { "备份到 \($0.path)" } ?? "没有备份")
@@ -161,8 +161,16 @@ extension AppModel {
         let videoRoot = videoDestination
         let proxies = importProxies
         importTask = Task {
+            // 只导代理的视频：还没读到代理大小的先问一下，总进度才按代理算。
+            if picked.contains(where: { importsProxyOnly($0) && proxySizes[$0.id] == nil }) {
+                for item in picked where importsProxyOnly(item) && proxySizes[item.id] == nil {
+                    if let r = route(item.id), let p = await r.library.proxy(of: r.local) { proxySizes[item.id] = p.size }
+                }
+                progress?.bytesTotal = picked.reduce(0) { $0 + transferSize($1) } * weight
+            }
             var saved: [URL] = []
             var done: [ImportHistory.Entry] = []
+            var proxyOnlyDone = 0
             // 可以从卡上删的：和卡上数据核对过；要求备份时备份也成功了；不是视频（删视频会让相机的数据库对不上）。
             var deletable: [UInt32] = []
             var consecutiveFailures = 0
@@ -269,6 +277,39 @@ extension AppModel {
                         // 来源已经关掉 / 拔掉了。
                         progress?.failed.append(item.filename)
                         log.add("导入失败 \(item.filename)：来源已关闭")
+                        continue
+                    }
+                    // Wi-Fi「视频只导代理」：只下代理和 XML，原片留在卡上，不记进导入记录（还算没导）。
+                    if importsProxyOnly(item) {
+                        do {
+                            guard let r = try await importer.importProxyOnly(localItem(item), into: dir, progress: { d in
+                                Task { @MainActor in
+                                    if let cur = self.progress?.bytesDone, base + d > cur { self.progress?.bytesDone = base + d }
+                                }
+                            }, stage: { self.progress?.current = $0 }) else {
+                                log.add("只导代理：\(item.filename) 在相机上没有代理，跳过")
+                                progress?.failed.append(item.filename + "（无代理）")
+                                continue
+                            }
+                            progress?.bytesDone = base + transferSize(item) * weight
+                            if r.proxy.alreadyThere { progress?.skipped += 1 } else { progress?.done += 1 }
+                            if r.proxy.backup != nil { progress?.backedUp += 1 }
+                            for c in [r.proxy] + (r.xml.map { [$0] } ?? []) {
+                                mhlVideo[videoFolder(item), default: []].append(.init(url: c.url, xxh64: c.xxh64,
+                                                                                      action: c.alreadyThere ? .verified : .original))
+                                if let b = c.backup { mhlBackup.append(.init(url: b, xxh64: c.xxh64, action: .original)) }
+                            }
+                            ProxyOnlyStore.shared.record(item, camera: camera(of: item.id), proxy: r.proxy.url)
+                            proxyOnlyDone += 1
+                            log.add("只导代理：\(item.filename) → \(r.proxy.url.path)")
+                            consecutiveFailures = 0
+                        } catch is CancellationError {
+                            break
+                        } catch {
+                            if error is PTPIPTransportError { progress?.failed.append(item.filename); lostDuringImport = true; stop = true; break }
+                            log.add("只导代理失败 \(item.filename)：\(error.localizedDescription)")
+                            progress?.failed.append(item.filename)
+                        }
                         continue
                     }
                     do {
@@ -402,7 +443,8 @@ extension AppModel {
                 cardFiles = picked.filter { route($0.id)?.library is LocalCardLibrary }.count
             }
             let wasLost = lostDuringImport || (progress.map { !$0.failed.isEmpty } ?? false) && offline
-            var summary = "导入 \(done.count) 个文件"
+            var summary = done.isEmpty && proxyOnlyDone > 0 ? "导入 \(proxyOnlyDone) 个片段的代理"
+                : "导入 \(done.count) 个文件" + (proxyOnlyDone > 0 ? "、\(proxyOnlyDone) 个片段的代理" : "")
             if let p = progress, p.reused > 0 { summary += "，其中 \(p.reused) 个使用本地已有文件" }
             if let p = progress, p.skipped > 0 { summary += "，\(p.skipped) 个已存在于目标文件夹" }
             if let p = progress, !p.failed.isEmpty { summary += "，\(p.failed.count) 个失败" }
@@ -447,7 +489,8 @@ extension AppModel {
                                           deleted: deleted, keptOnCard: deleted.map { cardFiles - $0 } ?? 0,
                                           deleteFailed: deleteFailed, cardReadOnly: cardReadOnly,
                                           resumed: progress?.resumedFiles ?? 0, savedBytes: savedBytes, reports: reports,
-                                          lightroom: mode == .lightroom ? lightroomText : nil, opened: openedText)
+                                          lightroom: mode == .lightroom ? lightroomText : nil, opened: openedText,
+                                          proxyOnly: proxyOnlyDone)
             }
             log.add("导入结束：\(summary)")
             // 全部文件都导好的拍摄取消选中。

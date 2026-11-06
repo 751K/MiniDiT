@@ -325,10 +325,11 @@ private struct VideoSection: View {
                 Text("示例：\(example)/C0001.MP4").font(.caption).foregroundStyle(.secondary)
             }
             Toggle("同时导入代理文件", isOn: $model.importProxies)
+            Toggle("通过 Wi-Fi 导入时只导入代理", isOn: $model.proxyOnlyWiFi)
         } header: {
             Text("视频")
         } footer: {
-            Text("视频不导入 Capture One 或 Lightroom Classic，按原文件名平铺存放，同名的 XML 元数据文件一并导入；同时连接多台相机时按相机分开存放。代理文件存入旁边的“Proxy”文件夹并改为与原片同名，DaVinci Resolve 导入原片时会自动链接。备份时存入备份文件夹中的“视频”文件夹。")
+            Text("视频不导入 Capture One 或 Lightroom Classic，按原文件名平铺存放，同名的 XML 元数据文件一并导入；同时连接多台相机时按相机分开存放。代理文件存入旁边的“Proxy”文件夹并改为与原片同名，DaVinci Resolve 导入原片时会自动链接。备份时存入备份文件夹中的“视频”文件夹。通过 Wi-Fi 只导入代理时，原片留在存储卡上并标为“仅代理”，之后用读卡器导入原片即可，已有的代理和 XML 文件不会重复复制。")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }

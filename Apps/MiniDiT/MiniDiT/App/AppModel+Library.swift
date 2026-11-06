@@ -11,7 +11,7 @@ extension AppModel {
         let sources = openSources
         guard !sources.isEmpty else { return }
         phase = .loading
-        thumbnails = [:]; clipInfos = [:]; thumbOrder = []; pendingThumbs = []   // 句柄会变，旧缩略图不能再用
+        thumbnails = [:]; clipInfos = [:]; proxySizes = [:]; thumbOrder = []; pendingThumbs = []   // 句柄会变，旧缩略图不能再用
         do {
             // 几个来源的句柄会重复：界面上统一重新编号（全局句柄），origins 记着它在哪个来源、原来是几号。
             var all: [UInt32: CameraContentItem] = [:]
@@ -360,7 +360,28 @@ extension AppModel {
     }
 
     var selectedShotCount: Int { grid.selected.count }
-    var selectionBytes: UInt64 { selectedFiles().reduce(0) { $0 + $1.size } }
+    var selectionBytes: UInt64 { selectedFiles().reduce(0) { $0 + transferSize($1) } }
+
+    /// 这个文件这次会只导代理（Wi-Fi 相机上的视频，打开了「视频只导代理」）。
+    func importsProxyOnly(_ item: CameraContentItem) -> Bool {
+        proxyOnlyWiFi && item.kind == .video && !(route(item.id)?.library is LocalCardLibrary)
+    }
+
+    /// 这次要传的字节数：只导代理的视频按代理大小算（还没读到时按原片算）。
+    func transferSize(_ item: CameraContentItem) -> UInt64 {
+        importsProxyOnly(item) ? proxySizes[item.id] ?? item.size : item.size
+    }
+
+    /// 选中的里面有 Wi-Fi 相机上的视频（「视频只导代理」只对它们有用）。
+    var selectionHasWiFiVideo: Bool {
+        selectedFiles().contains { $0.kind == .video && !(route($0.id)?.library is LocalCardLibrary) }
+    }
+
+    /// 这次拍摄之前只导了代理（原片还没导）。
+    func proxyOnlyCopy(shot id: UInt32) -> URL? {
+        guard let s = shots[id], s.isVideo, let item = items[s.primary] else { return nil }
+        return ProxyOnlyStore.shared.proxy(of: item, camera: camera(of: s.primary))
+    }
 
     /// 这次拍摄的文件已经在本地的位置（用来「在访达中显示」）。
     func localFile(of shot: UInt32) -> URL? {
@@ -388,6 +409,10 @@ extension AppModel {
             guard let r = route(h) else { continue }
             if items[h]?.kind == .video, clipInfos[h] == nil, let info = await r.library.clipInfo(r.local) {
                 clipInfos[h] = info
+            }
+            if items[h]?.kind == .video, proxySizes[h] == nil, !(r.library is LocalCardLibrary),
+               let p = await r.library.proxy(of: r.local) {
+                proxySizes[h] = p.size
             }
             guard let data = try? await r.library.thumbnail(r.local), let img = NSImage(data: data) else { continue }
             thumbnails[h] = img

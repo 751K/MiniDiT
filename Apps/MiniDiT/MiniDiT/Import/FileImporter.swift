@@ -188,9 +188,7 @@ struct FileImporter {
     private func copyToBackup(_ file: URL, item: CameraContentItem, root: URL, hash: UInt64,
                               progress: @escaping @Sendable (UInt64) -> Void) async throws -> URL {
         let fm = FileManager.default
-        var dir = Self.backupFolder(for: item, root: root, event: event, scene: scene)
-        if let backupSubfolder { dir = dir.appending(path: backupSubfolder, directoryHint: .isDirectory) }
-        if let sourceFolder { dir = dir.appending(path: sourceFolder, directoryHint: .isDirectory) }
+        let dir = backupDir(for: item, root: root)
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         var target = dir.appending(path: item.filename)
         if fm.fileExists(atPath: target.path) {
@@ -210,6 +208,57 @@ struct FileImporter {
             try? fm.setAttributes([.creationDate: date, .modificationDate: date], ofItemAtPath: target.path)
         }
         return target
+    }
+
+    /// 备份盘上这个文件所在的文件夹：「年-月-日-事件/[视频/][来源/]」。
+    private func backupDir(for item: CameraContentItem, root: URL) -> URL {
+        var dir = Self.backupFolder(for: item, root: root, event: event, scene: scene)
+        if let backupSubfolder { dir = dir.appending(path: backupSubfolder, directoryHint: .isDirectory) }
+        if let sourceFolder { dir = dir.appending(path: sourceFolder, directoryHint: .isDirectory) }
+        return dir
+    }
+
+    // MARK: 只导代理
+
+    struct ProxyOnlyResult {
+        var proxy: SidecarCopy
+        var xml: SidecarCopy?
+    }
+
+    /// Wi-Fi「视频只导代理」：原片留在卡上，只下载代理（Proxy/C0001.MP4）和 XML（读原片末尾内嵌的那份）。
+    /// 放的位置和完整导入时一样，之后用读卡器导原片时，这两个文件核对一致就不再复制。
+    /// 相机上这段没有代理时返回 nil。
+    func importProxyOnly(_ item: CameraContentItem, into dir: URL,
+                         progress: @escaping @Sendable (UInt64) -> Void,
+                         stage: (String) -> Void) async throws -> ProxyOnlyResult? {
+        guard let p = await library.proxy(of: item.id) else { return nil }
+        let rel = "Proxy/" + item.baseName + "." + (p.filename as NSString).pathExtension
+        stage("下载代理 \(item.filename)")
+        let dst = dir.appending(path: rel)
+        let (h, there) = try await downloadSidecar(p, to: dst, progress: progress)
+        let bdir = backupRoot.map { backupDir(for: item, root: $0) }
+        @MainActor func backup(_ file: URL, rel: String, hash: UInt64) async -> URL? {
+            guard let bdir else { return nil }
+            let b = bdir.appending(path: rel)
+            do { _ = try await copySidecar(file, to: b, expect: hash); return b }
+            catch { log.add("备份失败 \(rel)：\(error.localizedDescription)"); return nil }
+        }
+        if bdir != nil { stage("备份代理 \(item.filename)") }
+        var result = ProxyOnlyResult(proxy: SidecarCopy(url: dst, xxh64: h, backup: await backup(dst, rel: rel, hash: h), alreadyThere: there))
+        if let xml = await library.clipXML(item.id) {
+            let xrel = item.baseName + "M01.XML"
+            let x = dir.appending(path: xrel)
+            do {
+                let same = (try? Data(contentsOf: x)) == xml
+                if !same { try xml.write(to: x, options: .atomic) }
+                if let d = item.captureDate { try? FileManager.default.setAttributes([.creationDate: d, .modificationDate: d], ofItemAtPath: x.path) }
+                let xh = try await FileOps.hash(x)
+                result.xml = SidecarCopy(url: x, xxh64: xh, backup: await backup(x, rel: xrel, hash: xh), alreadyThere: same)
+            } catch {
+                log.add("写入 \(xrel) 失败：\(error.localizedDescription)")
+            }
+        }
+        return result
     }
 
     // MARK: 视频的附属文件
@@ -287,13 +336,14 @@ struct FileImporter {
     }
 
     /// Wi-Fi 下载代理：目标已有同样大小的文件就不再下载（相机给不出哈希，只能比大小）。
-    private func downloadSidecar(_ p: CameraContentItem, to dst: URL) async throws -> (UInt64, Bool) {
+    private func downloadSidecar(_ p: CameraContentItem, to dst: URL,
+                                 progress: @escaping @Sendable (UInt64) -> Void = { _ in }) async throws -> (UInt64, Bool) {
         let fm = FileManager.default
         try fm.createDirectory(at: dst.deletingLastPathComponent(), withIntermediateDirectories: true)
         if ImportHistory.matches(dst, p) { return (try await FileOps.hash(dst), true) }
         let part = dst.deletingLastPathComponent().appending(path: Self.partName(p))
         let have = (try? fm.attributesOfItem(atPath: part.path))?[.size] as? UInt64 ?? 0
-        try await library.download(p, to: part, from: have <= p.size ? have : 0) { _, _ in }
+        try await library.download(p, to: part, from: have <= p.size ? have : 0) { done, _ in progress(done) }
         guard ImportHistory.matches(part, p) else { try? fm.removeItem(at: part); throw CocoaError(.fileReadCorruptFile) }
         let h = try await FileOps.hash(part)
         if fm.fileExists(atPath: dst.path) { try fm.removeItem(at: dst) }

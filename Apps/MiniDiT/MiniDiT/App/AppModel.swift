@@ -152,6 +152,8 @@ final class AppModel {
     }
     /// 视频片段的拍摄信息（读卡器来源，读 M01.XML），随缩略图一起读。
     var clipInfos: [UInt32: ClipInfo] = [:]
+    /// Wi-Fi 相机上视频片段的代理大小（只导代理时算选中大小用），随缩略图一起读。
+    var proxySizes: [UInt32: UInt64] = [:]
     var onlyNew = UserDefaults.standard.object(forKey: "onlyNew") as? Bool ?? true {
         didSet { UserDefaults.standard.set(onlyNew, forKey: "onlyNew"); rebuild() }
     }
@@ -273,6 +275,8 @@ final class AppModel {
         var lightroom: String? = nil
         /// 「只下载」导入后打开了文件夹：「，已在访达中打开」之类。
         var opened: String? = nil
+        /// 只导了代理的视频片段数。
+        var proxyOnly = 0
     }
     /// 导入中断（相机掉线）：没导完的仍然选中，重连后可以继续。
     struct Interrupted {
@@ -308,6 +312,10 @@ final class AppModel {
     }
     static var defaultVideoDestination: URL {
         FileManager.default.urls(for: .moviesDirectory, in: .userDomainMask)[0].appending(path: "MiniDiT", directoryHint: .isDirectory)
+    }
+    /// Wi-Fi 导视频时只导代理和 XML，原片留在卡上（之后用读卡器导）。
+    var proxyOnlyWiFi: Bool = UserDefaults.standard.bool(forKey: "proxyOnlyWiFi") {
+        didSet { UserDefaults.standard.set(proxyOnlyWiFi, forKey: "proxyOnlyWiFi") }
     }
     /// 代理（SUB 里的小 MP4）一起导，放进片段旁边的 Proxy/，名字改成和原片一样，Resolve 会自动链接。
     var importProxies: Bool = UserDefaults.standard.object(forKey: "importProxies") as? Bool ?? true {

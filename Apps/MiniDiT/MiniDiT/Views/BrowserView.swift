@@ -738,6 +738,11 @@ private struct ImportOptions: View {
                 if !model.canDeleteFromSource {
                     Text("仅适用于读卡器")
                 }
+                if model.selectionHasWiFiVideo {
+                    Divider()
+                    Toggle("视频只导代理", isOn: $model.proxyOnlyWiFi)
+                    Text("原片留在存储卡上，之后可用读卡器导入")
+                }
                 if model.canSplitBySlot {
                     Divider()
                     Toggle("按卡槽分子文件夹", isOn: $model.splitBySlot)
@@ -1101,6 +1106,10 @@ struct ThumbCell: View {
                 }
             }
             .overlay(alignment: .bottomTrailing) {
+                if !imported, model.proxyOnlyCopy(shot: shotID) != nil {
+                    Badge(text: model.thumbSize >= 150 ? "仅代理" : "", check: true, checkColor: .blue).padding(5)
+                        .help("已导入代理，原片尚未导入")
+                }
                 if imported {
                     let copies = model.copyCount(shot: shotID)
                     let text = copies >= 2 ? "两份" : copies == 1 ? "一份" : "已导入"
@@ -1311,20 +1320,28 @@ struct FloatingBar: View {
             s += model.backupAvailable ? " · 备份至“\(model.backupFolder!.lastPathComponent)”" : " · ⚠︎ 备份磁盘未连接"
         }
         if model.isMultiSource { s += model.splitBySlot && model.canSplitBySlot ? " · 按来源和卡槽分子文件夹" : " · 按来源分子文件夹" }
+        if model.proxyOnlyWiFi && model.selectionHasWiFiVideo { s += " · 视频只导代理" }
         if model.willDeleteFromSource { s += " · 完成后删除存储卡上的照片" }
         return s
     }
 
     /// 完成提示的两行：「已导入 12 个文件」和其余说明。
     private func resultLines(_ r: AppModel.ImportResult) -> (String, String) {
-        let title = "已导入 \(r.files) 个文件"
+        let title = Self.resultTitle(r)
         var rest = resultText(r).dropFirst(title.count)
-        while let c = rest.first, "，；".contains(c) { rest = rest.dropFirst() }
+        while let c = rest.first, "，；、".contains(c) { rest = rest.dropFirst() }
         return (title, String(rest))
     }
 
+    /// 「已导入 12 个文件」；只导了代理时「已导入 3 个片段的代理」。
+    static func resultTitle(_ r: AppModel.ImportResult) -> String {
+        r.files == 0 && r.proxyOnly > 0 ? "已导入 \(r.proxyOnly) 个片段的代理" : "已导入 \(r.files) 个文件"
+    }
+
     private func resultText(_ r: AppModel.ImportResult) -> String {
-        var s = "已导入 \(r.files) 个文件"
+        var s = Self.resultTitle(r)
+        if r.files > 0 && r.proxyOnly > 0 { s += "、\(r.proxyOnly) 个片段的代理" }
+        if r.proxyOnly > 0 { s += "，原片留在存储卡上" }
         if let session = r.session { s += "，已存入会话“\(session)”" }
         if let c = r.lightroom { s += "，收藏夹“\(c)”" + (model.lightroomStatus.map { "：" + $0 } ?? "") }
         if r.resumed > 0 { s += "，其中 \(r.resumed) 个从断点续传" }

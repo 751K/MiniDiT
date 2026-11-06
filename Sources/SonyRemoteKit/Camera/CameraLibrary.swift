@@ -64,6 +64,7 @@ public struct CameraContentItem: Identifiable, Hashable, Sendable {
 
 public extension CameraLibrary {
     func clipInfo(_ handle: UInt32) async -> ClipInfo? { nil }
+    func clipXML(_ handle: UInt32) async -> Data? { nil }
     func proxy(of handle: UInt32) async -> CameraContentItem? { nil }
 }
 
@@ -106,6 +107,8 @@ public protocol CameraLibrary: AnyObject, Sendable {
                   progress: @escaping @Sendable (UInt64, UInt64) -> Void) async throws
     /// 视频片段的拍摄信息（M01.XML，或 MP4 末尾内嵌的同一份 XML）；拿不到时 nil。
     func clipInfo(_ handle: UInt32) async -> ClipInfo?
+    /// 视频片段的 XML 原文（和卡上的 M01.XML 一字不差）；拿不到时 nil。
+    func clipXML(_ handle: UInt32) async -> Data?
     /// 视频片段的代理（相机列表里和原片同一次拍摄的 SUB/C0001S03.MP4），用来下载；没有时 nil。
     func proxy(of handle: UInt32) async -> CameraContentItem?
     /// 连接断开时发出一次。
