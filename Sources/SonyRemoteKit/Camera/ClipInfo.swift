@@ -123,7 +123,9 @@ public struct ClipInfo: Sendable, Hashable {
     public static func embeddedXML(in tail: Data) -> Data? {
         guard let start = tail.range(of: Data("<?xml".utf8)),
               let end = tail.range(of: Data("</NonRealTimeMeta>".utf8), in: start.upperBound..<tail.endIndex) else { return nil }
-        return tail.subdata(in: start.lowerBound..<end.upperBound)
+        // 卡上的 M01.XML 末尾有一个换行，MP4 里内嵌的那份后面也跟着，一起带上才一字不差。
+        let stop = end.upperBound < tail.endIndex && tail[end.upperBound] == 0x0A ? end.upperBound + 1 : end.upperBound
+        return tail.subdata(in: start.lowerBound..<stop)
     }
 
     /// 读本地 MP4 末尾 64 KB 里内嵌的 XML。
