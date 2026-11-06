@@ -9,7 +9,8 @@ struct BrowserView: View {
     var body: some View {
         NavigationSplitView {
             Sidebar()
-                .navigationSplitViewColumnWidth(min: 220, ideal: 248, max: 320)
+                .navigationSplitViewColumnWidth(min: 220, ideal: 264, max: 320)
+                .background(SidebarWidthFix(min: 220, ideal: 264, max: 320))
                 .toolbar(removing: .sidebarToggle)
         } detail: {
             ZStack(alignment: .bottom) {
@@ -32,6 +33,38 @@ struct BrowserView: View {
         }
         .overlay {
             if model.previewShot != nil { PreviewOverlay() }
+        }
+    }
+}
+
+/// 主窗口改成单个 Window 场景后，系统不再遵守上面的列宽，侧栏每次打开都被挤到 144 pt。
+/// 直接找到底下的 NSSplitViewController，把侧栏的最小 / 最大宽度设上，太窄时拉到合适宽度。
+private struct SidebarWidthFix: NSViewRepresentable {
+    let min: CGFloat, ideal: CGFloat, max: CGFloat
+
+    func makeNSView(context: Context) -> NSView { Probe(fix: self) }
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    final class Probe: NSView {
+        let fix: SidebarWidthFix
+        init(fix: SidebarWidthFix) { self.fix = fix; super.init(frame: .zero) }
+        required init?(coder: NSCoder) { fatalError() }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard window != nil else { return }
+            DispatchQueue.main.async { [weak self] in self?.apply() }
+        }
+
+        private func apply() {
+            var v: NSView? = superview
+            while let cur = v, !(cur is NSSplitView) { v = cur.superview }
+            guard let split = v as? NSSplitView, let first = split.arrangedSubviews.first else { return }
+            if let ctrl = split.delegate as? NSSplitViewController, let item = ctrl.splitViewItems.first {
+                item.minimumThickness = fix.min
+                item.maximumThickness = fix.max
+            }
+            if first.frame.width < fix.min { split.setPosition(fix.ideal, ofDividerAt: 0) }
         }
     }
 }
