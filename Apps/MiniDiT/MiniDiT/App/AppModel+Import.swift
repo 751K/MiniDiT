@@ -44,10 +44,16 @@ extension AppModel {
     func spaceShortage() -> SpaceProblem? {
         let files = selectedFiles()
         let history = ImportHistory.shared
-        let primaryNeed = files.filter { history.localFile($0, camera: camera(of: $0.id)) == nil }.reduce(0) { $0 + $1.size }
+        let missing = files.filter { history.localFile($0, camera: camera(of: $0.id)) == nil }
+        let photoNeed = missing.filter { $0.kind != .video }.reduce(0) { $0 + $1.size }
+        let videoNeed = missing.filter { $0.kind == .video }.reduce(0) { $0 + $1.size }
         let primary = captureOneMode == .newSession ? sessionsFolder : destination
-        if primaryNeed > 0, let free = Self.freeSpace(at: primary), free < primaryNeed + Self.spaceMargin(primaryNeed) {
-            return SpaceProblem(isBackup: false, folder: primary, needed: primaryNeed, available: free)
+        // 照片和视频可能在不同的盘上；在同一块盘上就合起来算。
+        let sameDisk = Self.volume(of: primary) == Self.volume(of: videoDestination)
+        for (folder, need) in sameDisk ? [(primary, photoNeed + videoNeed)] : [(primary, photoNeed), (videoDestination, videoNeed)] {
+            if need > 0, let free = Self.freeSpace(at: folder), free < need + Self.spaceMargin(need) {
+                return SpaceProblem(isBackup: false, folder: folder, needed: need, available: free)
+            }
         }
         if backupEnabled, backupAvailable, !noBackupThisTime, let backup = backupFolder {
             let need = files.filter { history.backupFile($0, camera: camera(of: $0.id)) == nil }.reduce(0) { $0 + $1.size }
@@ -56,6 +62,13 @@ extension AppModel {
             }
         }
         return nil
+    }
+
+    /// 文件夹所在的磁盘（还没建的文件夹看它最近的上级）。
+    static func volume(of folder: URL) -> URL? {
+        var u = folder
+        while !FileManager.default.fileExists(atPath: u.path), u.pathComponents.count > 1 { u = u.deletingLastPathComponent() }
+        return (try? u.resourceValues(forKeys: [.volumeURLKey]))?.volume
     }
 
     /// 多留一点余量：2%，至少 50 MB。
@@ -144,6 +157,9 @@ extension AppModel {
                 + (backupRoot.map { "备份到 \($0.path)" } ?? "没有备份")
                 + (jobs.count > 1 ? "，分成 \(jobs.count) 个会话" : ""))
         let sessionsFolder = self.sessionsFolder
+        // 视频单独一套：「视频保存位置/{M}.{D}-{事件}/」，不进 C1 会话、不交给 LrC。
+        let videoRoot = videoDestination
+        let proxies = importProxies
         importTask = Task {
             var saved: [URL] = []
             var done: [ImportHistory.Entry] = []
@@ -202,7 +218,16 @@ extension AppModel {
                     guard let lib = route(item.id)?.library else { return nil }
                     return FileImporter(library: lib, root: root, camera: camera(of: item.id), backupRoot: backupRoot,
                                         event: event, scene: job.scene, sourceFolder: sourceFolder(for: item, in: folders),
+                                        backupSubfolder: item.kind == .video ? "视频" : nil,
                                         checkSource: deleteRequested)
+                }
+                // 视频的文件夹（不含按来源分的那层），MHL 写在这里。
+                @MainActor func videoFolder(_ item: CameraContentItem) -> URL {
+                    FileImporter.videoFolder(for: item, root: videoRoot, event: event, scene: job.scene)
+                }
+                @MainActor func destDir(_ item: CameraContentItem) -> URL {
+                    if item.kind == .video { return sub(videoFolder(item), item) }
+                    return sub(captureDir ?? FileImporter.folder(for: item, root: root, event: event, scene: job.scene), item)
                 }
                 // 导入到 LrC：收藏夹名就是这一组的名字；RAW 先导，同名的 JPG/HIF 叠到它下面。
                 var collection: String?
@@ -215,7 +240,7 @@ extension AppModel {
                 // RAW + JPG/HIF 成对时要叠在一起，插件得先有 RAW 才能叠。下载顺序不一定是 RAW 在前，
                 // 所以 RAW 还没导完的 JPG/HIF 先留着，等 RAW 交出去后紧跟着交。
                 @MainActor func pairKey(_ item: CameraContentItem) -> String {
-                    let dir = sub(captureDir ?? FileImporter.folder(for: item, root: root, event: event, scene: job.scene), item)
+                    let dir = destDir(item)
                     return dir.path + "/" + (item.filename as NSString).deletingPathExtension.lowercased()
                 }
                 let rawKeys = mode == .lightroom ? Set(job.files.filter { $0.kind == .raw }.map(pairKey)) : []
@@ -233,11 +258,12 @@ extension AppModel {
                 }
                 // 写 MHL 校验清单用：第一份（这个会话 / 保存位置），备份盘（整次导入一份）。
                 var mhlPrimary: [MHLWriter.Entry] = []
+                var mhlVideo: [URL: [MHLWriter.Entry]] = [:]
                 for item in job.files {
                     if Task.isCancelled { break }
                     progress?.current = "导入 \(item.filename)"
                     progress?.resumingFrom = nil
-                    let dir = sub(captureDir ?? FileImporter.folder(for: item, root: root, event: event, scene: job.scene), item)
+                    let dir = destDir(item)
                     let base = progress?.bytesDone ?? 0
                     guard let importer = importer(for: item) else {
                         // 来源已经关掉 / 拔掉了。
@@ -253,10 +279,11 @@ extension AppModel {
                         }, stage: { self.progress?.current = $0 }, skipped: { self.progress?.credit($0) },
                            resumed: { self.progress?.resumingFrom = $0; self.progress?.resumedFiles += 1 })
                         progress?.bytesDone = base + importer.weight(of: item)
+                        let isVideo = item.kind == .video
                         switch r.outcome {
                         case .alreadyThere: progress?.skipped += 1
-                        case .reused(let u): progress?.reused += 1; saved.append(u)
-                        case .downloaded(let u): progress?.done += 1; saved.append(u)
+                        case .reused(let u): progress?.reused += 1; if !isVideo { saved.append(u) }
+                        case .downloaded(let u): progress?.done += 1; if !isVideo { saved.append(u) }
                         }
                         var backupURL: URL?
                         switch r.backup {
@@ -268,13 +295,21 @@ extension AppModel {
                             deletable.append(item.id)
                         }
                         done.append(.init(item: item, url: r.outcome.url, xxh64: r.xxh64, backup: backupURL))
-                        if case .alreadyThere = r.outcome {
-                            mhlPrimary.append(.init(url: r.outcome.url, xxh64: r.xxh64, action: .verified))
-                        } else {
-                            mhlPrimary.append(.init(url: r.outcome.url, xxh64: r.xxh64, action: .original))
-                        }
+                        var there = false
+                        if case .alreadyThere = r.outcome { there = true }
+                        let entry = MHLWriter.Entry(url: r.outcome.url, xxh64: r.xxh64, action: there ? .verified : .original)
+                        if isVideo { mhlVideo[videoFolder(item), default: []].append(entry) } else { mhlPrimary.append(entry) }
                         if let backupURL { mhlBackup.append(.init(url: backupURL, xxh64: r.xxh64, action: .original)) }
-                        if mode == .lightroom {
+                        if isVideo {
+                            // XML 和代理跟着片段走，一样校验、备份、写进 MHL。
+                            for c in await importer.importSidecars(of: item, clip: r.outcome.url, backupClip: backupURL,
+                                                                   proxies: proxies, stage: { self.progress?.current = $0 }) {
+                                mhlVideo[videoFolder(item), default: []].append(.init(url: c.url, xxh64: c.xxh64,
+                                                                                      action: c.alreadyThere ? .verified : .original))
+                                if let b = c.backup { mhlBackup.append(.init(url: b, xxh64: c.xxh64, action: .original)) }
+                            }
+                        }
+                        if mode == .lightroom, !isVideo {
                             let url = r.outcome.url
                             let key = pairKey(item)
                             if item.kind == .raw {
@@ -310,6 +345,11 @@ extension AppModel {
                 }
                 // RAW 没导成（失败或取消）的 JPG/HIF：不叠了，单独交。
                 for urls in waiting.values { sendToLightroom(urls.map { .init(url: $0) }) }
+                // 视频文件夹各写一份 MHL（「10.21-Int/ascmhl/」）。
+                for (folder, entries) in mhlVideo {
+                    do { reports.append(try MHLWriter.append(root: folder, entries: entries)) }
+                    catch { log.add("写视频校验清单失败：\(error.localizedDescription)") }
+                }
                 // 导入报告：ASC MHL 清单。会话模式写在 Capture 文件夹里（C1 自己的 CaptureOne/ 子文件夹不算），其他模式写在保存位置根目录。
                 if !mhlPrimary.isEmpty {
                     do {
@@ -334,7 +374,9 @@ extension AppModel {
                 var dir = opened[job.key]?.captureDir
                 if dir == nil, case .resolved(let d, _) = job.session { dir = d }
                 for f in job.files where !finishedIDs.contains(f.id) {
-                    savedBytes += FileImporter.savedPartBytes(f, in: sub(dir ?? FileImporter.folder(for: f, root: root, event: job.event, scene: job.scene), f))
+                    let folder = f.kind == .video ? FileImporter.videoFolder(for: f, root: videoRoot, event: job.event, scene: job.scene)
+                        : dir ?? FileImporter.folder(for: f, root: root, event: job.event, scene: job.scene)
+                    savedBytes += FileImporter.savedPartBytes(f, in: sub(folder, f))
                 }
             }
             var deleted: Int?

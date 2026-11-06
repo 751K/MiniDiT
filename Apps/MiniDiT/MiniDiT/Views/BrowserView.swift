@@ -637,9 +637,10 @@ struct BrowseHeader: View {
         @Bindable var model = model
         HStack(spacing: 10) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(model.newShotCount > 0 ? "\(model.newShotCount.formatted()) 张新照片" : "无新照片")
+                let counts = model.countTitle
+                Text(counts.new)
                     .font(.system(size: 15, weight: .semibold))
-                Text("共 \(model.days.reduce(0) { $0 + $1.shots.count }.formatted()) 张")
+                Text(counts.total)
                     .font(.system(size: 12)).foregroundStyle(.secondary)
             }
             .lineLimit(1)
@@ -1060,6 +1061,12 @@ struct ThumbCell: View {
             .overlay(alignment: .bottomLeading) {
                 if let shot { Badge(text: model.badge(of: shot)).padding(5) }
             }
+            .overlay(alignment: .topLeading) {
+                // 视频：伽马和帧率（「S-Log3 59.94p」），升格时帧率写成「120p→23.98p」。
+                if shot?.isVideo == true, model.thumbSize >= 150, let c = model.clipInfos[primary] {
+                    Badge(text: [c.gammaText, c.fpsText].filter { !$0.isEmpty }.joined(separator: " ")).padding(5)
+                }
+            }
             .overlay(alignment: .bottomTrailing) {
                 if imported {
                     let copies = model.copyCount(shot: shotID)
@@ -1263,7 +1270,10 @@ struct FloatingBar: View {
         let files = model.selectedFiles()
         let days = Set(files.map(AppModel.dayKey)).count
         let dest = model.captureOneMode == .newSession ? model.sessionsFolder : model.destination
-        var s = "\(files.count) 个文件 · \(days) 天 · 存储至“\(dest.lastPathComponent)”"
+        let videos = files.contains { $0.kind == .video }, photos = files.contains { $0.kind != .video }
+        var s = "\(files.count) 个文件 · \(days) 天 · "
+        if photos { s += "存储至“\(dest.lastPathComponent)”" }
+        if videos { s += (photos ? "，视频存储至“" : "视频存储至“") + model.videoDestination.lastPathComponent + "”" }
         if model.backupEnabled {
             s += model.backupAvailable ? " · 备份至“\(model.backupFolder!.lastPathComponent)”" : " · ⚠︎ 备份磁盘未连接"
         }
@@ -1447,6 +1457,9 @@ struct PreviewOverlay: View {
                     if let gear = model.previewExif?.gearText, !gear.isEmpty {
                         Text("· " + gear).truncationMode(.tail)
                     }
+                    if shot?.isVideo == true, let c = shot.flatMap({ model.clipInfos[$0.primary] }) {
+                        Text("· " + Self.clipText(c)).truncationMode(.tail)
+                    }
                 }
                 .font(.system(size: 11)).foregroundStyle(.white.opacity(0.72))
             }
@@ -1497,6 +1510,14 @@ struct PreviewOverlay: View {
         [model.isMultiSource ? model.sourceLabel(model.source(of: model.previewShot ?? 0)) : "",
          shot.map(model.badge(of:)) ?? "", ThumbCell.time(item)].filter { !$0.isEmpty }.joined(separator: " · ")
             + (model.previewLoaded ? "" : " · 正在加载大图…")
+    }
+
+    /// 「4K 59.94p · H.265 4:2:2 10bit · S-Log3 / S-Gamut3.Cine · TC 06:05:09;21 · FE 50mm F1.4 GM」
+    static func clipText(_ c: ClipInfo) -> String {
+        let color = [c.gammaText, c.primariesText].filter { !$0.isEmpty }.joined(separator: " / ")
+        return [[c.resolutionText, c.fpsText].filter { !$0.isEmpty }.joined(separator: " "),
+                c.codecText, color, c.timecode.isEmpty ? "" : "TC " + c.timecode, c.lens]
+            .filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
     private func arrow(_ icon: String, _ label: String, disabled: Bool, _ action: @escaping () -> Void) -> some View {

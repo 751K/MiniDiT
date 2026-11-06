@@ -1,13 +1,13 @@
 import Foundation
 
-/// 会话名、下载文件夹、备份文件夹的命名模板。
+/// 会话名、下载文件夹、备份文件夹、视频文件夹的命名模板。
 ///
 /// 可用的标记：`{YYYY}` 年、`{MM}` `{DD}` 两位的月日、`{M}` `{D}` 不补零的月日、`{事件}`、`{场次}`。
 /// 没填的标记留空，多出来的连接符（`-` `_` `.` 空格）会去掉：「{M}.{D}-{事件}」没填事件就是「3.15」。
-/// 只有下载文件夹的模板可以用 `/` 分层。
+/// 下载文件夹和视频文件夹的模板可以用 `/` 分层。
 enum NameTemplate {
     enum Kind: String, CaseIterable {
-        case session, folder, backup
+        case session, folder, backup, video
 
         var key: String { "template." + rawValue }
         var defaultValue: String {
@@ -15,9 +15,10 @@ enum NameTemplate {
             case .session: "{M}.{D}-{事件}"
             case .folder: "{YYYY}/{YYYY}-{MM}-{DD}"
             case .backup: "{YYYY}-{MM}-{DD}-{事件}"
+            case .video: "{M}.{D}-{事件}"
             }
         }
-        var allowsFolders: Bool { self == .folder }
+        var allowsFolders: Bool { self == .folder || self == .video }
     }
 
     static let tokens = ["{YYYY}", "{MM}", "{DD}", "{M}", "{D}", "{事件}", "{场次}"]

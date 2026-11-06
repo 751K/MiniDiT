@@ -85,6 +85,7 @@ private struct ImportSettings: View {
                                                     set: { model.backupEnabled = $0 }))
                     .disabled(model.backupFolder == nil)
             }
+            VideoSection()
             Section("同时存在 RAW 与 JPG/HIF 时") {
                 SlidingSegment(options: [("全部导入", PairPolicy.both), ("仅导入 RAW", .rawOnly), ("仅导入 JPG/HIF", .jpegOnly)],
                                selection: $model.pairPolicy, fill: true)
@@ -301,6 +302,38 @@ private struct ModeRow: View {
 }
 
 /// 命名模板：会话、下载文件夹、备份文件夹。
+/// 视频单独存放：保存位置、文件夹命名、代理。
+private struct VideoSection: View {
+    @Environment(AppModel.self) private var model
+    @AppStorage(NameTemplate.Kind.video.key) private var template = ""
+
+    var body: some View {
+        @Bindable var model = model
+        let t = template.trimmingCharacters(in: .whitespaces).isEmpty ? NameTemplate.Kind.video.defaultValue : template
+        let example = NameTemplate.render(t, allowsFolders: true, day: "20261021", event: "采访", scene: nil)
+        Section {
+            LabeledContent {
+                Button("更改…") {
+                    if let u = FolderPicker.choose(start: model.videoDestination) { model.videoDestination = u }
+                }
+            } label: {
+                Text("保存位置")
+                Text(model.videoDestination.path(percentEncoded: false)).lineLimit(1).truncationMode(.middle)
+            }
+            VStack(alignment: .leading, spacing: 3) {
+                TextField("文件夹", text: $template, prompt: Text(NameTemplate.Kind.video.defaultValue))
+                Text("示例：\(example)/C0001.MP4").font(.caption).foregroundStyle(.secondary)
+            }
+            Toggle("同时导入代理文件", isOn: $model.importProxies)
+        } header: {
+            Text("视频")
+        } footer: {
+            Text("视频不导入 Capture One 或 Lightroom Classic，按原文件名平铺存放，同名的 XML 元数据文件一并导入；同时连接多台相机时按相机分开存放。代理文件存入旁边的“Proxy”文件夹并改为与原片同名，DaVinci Resolve 导入原片时会自动链接。备份时存入备份文件夹中的“视频”文件夹。")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+}
+
 private struct NamingSection: View {
     @AppStorage(NameTemplate.Kind.session.key) private var session = ""
     @AppStorage(NameTemplate.Kind.folder.key) private var folder = ""

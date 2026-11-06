@@ -11,7 +11,7 @@ extension AppModel {
         let sources = openSources
         guard !sources.isEmpty else { return }
         phase = .loading
-        thumbnails = [:]; thumbOrder = []; pendingThumbs = []   // 句柄会变，旧缩略图不能再用
+        thumbnails = [:]; clipInfos = [:]; thumbOrder = []; pendingThumbs = []   // 句柄会变，旧缩略图不能再用
         do {
             // 几个来源的句柄会重复：界面上统一重新编号（全局句柄），origins 记着它在哪个来源、原来是几号。
             var all: [UInt32: CameraContentItem] = [:]
@@ -133,7 +133,8 @@ extension AppModel {
 
     /// 缩略图角标：只列筛选和配对规则留下的文件类型（只看 RAW 时显示「RAW」，不是「RAW+HIF」）。
     func badge(of shot: Shot) -> String {
-        Shot.badge(importFiles(of: shot).compactMap { items[$0]?.kind })
+        if shot.isVideo, let d = clipInfos[shot.primary]?.durationText { return "视频 " + d }
+        return Shot.badge(importFiles(of: shot).compactMap { items[$0]?.kind })
     }
 
     func isFileImported(_ h: UInt32) -> Bool { items[h].map { ImportHistory.shared.contains($0, camera: camera(of: h)) } ?? false }
@@ -221,6 +222,23 @@ extension AppModel {
 
     /// 当前来源上没导入过的拍摄数。
     var newShotCount: Int { days.reduce(0) { $0 + $1.newCount } }
+
+    /// 标题里的数量：「12 张新照片」；有视频时分开说「12 张新照片 · 3 个新片段」。
+    var countTitle: (new: String, total: String) {
+        let all = days.flatMap(\.shots)
+        let videos = Set(all.filter { shots[$0]?.isVideo == true })
+        guard !videos.isEmpty else {
+            return (newShotCount > 0 ? "\(newShotCount.formatted()) 张新照片" : "无新照片", "共 \(all.count.formatted()) 张")
+        }
+        let newVideos = videos.filter { !isImported(shot: $0) }.count
+        let newPhotos = newShotCount - newVideos
+        var parts: [String] = []
+        if newPhotos > 0 { parts.append("\(newPhotos.formatted()) 张新照片") }
+        if newVideos > 0 { parts.append("\(newVideos.formatted()) 个新片段") }
+        let photos = all.count - videos.count
+        let total = (photos > 0 ? "共 \(photos.formatted()) 张照片、" : "共 ") + "\(videos.count.formatted()) 个片段"
+        return (parts.isEmpty ? "无新内容" : parts.joined(separator: " · "), total)
+    }
 
     /// 右边显示的内容：点中的日期整天显示；只点中了某几场的，这一天只显示那几场。
     var visibleDays: [ShootingDay] {
@@ -367,7 +385,12 @@ extension AppModel {
         while !openSources.isEmpty, let h = pendingThumbs.popLast() {
             // 下载时让出通道，优先传文件。
             if progress != nil { try? await Task.sleep(for: .milliseconds(300)) }
-            guard let r = route(h), let data = try? await r.library.thumbnail(r.local), let img = NSImage(data: data) else { continue }
+            guard let r = route(h) else { continue }
+            if items[h]?.kind == .video, clipInfos[h] == nil, let card = r.library as? LocalCardLibrary,
+               let info = await card.clipInfo(r.local) {
+                clipInfos[h] = info
+            }
+            guard let data = try? await r.library.thumbnail(r.local), let img = NSImage(data: data) else { continue }
             thumbnails[h] = img
             thumbOrder.append(h)
             if thumbOrder.count > 1500 {

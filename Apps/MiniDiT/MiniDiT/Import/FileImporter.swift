@@ -61,6 +61,8 @@ struct FileImporter {
     var scene: Int?
     /// 几个来源一起导时，备份盘上日期文件夹里再按来源分的子文件夹（「2026-11-04-公园/α7 V/」）。
     var sourceFolder: String?
+    /// 备份盘上日期文件夹里再分的一层：视频放「视频/」，和照片分开。
+    var backupSubfolder: String?
     /// 要删卡上的文件时，对没有重新复制的文件（目标已有 / 用了本地的）也读卡比对一遍。
     var checkSource = false
     var log: AppLog = .shared
@@ -186,6 +188,7 @@ struct FileImporter {
                               progress: @escaping @Sendable (UInt64) -> Void) async throws -> URL {
         let fm = FileManager.default
         var dir = Self.backupFolder(for: item, root: root, event: event, scene: scene)
+        if let backupSubfolder { dir = dir.appending(path: backupSubfolder, directoryHint: .isDirectory) }
         if let sourceFolder { dir = dir.appending(path: sourceFolder, directoryHint: .isDirectory) }
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         var target = dir.appending(path: item.filename)
@@ -208,6 +211,70 @@ struct FileImporter {
         return target
     }
 
+    // MARK: 视频的附属文件
+
+    struct SidecarCopy {
+        var url: URL
+        var xxh64: UInt64
+        var backup: URL?
+        /// 目标位置已经有同样的文件，没有重新复制。
+        var alreadyThere: Bool
+    }
+
+    /// 读卡器上视频片段的附属文件，跟着片段放：XML 放在片段旁边（C0001M01.XML），
+    /// 代理放进旁边的 Proxy/ 并改成和片段同名（Proxy/C0001.MP4，Resolve 导入片段时会自动链接）。
+    /// 片段因为重名改成了「C0001-2.MP4」时，附属文件跟着改。`clip` / `backupClip` 是片段最终的位置。
+    func importSidecars(of item: CameraContentItem, clip: URL, backupClip: URL?, proxies: Bool,
+                        stage: (String) -> Void) async -> [SidecarCopy] {
+        guard let card = library as? LocalCardLibrary else { return [] }
+        let base = clip.deletingPathExtension().lastPathComponent
+        var out: [SidecarCopy] = []
+        for s in await card.sidecars(item.id) where s.kind == .metadata || proxies {
+            let name = s.url.lastPathComponent
+            // 「C0001M01.XML」去掉原来的「C0001」，换成片段最终的名字。
+            let rel = s.kind == .proxy ? "Proxy/" + base + "." + s.url.pathExtension
+                : base + String(name.dropFirst(item.baseName.count))
+            stage(s.kind == .proxy ? "复制代理 \(name)" : "复制 \(name)")
+            do {
+                let dst = clip.deletingLastPathComponent().appending(path: rel)
+                let (h, there) = try await copySidecar(s.url, to: dst)
+                var backup: URL?
+                if let backupClip {
+                    let b = backupClip.deletingLastPathComponent().appending(path: rel)
+                    do { _ = try await copySidecar(dst, to: b, expect: h); backup = b }
+                    catch { log.add("备份失败 \(name)：\(error.localizedDescription)") }
+                }
+                out.append(SidecarCopy(url: dst, xxh64: h, backup: backup, alreadyThere: there))
+            } catch is CancellationError {
+                break
+            } catch {
+                log.add("复制失败 \(name)：\(error.localizedDescription)")
+            }
+        }
+        return out
+    }
+
+    /// 复制并校验一个附属文件；目标已有且哈希一致就不再复制。返回哈希和「是不是已经有了」。
+    private func copySidecar(_ src: URL, to dst: URL, expect: UInt64? = nil) async throws -> (UInt64, Bool) {
+        let fm = FileManager.default
+        try fm.createDirectory(at: dst.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let want: UInt64
+        if let expect { want = expect } else { want = try await FileOps.hash(src) }
+        if fm.fileExists(atPath: dst.path), try await FileOps.hash(dst) == want { return (want, true) }
+        let part = dst.deletingLastPathComponent().appending(path: "." + dst.lastPathComponent + ".part")
+        let read = try await FileOps.copy(from: src, to: part)
+        guard read == want, try await FileOps.hash(part) == want else {
+            try? fm.removeItem(at: part)
+            throw ImportError.verifyFailed(src.lastPathComponent)
+        }
+        if fm.fileExists(atPath: dst.path) { try fm.removeItem(at: dst) }
+        try fm.moveItem(at: part, to: dst)
+        if let d = (try? fm.attributesOfItem(atPath: src.path))?[.modificationDate] as? Date {
+            try? fm.setAttributes([.creationDate: d, .modificationDate: d], ofItemAtPath: dst.path)
+        }
+        return (want, false)
+    }
+
     // MARK: 路径
 
     /// 这个文件没传完、留着等续传的字节数。
@@ -224,6 +291,11 @@ struct FileImporter {
     /// 下载文件夹：「保存位置/」+ 模板（默认「年/年-月-日」）。
     static func folder(for item: CameraContentItem, root: URL, event: String? = nil, scene: Int? = nil) -> URL {
         NameTemplate.folder(.folder, root: root, day: AppModel.dayKey(item), event: event, scene: scene)
+    }
+
+    /// 视频文件夹：「视频保存位置/」+ 模板（默认「{M}.{D}-{事件}」）。
+    static func videoFolder(for item: CameraContentItem, root: URL, event: String?, scene: Int? = nil) -> URL {
+        NameTemplate.folder(.video, root: root, day: AppModel.dayKey(item), event: event, scene: scene)
     }
 
     /// 备份盘上：「备份位置/」+ 模板（默认「年-月-日-事件」，没有事件名就是「年-月-日」）。

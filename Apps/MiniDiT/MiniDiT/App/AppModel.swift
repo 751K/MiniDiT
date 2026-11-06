@@ -147,7 +147,11 @@ final class AppModel {
     var sourceFilter: Int? = nil { didSet { rebuild() } }
     var showPhotos = true { didSet { rebuild() } }
     var showRaw = true { didSet { rebuild() } }
-    var showVideo = false { didSet { rebuild() } }
+    var showVideo = UserDefaults.standard.bool(forKey: "showVideo") {
+        didSet { UserDefaults.standard.set(showVideo, forKey: "showVideo"); rebuild() }
+    }
+    /// 视频片段的拍摄信息（读卡器来源，读 M01.XML），随缩略图一起读。
+    var clipInfos: [UInt32: ClipInfo] = [:]
     var onlyNew = UserDefaults.standard.object(forKey: "onlyNew") as? Bool ?? true {
         didSet { UserDefaults.standard.set(onlyNew, forKey: "onlyNew"); rebuild() }
     }
@@ -295,6 +299,19 @@ final class AppModel {
     var destinationVersion = 0
     static var defaultDestination: URL {
         FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask)[0].appending(path: "MiniDiT", directoryHint: .isDirectory)
+    }
+
+    /// 视频放在哪：和照片分开，按「视频文件夹」模板（默认「{M}.{D}-{事件}」）建文件夹，片段平铺在里面。
+    var videoDestination: URL {
+        get { _ = destinationVersion; return UserDefaults.standard.url(forKey: "videoDestination") ?? Self.defaultVideoDestination }
+        set { UserDefaults.standard.set(newValue, forKey: "videoDestination"); destinationVersion += 1 }
+    }
+    static var defaultVideoDestination: URL {
+        FileManager.default.urls(for: .moviesDirectory, in: .userDomainMask)[0].appending(path: "MiniDiT", directoryHint: .isDirectory)
+    }
+    /// 代理（SUB 里的小 MP4）一起导，放进片段旁边的 Proxy/，名字改成和原片一样，Resolve 会自动链接。
+    var importProxies: Bool = UserDefaults.standard.object(forKey: "importProxies") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(importProxies, forKey: "importProxies") }
     }
 
     /// 第二份放在哪（备份盘上的文件夹）。没设置时为 nil。

@@ -400,7 +400,7 @@ extension AppModel {
         items = [:]; allShots = []; shots = [:]; shotOfFile = [:]; slots = []; days = []
         origins = [:]; cardCameraNames = [:]; cardCameraKeys = [:]; sourceFilter = nil
         grid = GridSelection(); shownDays = []
-        thumbnails = [:]; thumbOrder = []; pendingThumbs = []; fileCopies = [:]
+        thumbnails = [:]; clipInfos = [:]; thumbOrder = []; pendingThumbs = []; fileCopies = [:]
         connectedName = nil; connectedHost = nil; cameraID = nil; deviceInfo = nil; cardRoot = nil
         previewShot = nil; previewImage = nil
         progress = nil; lastResult = nil; interrupted = nil; offline = false

@@ -147,6 +147,39 @@ public actor LocalCardLibrary: CameraLibrary {
     /// 卡上文件的位置（读卡器来源可以直接从这里复制）。
     public func fileURL(_ handle: UInt32) -> URL? { entries[handle]?.url }
 
+    /// 视频片段的拍摄信息（读同名的 M01.XML）。
+    public func clipInfo(_ handle: UInt32) -> ClipInfo? {
+        if let c = clipCache[handle] { return c }
+        guard let e = entries[handle], e.item.kind == .video, let xml = ClipInfo.sidecar(for: e.url),
+              let info = ClipInfo.read(xml) else { return nil }
+        clipCache[handle] = info
+        return info
+    }
+    private var clipCache: [UInt32: ClipInfo] = [:]
+
+    /// 跟着视频片段一起导的文件：同名的 XML（放在片段旁边，名字不变）、代理（PRIVATE/M4ROOT/SUB/C0001S03.MP4）。
+    public struct Sidecar: Sendable {
+        public enum Kind: Sendable { case metadata, proxy }
+        public let kind: Kind
+        public let url: URL
+    }
+
+    public func sidecars(_ handle: UInt32) -> [Sidecar] {
+        guard let e = entries[handle], e.item.kind == .video else { return [] }
+        var out: [Sidecar] = []
+        if let xml = ClipInfo.sidecar(for: e.url) { out.append(Sidecar(kind: .metadata, url: xml)) }
+        let sub = e.url.deletingLastPathComponent().deletingLastPathComponent().appending(path: "SUB", directoryHint: .isDirectory)
+        let prefix = e.item.baseName.uppercased() + "S"
+        if let names = try? FileManager.default.contentsOfDirectory(atPath: sub.path),
+           let proxy = names.sorted().first(where: {
+               let u = $0.uppercased()
+               return u.hasPrefix(prefix) && u.hasSuffix(".MP4") && u.dropFirst(prefix.count).dropLast(4).allSatisfy(\.isNumber)
+           }) {
+            out.append(Sidecar(kind: .proxy, url: sub.appending(path: proxy)))
+        }
+        return out
+    }
+
     /// 删除卡上的文件。上层只在导入并校验通过以后调用。
     public func delete(_ handle: UInt32) throws {
         let e = try entry(handle)
