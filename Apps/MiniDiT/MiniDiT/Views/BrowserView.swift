@@ -710,6 +710,29 @@ extension View {
 }
 
 /// 导入栏里的「备份」开关和「…」菜单（存放位置、导入后删除原片；和设置里是同一个设置）。
+/// 底栏上的开关按钮（「仅代理」「备份」）：打开时用强调色（蓝字、浅蓝底、✓），关着时是灰的，一眼能分清。
+private struct ChipToggle: View {
+    let title: String
+    let on: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                if on { Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)) }
+                Text(title).fontWeight(on ? .semibold : .regular)
+            }
+            .padding(.horizontal, 14).frame(height: 36)
+            .foregroundStyle(on ? Color.accentColor : Color.secondary)
+            .background(Capsule().fill(on ? Color.accentColor.opacity(0.18) : Color.primary.opacity(0.06)))
+            .overlay(Capsule().strokeBorder(on ? Color.accentColor.opacity(0.45) : .clear, lineWidth: 1))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(on ? .isSelected : [])
+    }
+}
+
 private struct ImportOptions: View {
     @Environment(AppModel.self) private var model
 
@@ -718,33 +741,11 @@ private struct ImportOptions: View {
         HStack(spacing: 6) {
             // 选中了 Wi-Fi 相机上的视频时才出现：只导代理，原片留在卡上。
             if model.selectionHasWiFiVideo {
-                Button { model.proxyOnlyWiFi.toggle() } label: {
-                    HStack(spacing: 5) {
-                        if model.proxyOnlyWiFi { Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)) }
-                        Text("仅代理")
-                    }
-                    .padding(.horizontal, 14).frame(height: 36)
-                    .foregroundStyle(model.proxyOnlyWiFi ? Color.primary : Color.secondary)
-                    .background(Capsule().fill(Color.primary.opacity(model.proxyOnlyWiFi ? 0.12 : 0.06)))
-                    .contentShape(Capsule())
-                }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(model.proxyOnlyWiFi ? .isSelected : [])
+                ChipToggle(title: "仅代理", on: model.proxyOnlyWiFi) { model.proxyOnlyWiFi.toggle() }
                 .help(model.proxyOnlyWiFi ? "视频只导入代理和 XML，原片留在存储卡上；点按改为导入原片"
                                           : "导入视频原片；点按改为只导入代理，原片留在存储卡上，之后可用读卡器导入")
             }
-            Button { model.backupEnabled.toggle() } label: {
-                HStack(spacing: 5) {
-                    if model.backupEnabled { Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)) }
-                    Text("备份")
-                }
-                .padding(.horizontal, 14).frame(height: 36)
-                .foregroundStyle(model.backupEnabled ? Color.primary : Color.secondary)
-                .background(Capsule().fill(Color.primary.opacity(model.backupEnabled ? 0.12 : 0.06)))
-                .contentShape(Capsule())
-            }
-            .buttonStyle(.plain)
-            .accessibilityAddTraits(model.backupEnabled ? .isSelected : [])
+            ChipToggle(title: "备份", on: model.backupEnabled) { model.backupEnabled.toggle() }
             .help(model.backupEnabled ? "同时备份至另一磁盘；点按改为仅存储一份" : "仅存储一份；点按以同时备份")
 
             Menu {
