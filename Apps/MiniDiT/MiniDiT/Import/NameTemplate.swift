@@ -2,7 +2,7 @@ import Foundation
 
 /// 会话名、下载文件夹、备份文件夹、视频文件夹的命名模板。
 ///
-/// 可用的标记：`{YYYY}` 年、`{MM}` `{DD}` 两位的月日、`{M}` `{D}` 不补零的月日、`{事件}`、`{场次}`。
+/// 可用的标记：`{YYYY}` 年、`{MM}` `{DD}` 两位的月日、`{M}` `{D}` 不补零的月日、`{事件}`、`{场次}`，视频还有 `{卷号}`。
 /// 没填的标记留空，多出来的连接符（`-` `_` `.` 空格）会去掉：「{M}.{D}-{事件}」没填事件就是「3.15」。
 /// 下载文件夹和视频文件夹的模板可以用 `/` 分层。
 enum NameTemplate {
@@ -21,7 +21,7 @@ enum NameTemplate {
         var allowsFolders: Bool { self == .folder || self == .video }
     }
 
-    static let tokens = ["{YYYY}", "{MM}", "{DD}", "{M}", "{D}", "{事件}", "{场次}"]
+    static let tokens = ["{YYYY}", "{MM}", "{DD}", "{M}", "{D}", "{事件}", "{场次}", "{卷号}"]
 
     static func current(_ kind: Kind) -> String {
         let s = UserDefaults.standard.string(forKey: kind.key)?.trimmingCharacters(in: .whitespaces) ?? ""
@@ -29,13 +29,13 @@ enum NameTemplate {
     }
 
     /// 按模板生成名字。`day` 是「yyyyMMdd」（没有日期是 "unknown"）；`scene` 是这一天里的第几场。
-    static func render(_ kind: Kind, day: String, event: String?, scene: Int? = nil) -> String {
-        render(current(kind), allowsFolders: kind.allowsFolders, day: day, event: event, scene: scene)
+    static func render(_ kind: Kind, day: String, event: String?, scene: Int? = nil, roll: String? = nil) -> String {
+        render(current(kind), allowsFolders: kind.allowsFolders, day: day, event: event, scene: scene, roll: roll)
     }
 
-    static func render(_ template: String, allowsFolders: Bool, day: String, event: String?, scene: Int?) -> String {
+    static func render(_ template: String, allowsFolders: Bool, day: String, event: String?, scene: Int?, roll: String? = nil) -> String {
         let ev = sanitize(event ?? "")
-        var values: [String: String] = ["{事件}": ev, "{场次}": scene.map { "第\($0)场" } ?? ""]
+        var values: [String: String] = ["{事件}": ev, "{场次}": scene.map { "第\($0)场" } ?? "", "{卷号}": roll ?? ""]
         if day.count == 8, let m = Int(day.dropFirst(4).prefix(2)), let d = Int(day.suffix(2)) {
             values["{YYYY}"] = String(day.prefix(4))
             values["{MM}"] = String(format: "%02d", m)
@@ -74,8 +74,8 @@ enum NameTemplate {
     }
 
     /// 把模板应用到一个文件夹：`root/渲染结果`（下载文件夹的模板可以有多层）。
-    static func folder(_ kind: Kind, root: URL, day: String, event: String?, scene: Int? = nil) -> URL {
-        render(kind, day: day, event: event, scene: scene).split(separator: "/").reduce(root) {
+    static func folder(_ kind: Kind, root: URL, day: String, event: String?, scene: Int? = nil, roll: String? = nil) -> URL {
+        render(kind, day: day, event: event, scene: scene, roll: roll).split(separator: "/").reduce(root) {
             $0.appending(path: String($1), directoryHint: .isDirectory)
         }
     }

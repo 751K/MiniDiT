@@ -182,6 +182,17 @@ extension AppModel {
             var lightroomJobs: [String] = []
             var lightroomCollections: [String] = []
             var wokeLightroom = false
+            // 卷号：这次导入的视频按机型各开一卷（之前分过卷的片段沿用原来的）。
+            var videoItems: [(item: CameraContentItem, model: String)] = []
+            for item in picked where item.kind == .video {
+                var model = clipInfos[item.id]?.model ?? ""
+                if model.isEmpty, let r = route(item.id) { model = await r.library.clipInfo(r.local)?.model ?? "" }
+                videoItems.append((item, model.isEmpty ? (camera(of: item.id) ?? "未知") : model))
+            }
+            let rolls = RollStore.shared.assign(videoItems)
+            for r in Set(rolls.values).sorted() {
+                log.add("卷号 \(r)：\(rolls.filter { $0.value == r }.count) 个片段")
+            }
 
             for job in jobs {
                 if Task.isCancelled || stop { break }
@@ -231,7 +242,7 @@ extension AppModel {
                 }
                 // 视频的文件夹（不含按来源分的那层），MHL 写在这里。
                 @MainActor func videoFolder(_ item: CameraContentItem) -> URL {
-                    FileImporter.videoFolder(for: item, root: videoRoot, event: event, scene: job.scene)
+                    FileImporter.videoFolder(for: item, root: videoRoot, event: event, scene: job.scene, roll: rolls[item.id])
                 }
                 @MainActor func destDir(_ item: CameraContentItem) -> URL {
                     if item.kind == .video { return sub(videoFolder(item), item) }
@@ -354,7 +365,7 @@ extension AppModel {
                                 if c.url.deletingLastPathComponent().lastPathComponent == "Proxy" { proxy = c.url }
                             }
                             // 已经在电脑上的（之前导过）不再交给 FCP，免得事件里出现重复的片段。
-                            if !there { fcpClips[videoFolder(item), default: []].append(.init(url: r.outcome.url, proxy: proxy)) }
+                            if !there { fcpClips[videoFolder(item), default: []].append(.init(url: r.outcome.url, proxy: proxy, roll: rolls[item.id])) }
                         }
                         if mode == .lightroom, !isVideo {
                             let url = r.outcome.url
@@ -455,7 +466,8 @@ extension AppModel {
                 var dir = opened[job.key]?.captureDir
                 if dir == nil, case .resolved(let d, _) = job.session { dir = d }
                 for f in job.files where !finishedIDs.contains(f.id) {
-                    let folder = f.kind == .video ? FileImporter.videoFolder(for: f, root: videoRoot, event: job.event, scene: job.scene)
+                    let folder = f.kind == .video ? FileImporter.videoFolder(for: f, root: videoRoot, event: job.event, scene: job.scene,
+                                                                             roll: RollStore.shared.roll(of: f))
                         : dir ?? FileImporter.folder(for: f, root: root, event: job.event, scene: job.scene)
                     savedBytes += FileImporter.savedPartBytes(f, in: sub(folder, f))
                 }

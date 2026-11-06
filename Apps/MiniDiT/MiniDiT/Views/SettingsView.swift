@@ -292,7 +292,7 @@ private struct VideoSettings: View {
     var body: some View {
         @Bindable var model = model
         let t = template.trimmingCharacters(in: .whitespaces).isEmpty ? NameTemplate.Kind.video.defaultValue : template
-        let example = NameTemplate.render(t, allowsFolders: true, day: "20261021", event: "采访", scene: nil)
+        let example = NameTemplate.render(t, allowsFolders: true, day: "20261021", event: "采访", scene: nil, roll: "A001")
         let resolve = ResolveBridge.appURL != nil, fcp = FCPXMLWriter.appURL != nil
         Form {
             Section {
@@ -311,7 +311,7 @@ private struct VideoSettings: View {
             } header: {
                 Text("存放")
             } footer: {
-                Text("视频不导入 Capture One 或 Lightroom Classic，按原文件名平铺存放，同名的 XML 元数据文件一并导入；同时连接多台相机时按相机分开存放。")
+                Text("视频不导入 Capture One 或 Lightroom Classic，按原文件名平铺存放，同名的 XML 元数据文件一并导入；同时连接多台相机时按相机分开存放。\n卷号：每次导入、每种机型一卷（A001、A002…，第二种机型从 B001 开始），交给 DaVinci Resolve 和 Final Cut Pro 时写入卷名；文件夹名中可用 {卷号}。")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section {

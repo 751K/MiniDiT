@@ -43,7 +43,7 @@ enum ResolveBridge {
         let payload = events.map { e in
             ["bin": e.name, "clips": e.clips.map { c in
                 let info = ClipInfo.sidecar(for: c.url).flatMap(ClipInfo.read)
-                return ["path": c.url.path, "proxy": c.proxy?.path ?? "",
+                return ["path": c.url.path, "proxy": c.proxy?.path ?? "", "roll": c.roll ?? "",
                         "gamma": info?.gamma ?? "", "primaries": info?.primaries ?? ""]
             }] as [String: Any]
         }
@@ -160,6 +160,9 @@ for e in events:
     for it in items:
         c = by_path.get(it.GetClipProperty("File Path"), {})
         set_color(it, c)
+        if c.get("roll"):
+            # Reel Name 由项目设置从文件名推出来，改不了；卷号写进元数据的 Reel Number 和 Roll Card #。
+            it.SetMetadata({"Reel Number": c["roll"], "Roll Card #": c["roll"]})
         p = c.get("proxy", "")
         if not p:
             continue

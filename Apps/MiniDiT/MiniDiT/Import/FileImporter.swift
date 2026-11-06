@@ -392,8 +392,8 @@ struct FileImporter {
     }
 
     /// 视频文件夹：「视频保存位置/」+ 模板（默认「{M}.{D}-{事件}」）。
-    static func videoFolder(for item: CameraContentItem, root: URL, event: String?, scene: Int? = nil) -> URL {
-        NameTemplate.folder(.video, root: root, day: AppModel.dayKey(item), event: event, scene: scene)
+    static func videoFolder(for item: CameraContentItem, root: URL, event: String?, scene: Int? = nil, roll: String? = nil) -> URL {
+        NameTemplate.folder(.video, root: root, day: AppModel.dayKey(item), event: event, scene: scene, roll: roll)
     }
 
     /// 备份盘上：「备份位置/」+ 模板（默认「年-月-日-事件」，没有事件名就是「年-月-日」）。

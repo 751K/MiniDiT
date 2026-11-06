@@ -9,6 +9,8 @@ enum FCPXMLWriter {
     struct Clip {
         let url: URL
         let proxy: URL?
+        /// 卷号「A001」，写进 FCP 的卷名 / Resolve 的 Reel Name。
+        var roll: String? = nil
     }
 
     struct Event {
@@ -61,10 +63,11 @@ enum FCPXMLWriter {
                 var reps = "      <media-rep kind=\"original-media\" src=\"\(esc(c.url.absoluteString))\"/>\n"
                 if let p = c.proxy { reps += "      <media-rep kind=\"proxy-media\" src=\"\(esc(p.absoluteString))\"/>\n" }
                 var md = ""
-                if let info {
+                if info != nil || c.roll != nil {
                     var items: [String] = []
-                    if !info.model.isEmpty { items.append("        <md key=\"com.apple.proapps.mio.cameraName\" value=\"\(esc(info.model))\"/>") }
-                    let desc = [info.gammaText, info.primariesText, info.fpsText, info.lens].filter { !$0.isEmpty }.joined(separator: " · ")
+                    if let r = c.roll { items.append("        <md key=\"com.apple.proapps.studio.reel\" value=\"\(esc(r))\"/>") }
+                    if let info, !info.model.isEmpty { items.append("        <md key=\"com.apple.proapps.mio.cameraName\" value=\"\(esc(info.model))\"/>") }
+                    let desc = info.map { [$0.gammaText, $0.primariesText, $0.fpsText, $0.lens].filter { !$0.isEmpty }.joined(separator: " · ") } ?? ""
                     if !desc.isEmpty { items.append("        <md key=\"com.apple.proapps.spotlight.kMDItemDescription\" value=\"\(esc(desc))\"/>") }
                     if !items.isEmpty { md = "      <metadata>\n" + items.joined(separator: "\n") + "\n      </metadata>\n" }
                 }
