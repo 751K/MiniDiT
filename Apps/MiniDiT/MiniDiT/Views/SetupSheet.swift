@@ -350,14 +350,14 @@ struct SetupSheet: View {
 
 // MARK: - 部件
 
-fileprivate enum CardIcon {
+enum CardIcon {
     /// 主题色的线条符号。
     case symbol(String)
     /// 第三方软件用它自己的图标，认得出来。
     case app(URL?)
 }
 
-private struct CardIconView: View {
+struct CardIconView: View {
     let icon: CardIcon
     var size: CGFloat = 32
 
@@ -464,7 +464,7 @@ private struct ChoiceCard: View {
     }
 }
 
-private struct SelectMark: View {
+struct SelectMark: View {
     let selected: Bool
     var body: some View {
         ZStack {

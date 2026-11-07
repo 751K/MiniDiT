@@ -43,19 +43,15 @@ private extension View {
 
 private struct ImportSettings: View {
     @Environment(AppModel.self) private var model
+    @State private var appURLs: [AppInfo.Kind: URL] = [:]
 
     var body: some View {
         @Bindable var model = model
         Form {
             Section {
                 ForEach(modes) { m in
-                    ModeRow(title: Self.title(m), detail: Self.detail(m), on: model.captureOneMode == m) {
+                    ModeRow(icon: icon(m), title: Self.title(m), on: model.captureOneMode == m) {
                         model.captureOneMode = m
-                    }
-                }
-                if model.captureOneMode == .off {
-                    Picker("导入完成后打开", selection: $model.openAfterImport) {
-                        ForEach(FolderApp.allCases.filter { $0.isAvailable || $0 == model.openAfterImport }) { Text($0.title).tag($0) }
                     }
                 }
             } header: {
@@ -73,6 +69,11 @@ private struct ImportSettings: View {
                 } label: {
                     Text(model.captureOneMode == .newSession ? "新会话的位置" : "下载位置")
                     Text(locationText).lineLimit(1).truncationMode(.middle)
+                }
+                if model.captureOneMode == .off {
+                    Picker("导入完成后打开", selection: $model.openAfterImport) {
+                        ForEach(FolderApp.allCases.filter { $0.isAvailable || $0 == model.openAfterImport }) { Text($0.title).tag($0) }
+                    }
                 }
             }
             Section("同时存在 RAW 与 JPG/HIF 时") {
@@ -96,7 +97,18 @@ private struct ImportSettings: View {
             }
         }
         .formStyle(.grouped)
-        .onAppear { model.refreshCaptureOne() }
+        .onAppear {
+            model.refreshCaptureOne()
+            for k in [AppInfo.Kind.captureOne, .lightroom] { appURLs[k] = AppInfo.find(k).url }
+        }
+    }
+
+    private func icon(_ m: CaptureOneMode) -> CardIcon {
+        switch m {
+        case .newSession, .c1Settings, .inPlace: .app(appURLs[.captureOne])
+        case .lightroom: .app(appURLs[.lightroom])
+        case .off: .symbol("folder")
+        }
     }
 
     /// 个人模式只列常用的三种；当前用的是另外两种时也列出来。
@@ -114,21 +126,11 @@ private struct ImportSettings: View {
 
     static func title(_ m: CaptureOneMode) -> String {
         switch m {
-        case .newSession: "新建会话"
-        case .c1Settings: "按 Capture One 的导入设置"
-        case .inPlace: "就地添加"
-        case .lightroom: "导入到 Lightroom Classic"
-        case .off: "仅下载"
-        }
-    }
-
-    static func detail(_ m: CaptureOneMode) -> String {
-        switch m {
-        case .newSession: "照片存入新会话的 Capture 文件夹"
-        case .c1Settings: "按当前文档的导入设置处理"
-        case .inPlace: "下载后直接添加到当前文档"
-        case .lightroom: "下载后添加到当前目录，须安装插件"
-        case .off: "仅存储至电脑，可在导入后用访达、Bridge 或 DxO 打开"
+        case .newSession: "Capture One · 新建会话"
+        case .c1Settings: "Capture One · 按导入设置"
+        case .inPlace: "Capture One · 就地添加"
+        case .lightroom: "Lightroom Classic"
+        case .off: "仅存储至文件夹"
         }
     }
 
@@ -291,20 +293,20 @@ private struct RecordSections: View {
     }
 }
 
-/// 导入方式的一行：左边对勾，标题和说明两行，整行可点。
+/// 导入方式的一行：和设置向导一样，左边软件图标，右边单选圆圈，整行可点。
 private struct ModeRow: View {
+    let icon: CardIcon
     let title: String
-    let detail: String
     let on: Bool
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 8) {
-                Image(systemName: "checkmark").font(.system(size: 12, weight: .semibold))
-                    .opacity(on ? 1 : 0).frame(width: 14)
-                Text(title).fontWeight(on ? .semibold : .regular)
+            HStack(spacing: 10) {
+                CardIconView(icon: icon, size: 24)
+                Text(title)
                 Spacer(minLength: 0)
+                SelectMark(selected: on)
             }
             .contentShape(Rectangle())
         }
