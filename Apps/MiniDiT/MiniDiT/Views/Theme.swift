@@ -77,18 +77,20 @@ struct GlassToggle: View {
     }
 }
 
-// MARK: - 分段选择（规范：灰色底槽 + 玻璃滑块，不用系统分段控件的整块蓝色）
+// MARK: - 分段选择（规范：灰色底槽 + 蓝色玻璃滑块）
 
 /// 分段里每一格的高度（底槽再多 2 pt 边距）。
 private let segmentHeight: CGFloat = 24
 
-/// 选中格的底：macOS 26 起是液态玻璃，更早的系统用浅色底。
+/// 选中格的底：主题蓝，macOS 26 起再叠一层透明玻璃的高光。
+/// 玻璃自带的色调在窗口不在前台时会被系统去掉，所以蓝色用实心底，保证后台时也认得出选中的是哪格。
 private struct SegmentThumb: View {
     var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
         if #available(macOS 26.0, *) {
-            Color.clear.glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            shape.fill(Theme.accent).glassEffect(.clear.interactive(), in: shape)
         } else {
-            RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color.primary.opacity(0.12))
+            shape.fill(Theme.accent)
         }
     }
 }
@@ -106,8 +108,8 @@ private struct SegmentLabel: View {
     let on: Bool
     var body: some View {
         HStack(spacing: 4) {
-            Text(title).fontWeight(on ? .semibold : .regular).foregroundStyle(on ? Color.primary : Color.secondary)
-            if let count { Text(count).monospacedDigit().foregroundStyle(.secondary) }
+            Text(title).fontWeight(on ? .semibold : .regular).foregroundStyle(on ? Color.white : Color.secondary)
+            if let count { Text(count).monospacedDigit().foregroundStyle(on ? Color.white.opacity(0.8) : Color.secondary) }
         }
         .font(Theme.Font.body)
         .lineLimit(1)
