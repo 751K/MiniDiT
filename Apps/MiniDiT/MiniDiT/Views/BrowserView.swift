@@ -672,14 +672,14 @@ private struct ImportOptions: View {
     var body: some View {
         @Bindable var model = model
         HStack(spacing: 6) {
-            // 底栏的开关和按钮都用系统控件（按钮式开关、bordered），尺寸和导入按钮一致。
+            // 底栏浮在照片上：开关和按钮都用系统玻璃样式，尺寸和导入按钮一致。
             // 选中了 Wi-Fi 相机上的视频时才出现：只导代理，原片留在卡上。
             if model.selectionHasWiFiVideo {
-                Toggle("仅代理", isOn: $model.proxyOnlyWiFi)
+                GlassToggle(title: "仅代理", isOn: $model.proxyOnlyWiFi)
                 .help(model.proxyOnlyWiFi ? "视频只导入代理和 XML，原片留在存储卡上；点按改为导入原片"
                                           : "导入视频原片；点按改为只导入代理，原片留在存储卡上，之后可用读卡器导入")
             }
-            Toggle("备份", isOn: $model.backupEnabled)
+            GlassToggle(title: "备份", isOn: $model.backupEnabled)
             .help(model.backupEnabled ? "同时备份至另一磁盘；点按改为仅存储一份" : "仅存储一份；点按以同时备份")
 
             Menu {
@@ -699,12 +699,12 @@ private struct ImportOptions: View {
                 // 菜单按钮不跟着 controlSize 变高，给图标一个和文字按钮一样的高度。
                 Image(systemName: "ellipsis").frame(height: 20)
             }
-            .menuStyle(.button).buttonStyle(.bordered).menuIndicator(.hidden).controlSize(.large)
+            .menuStyle(.button).glassButton().menuIndicator(.hidden).controlSize(.large)
             .fixedSize()
             .accessibilityLabel("更多操作")
             .help("更多操作")
         }
-        .toggleStyle(.button).controlSize(.large)
+        .controlSize(.large)
         .fixedSize()
     }
 
@@ -727,7 +727,7 @@ struct OfflineBanner: View {
             Text("相机已断开，正在重新连接").fontWeight(.semibold)
             Text("已保留当前选择").foregroundStyle(.secondary)
             Spacer(minLength: 8)
-            Button("重新连接") { model.reconnectNow() }.buttonStyle(.bordered)
+            Button("重新连接") { model.reconnectNow() }.glassButton()
         }
         .padding(.init(top: 8, leading: 12, bottom: 8, trailing: 8))
         .glassRounded(10)
@@ -1199,8 +1199,8 @@ struct FloatingBar: View {
                     if let folder = AppModel.commonFolder(model.lastBatch) {
                         secondaryButton("在访达中显示") { NSWorkspace.shared.open(folder) }
                     }
-                    Button { model.dismissResult() } label: { Image(systemName: "xmark") }
-                    .buttonStyle(.bordered).controlSize(.large)
+                    Button { model.dismissResult() } label: { Image(systemName: "xmark").frame(height: 20) }
+                    .glassButton().controlSize(.large)
                     .accessibilityLabel("关闭")
                 }
             } else if model.phase == .ready {
@@ -1293,7 +1293,7 @@ struct FloatingBar: View {
     }
 
     private func secondaryButton(_ title: String, _ action: @escaping () -> Void) -> some View {
-        Button(title, action: action).buttonStyle(.bordered).controlSize(.large).fixedSize()
+        Button(title, action: action).glassButton().controlSize(.large).fixedSize()
     }
 
     private func pill<C: View>(@ViewBuilder _ content: () -> C) -> some View {
@@ -1313,7 +1313,7 @@ struct FloatingBar: View {
 
     private func mainButton(_ title: String, disabled: Bool = false, _ action: @escaping () -> Void) -> some View {
         Button(title, action: action)
-        .buttonStyle(.borderedProminent)
+        .glassButton(prominent: true)
         .controlSize(.large)
         .disabled(disabled)
     }

@@ -45,12 +45,24 @@
 
 不自己画分段控件、对勾行、胶囊开关。
 
+### 浮层用玻璃
+
+浮在内容上面的部分（浏览页底部的导入栏、相机断开的提示条、大图预览的底栏）用 macOS 26 的系统玻璃：
+
+- 容器：玻璃胶囊（`glassCapsule()`）。
+- 主按钮：蓝色玻璃（`glassButton(prominent: true)`，即 `.glassProminent`）。
+- 其他按钮、“…”菜单：普通玻璃（`glassButton()`，即 `.glass`）。
+- 开关（“备份”“仅代理”）：`GlassToggle`，打开时蓝色玻璃，关着时普通玻璃。
+
+窗口里的普通界面（顶栏、侧栏、设置、弹窗）用标准系统控件；macOS 26 的系统分段控件本身带玻璃质感，不另画滑块。macOS 26 以前的系统自动退回 bordered / borderedProminent。
+
 ## 按钮
 
 - 主按钮：`.borderedProminent`（主题蓝）。每个画面最多一个。
 - 次按钮：`.bordered`。
 - 链接式：`.link`，只用在列表行末尾的“更改”。
 - 形状交给系统，不设 `buttonBorderShape`。
+- 浮层上的按钮用玻璃样式，见上面“浮层用玻璃”。
 - 尺寸只有两档：一般 `.regular`；页面主操作（导入、连接、向导的继续）`.large`。
 
 ## 图标

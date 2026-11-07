@@ -48,3 +48,29 @@ enum AppIcon {
         return img
     }
 }
+
+// MARK: - 浮层上的玻璃按钮（规范：浮在内容上面的底栏、提示条用系统玻璃样式）
+
+extension View {
+    /// 浮层上的按钮：macOS 26 起是系统玻璃（主按钮为蓝色玻璃），更早的系统用 bordered / borderedProminent。
+    @ViewBuilder func glassButton(prominent: Bool = false) -> some View {
+        if #available(macOS 26.0, *) {
+            if prominent { buttonStyle(.glassProminent) } else { buttonStyle(.glass) }
+        } else {
+            if prominent { buttonStyle(.borderedProminent) } else { buttonStyle(.bordered) }
+        }
+    }
+}
+
+/// 浮层上的开关按钮（「备份」「仅代理」）：打开时是蓝色玻璃，关着时是普通玻璃。用系统按钮样式，不自己画。
+struct GlassToggle: View {
+    let title: String
+    @Binding var isOn: Bool
+
+    var body: some View {
+        Button(title) { isOn.toggle() }
+            .glassButton(prominent: isOn)
+            .accessibilityAddTraits(isOn ? .isSelected : [])
+            .accessibilityValue(isOn ? "开" : "关")
+    }
+}
