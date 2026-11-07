@@ -467,14 +467,11 @@ private struct ChoiceCard: View {
 struct SelectMark: View {
     let selected: Bool
     var body: some View {
-        ZStack {
-            Circle().strokeBorder(selected ? Color.accentColor : Color.secondary.opacity(0.35), lineWidth: 1.5)
-            if selected {
-                Circle().fill(Color.accentColor)
-                Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)).foregroundStyle(.white)
-            }
-        }
-        .frame(width: 20, height: 20)
+        // 选中只标一个主题色的对勾（和系统列表一样），没选中不画东西；卡片的描边已经表示了选中。
+        Image(systemName: "checkmark").font(.system(size: 14, weight: .semibold))
+            .foregroundStyle(Theme.accent)
+            .opacity(selected ? 1 : 0)
+            .frame(width: 20, height: 20)
     }
 }
 

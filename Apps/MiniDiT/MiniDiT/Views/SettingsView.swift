@@ -43,19 +43,15 @@ private extension View {
 
 private struct ImportSettings: View {
     @Environment(AppModel.self) private var model
-    @State private var appURLs: [AppInfo.Kind: URL] = [:]
 
     var body: some View {
         @Bindable var model = model
         Form {
             Section {
-                ForEach(modes) { m in
-                    ModeRow(icon: icon(m), title: Self.title(m), on: model.captureOneMode == m) {
-                        model.captureOneMode = m
-                    }
+                // 和其他设置一样用系统的弹出菜单，不另做单选样式。
+                Picker("导入方式", selection: $model.captureOneMode) {
+                    ForEach(modes) { Text(Self.title($0)).tag($0) }
                 }
-            } header: {
-                Text("导入方式")
             } footer: {
                 if let d = model.captureOneDocument, model.captureOneMode != .off, model.captureOneMode != .lightroom {
                     Text("Capture One 当前打开：\(d.name)").font(.caption).foregroundStyle(.secondary)
@@ -99,17 +95,9 @@ private struct ImportSettings: View {
         .formStyle(.grouped)
         .onAppear {
             model.refreshCaptureOne()
-            for k in [AppInfo.Kind.captureOne, .lightroom] { appURLs[k] = AppInfo.find(k).url }
         }
     }
 
-    private func icon(_ m: CaptureOneMode) -> CardIcon {
-        switch m {
-        case .newSession, .c1Settings, .inPlace: .app(appURLs[.captureOne])
-        case .lightroom: .app(appURLs[.lightroom])
-        case .off: .symbol("folder")
-        }
-    }
 
     /// 个人模式只列常用的三种；当前用的是另外两种时也列出来。
     private var modes: [CaptureOneMode] {
@@ -290,28 +278,6 @@ private struct RecordSections: View {
                 }
             }
         }
-    }
-}
-
-/// 导入方式的一行：和设置向导一样，左边软件图标，右边单选圆圈，整行可点。
-private struct ModeRow: View {
-    let icon: CardIcon
-    let title: String
-    let on: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 10) {
-                CardIconView(icon: icon, size: 24)
-                Text(title)
-                Spacer(minLength: 0)
-                SelectMark(selected: on)
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(on ? .isSelected : [])
     }
 }
 
