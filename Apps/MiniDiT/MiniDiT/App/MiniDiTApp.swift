@@ -115,6 +115,8 @@ struct RootView: View {
         Group {
             if model.phase == .ready || model.offline || (model.phase == .loading && model.connectedName != nil) {
                 BrowserView()
+            } else if let id = model.browsingSession, let s = model.sessions.first(where: { $0.id == id }) {
+                SessionBrowser(session: s) { model.browsingSession = nil }
             } else {
                 ConnectView()
             }

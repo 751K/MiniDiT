@@ -30,49 +30,20 @@ extension AppModel {
         if captureOneMode == .lightroom {
             let st = LightroomBridge.status()
             guard st.canImport else { lightroomPrompt = st; return }
-            sessionRequest = SessionRequest(existing: [], resume: resume)
-        } else if captureOneMode == .newSession {
-            refreshCaptureOne()
-            if !resume.isEmpty {
-                // 中断后继续、还有分组没建会话：沿用原来的询问。
-                sessionRequest = SessionRequest(existing: Array(CaptureOneBridge.sessions(in: sessionsFolder).prefix(15)),
-                                                resume: resume)
-            } else if currentSession != nil {
-                importToCurrentSession()
-            } else {
-                newSessionPrompt = NewSessionPrompt(importAfter: true)
-            }
+        }
+        if captureOneMode == .newSession { refreshCaptureOne() }
+        if !resume.isEmpty, captureOneMode.namesGroups {
+            // 中断后继续、还有分组没建会话 / 收藏夹：沿用原来的询问。
+            sessionRequest = SessionRequest(existing: captureOneMode == .newSession ? Array(existingC1Sessions.prefix(15)) : [],
+                                            resume: resume)
+        } else if currentSession != nil {
+            importToCurrentSession()
+        } else if captureOneMode.namesGroups || captureOneMode == .off {
+            // 要起名字的方式：先新建会话（日期 + 事件），建好就导入。
+            newSessionPrompt = NewSessionPrompt(importAfter: true)
         } else {
             startImport(session: nil)
         }
-    }
-
-    // MARK: 当前会话
-
-    /// 会话文件夹里已有的会话（新的在前）。
-    var existingSessions: [URL] { CaptureOneBridge.sessions(in: sessionsFolder) }
-
-    /// 选中的内容导入当前会话（视频照旧存到视频位置）：会话在磁盘上已有就打开，没有就新建。
-    func importToCurrentSession() {
-        guard let s = currentSession else { return }
-        let file = existingSessions.first { $0.deletingLastPathComponent().lastPathComponent == s.name }
-        startImport(jobs: [ImportJob(key: "all", files: Array(selectedFiles().reversed()),
-                                     session: file.map { .existing($0) } ?? .new(s.name), event: s.event)],
-                    grouping: .single)
-    }
-
-    /// 选一个已有会话作为当前会话。
-    func useSession(_ file: URL) {
-        let name = file.deletingPathExtension().lastPathComponent
-        currentSession = CurrentSession(name: name, event: Self.eventName(of: name))
-    }
-
-    /// 新建会话时默认的日期：侧栏里选中的那天，没有就取所选文件里最早的一天，再没有就是今天。
-    var defaultSessionDay: Date {
-        let f = DateFormatter(); f.dateFormat = "yyyyMMdd"; f.locale = Locale(identifier: "en_US_POSIX")
-        let picked = days.first { d in shownDays.contains(d.id) || d.scenes.contains { shownDays.contains($0.id) } }
-        let key = picked?.id ?? selectedFiles().map(Self.dayKey).filter { $0 != "unknown" }.min()
-        return key.flatMap(f.date(from:)) ?? .now
     }
 
     /// 两块盘够不够放这次要导的文件。本地已经有的（上次导过、还在）不算。
@@ -277,11 +248,14 @@ extension AppModel {
                 }
                 // 视频的文件夹（不含按来源分的那层），MHL 写在这里。
                 @MainActor func videoFolder(_ item: CameraContentItem) -> URL {
-                    FileImporter.videoFolder(for: item, root: videoRoot, event: event, scene: job.scene, roll: rolls[item.id])
+                    if let f = job.folder { return videoRoot.appending(path: f, directoryHint: .isDirectory) }
+                    return FileImporter.videoFolder(for: item, root: videoRoot, event: event, scene: job.scene, roll: rolls[item.id])
                 }
                 @MainActor func destDir(_ item: CameraContentItem) -> URL {
                     if item.kind == .video { return sub(videoFolder(item), item) }
-                    return sub(captureDir ?? FileImporter.folder(for: item, root: root, event: event, scene: job.scene), item)
+                    let photos = job.folder.map { root.appending(path: $0, directoryHint: .isDirectory) }
+                        ?? FileImporter.folder(for: item, root: root, event: event, scene: job.scene)
+                    return sub(captureDir ?? photos, item)
                 }
                 // 导入到 LrC：收藏夹名就是这一组的名字；RAW 先导，同名的 JPG/HIF 叠到它下面。
                 var collection: String?
@@ -488,6 +462,12 @@ extension AppModel {
             // 导入记录按机身分开记（读卡器的没有机身 ID）。
             for (cam, entries) in Dictionary(grouping: done, by: { camera(of: $0.item.id) }) {
                 ImportHistory.shared.record(entries, camera: cam)
+            }
+            // 记进软件会话，之后在侧栏点开会话能看到。
+            for job in jobs {
+                guard let sid = job.appSession else { continue }
+                let ids = Set(job.files.map(\.id))
+                recordSessionFiles(done.filter { ids.contains($0.item.id) }.map(\.url), in: sid)
             }
             if let backupRoot, !mhlBackup.isEmpty {
                 do { reports.append(try MHLWriter.append(root: backupRoot, entries: mhlBackup)) }

@@ -29,6 +29,19 @@ struct ConnectView: View {
                     .disabled(manualHost.trimmingCharacters(in: .whitespaces).isEmpty || model.phase != .idle)
             }
             .padding(.init(top: 10, leading: 20, bottom: 14, trailing: 20))
+            .frame(maxWidth: .infinity)
+            .overlay(alignment: .trailing) {
+                // 没连相机也能看以前导入的会话。
+                if !model.sessions.isEmpty {
+                    Menu("浏览会话") {
+                        ForEach(model.sortedSessions.prefix(15)) { s in
+                            Button("\(s.name)（\(s.files.count)）") { model.browsingSession = s.id }
+                        }
+                    }
+                    .menuStyle(.button).buttonStyle(.bordered).fixedSize()
+                    .padding(.init(top: 10, leading: 0, bottom: 14, trailing: 20))
+                }
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.surface)

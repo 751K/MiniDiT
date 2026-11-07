@@ -450,10 +450,13 @@ final class AppModel {
     }
     var sessionRequest: SessionRequest?
 
-    /// 当前会话（新建 C1 会话模式）：由用户新建或从已有会话中选择，之后点「导入」都存入这里，不再逐次询问。
-    /// 只记名字，第一次导入时才在磁盘上建会话。
-    struct CurrentSession: Equatable { var name: String; var event: String? }
-    var currentSession: CurrentSession?
+    /// 软件自己管理的会话（侧栏「会话」）：一次拍摄任务（日期 + 事件）。和 Capture One 的会话无关，
+    /// 导入时 C1 会话、LrC 收藏夹、下载文件夹都沿用它的名字。
+    var sessions: [ShootSession] = ShootSession.load()
+    /// 当前会话：之后点「导入」都归到这里。
+    var currentSessionID: UUID?
+    /// 右边正在浏览的会话（已导入到电脑上的文件）；nil = 浏览相机 / 存储卡。
+    var browsingSession: UUID?
     /// 弹出「新建会话」窗口；importAfter = 建好后马上导入当前选中的内容。
     struct NewSessionPrompt: Identifiable { let id = UUID(); var importAfter: Bool }
     var newSessionPrompt: NewSessionPrompt?
@@ -510,6 +513,10 @@ final class AppModel {
         var session: SessionChoice?
         var event: String?
         var scene: Int?
+        /// 软件会话的名字：下载文件夹、视频文件夹都用它，不再按模板起名。
+        var folder: String? = nil
+        /// 导完后记进哪个软件会话。
+        var appSession: UUID? = nil
     }
 
     // MARK: 后台（v0.6）

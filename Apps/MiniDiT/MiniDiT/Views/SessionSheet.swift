@@ -286,7 +286,7 @@ struct SessionSheet: View {
 }
 
 /// 新建会话：由用户主动发起，填日期和事件。日期默认取侧栏里选中的那天。
-/// 建好后成为当前会话，之后点「导入」都进这个会话（视频照旧存到视频位置，文件夹也用这个事件名）。
+/// 会话由软件自己管理，建好后成为当前会话；导入时 C1 会话、LrC 收藏夹、文件夹都沿用这个名字。
 struct NewSessionSheet: View {
     @Environment(AppModel.self) private var model
     let prompt: AppModel.NewSessionPrompt
@@ -295,20 +295,27 @@ struct NewSessionSheet: View {
     @State private var openInC1: Set<String> = []
     @FocusState private var eventFocused: Bool
 
-    private var dayKey: String {
-        let f = DateFormatter(); f.dateFormat = "yyyyMMdd"; f.locale = Locale(identifier: "en_US_POSIX")
-        return f.string(from: date)
-    }
+    private var day: String { ShootSession.dayKey(date) }
     private var cleanEvent: String? {
         let e = NameTemplate.sanitize(event)
         return e.isEmpty ? nil : e
     }
-    private var name: String { NameTemplate.render(.session, day: dayKey, event: cleanEvent) }
-    private var exists: Bool {
-        FileManager.default.fileExists(atPath: model.sessionsFolder.appending(path: name).appending(path: name + ".cosessiondb").path)
+    private var name: String { ShootSession.name(day: day, event: cleanEvent) }
+    private var exists: Bool { model.sessions.contains { $0.name == name } }
+    /// C1 里开着同名文档、磁盘上又没有这个会话：导入时建不了。
+    private var blocked: Bool {
+        model.captureOneMode == .newSession && openInC1.contains(name)
+            && !model.existingC1Sessions.contains { $0.deletingLastPathComponent().lastPathComponent == name }
     }
-    /// 磁盘上没有、但 C1 里开着同名文档：建不了。
-    private var blocked: Bool { !exists && openInC1.contains(name) }
+
+    /// 导入时下游会建什么。
+    private var downstream: String {
+        switch model.captureOneMode {
+        case .newSession: "导入时在 Capture One 中新建同名会话"
+        case .lightroom: "导入时在 Lightroom Classic 中新建同名收藏夹"
+        default: "导入时新建同名文件夹"
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -348,18 +355,11 @@ struct NewSessionSheet: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(name).lineLimit(1).truncationMode(.middle)
                     Text(blocked ? "Capture One 中已打开同名会话，请更换事件名"
-                         : exists ? "已有同名会话，将加入该会话"
-                         : "位于“\(model.sessionsFolder.lastPathComponent)”，首次导入时创建")
+                         : exists ? "已有同名会话，将选中该会话" : downstream)
                         .font(Theme.Font.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                Button("更改位置") {
-                    if let url = FolderPicker.choose(start: model.sessionsFolder) { model.sessionsFolder = url }
-                    openInC1 = CaptureOneBridge.openDocumentNames()
-                }
-                .buttonStyle(.link)
             }
-            .help(model.sessionsFolder.appending(path: name).path(percentEncoded: false))
 
             HStack(spacing: 6) {
                 Spacer()
@@ -376,14 +376,13 @@ struct NewSessionSheet: View {
         .frame(width: 420)
         .onAppear {
             date = model.defaultSessionDay
-            openInC1 = CaptureOneBridge.openDocumentNames()
+            if model.captureOneMode == .newSession { openInC1 = CaptureOneBridge.openDocumentNames() }
             eventFocused = true
         }
     }
 
     private func create() {
-        model.rememberEvent(cleanEvent)
-        model.currentSession = .init(name: name, event: cleanEvent)
+        model.createSession(day: day, event: cleanEvent)
         model.newSessionPrompt = nil
         if prompt.importAfter, !model.grid.selected.isEmpty { model.importToCurrentSession() }
     }
