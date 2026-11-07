@@ -36,13 +36,17 @@ struct SessionSheet: View {
         @Bindable var model = model
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Text("导入 \(model.countText(model.grid.selected, noun: true))").font(.system(size: 15, weight: .semibold))
+                Text("导入 \(model.countText(model.grid.selected, noun: true))").font(Theme.Font.headline)
                 Spacer(minLength: 0)
                 Text("\(model.selectedFiles().count) 个文件 · \(FloatingBar.bytes(model.selectionBytes))")
-                    .font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
+                    .font(Theme.Font.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             if !isLightroom {
-                SlidingSegment(options: [("新建会话", false), ("加入已有会话", true)], selection: $useExisting, fill: true)
+                Picker("导入方式", selection: $useExisting) {
+                    Text("新建会话").tag(false)
+                    Text("加入已有会话").tag(true)
+                }
+                .pickerStyle(.segmented).labelsHidden()
                     .disabled(request.existing.isEmpty || !request.resume.isEmpty)
                     .help(request.existing.isEmpty ? "会话文件夹中尚无会话" : "")
                     .accessibilityElement(children: .contain)
@@ -62,13 +66,10 @@ struct SessionSheet: View {
             HStack(spacing: 6) {
                 Spacer()
                 Button("取消") { model.sessionRequest = nil }
-                    .buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.large)
+                    .buttonStyle(.bordered).controlSize(.large)
                     .keyboardShortcut(.cancelAction)
-                Button { start() } label: {
-                    Text(!useExisting && groups.count > 1 ? "导入到 \(groups.count) 个\(unit)" : "开始导入")
-                        .fontWeight(.semibold).padding(.horizontal, 4)
-                }
-                .buttonStyle(.borderedProminent).buttonBorderShape(.capsule).controlSize(.large)
+                Button(!useExisting && groups.count > 1 ? "导入到 \(groups.count) 个\(unit)" : "开始导入") { start() }
+                .buttonStyle(.borderedProminent).controlSize(.large)
                 .keyboardShortcut(.defaultAction)
                 .disabled(!canStart)
             }
@@ -92,12 +93,15 @@ struct SessionSheet: View {
         @Bindable var model = model
         return VStack(alignment: .leading, spacing: 10) {
             if groupings.count > 1 {
-                SlidingSegment(options: groupings.map { ($0.title, $0) }, selection: $model.sessionGrouping, fill: true)
+                Picker("分成", selection: $model.sessionGrouping) {
+                    ForEach(groupings) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented).labelsHidden()
                     .disabled(!request.resume.isEmpty)
                     .accessibilityElement(children: .contain)
                     .accessibilityLabel("分成")
             }
-            Text(groups.count > 1 ? "事件名" : "事件名（选填）").font(.system(size: 12, weight: .semibold))
+            Text(groups.count > 1 ? "事件名" : "事件名（选填）").font(Theme.Font.headline)
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     ForEach(groups) { g in row(g) }
@@ -108,16 +112,12 @@ struct SessionSheet: View {
             .fixedSize(horizontal: false, vertical: groups.count <= 3)
             if !model.recentContents.isEmpty {
                 HStack(spacing: 6) {
-                    Text("最近").font(.system(size: 12)).foregroundStyle(.secondary)
+                    Text("最近").font(Theme.Font.caption).foregroundStyle(.secondary)
                     ForEach(model.recentContents.prefix(6), id: \.self) { c in
-                        Button {
+                        Button(c) {
                             if let row = lastRow ?? groups.first(where: { request.resume[$0.id] == nil })?.id { events[row] = c }
-                        } label: {
-                            Text(c).font(.system(size: 12)).padding(.horizontal, 10).frame(height: 24)
-                                .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color.primary.opacity(0.06)))
-                                .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.bordered).controlSize(.small)
                     }
                 }
             }
@@ -135,10 +135,10 @@ struct SessionSheet: View {
     @ViewBuilder private var whereRow: some View {
         if let p = singleProblem {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange)
+                Image(systemName: "exclamationmark.triangle").foregroundStyle(Theme.warning)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("名称不可用").fontWeight(.semibold)
-                    Text(p).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(2)
+                    Text("名称不可用").font(Theme.Font.headline)
+                    Text(p).font(Theme.Font.caption).foregroundStyle(.secondary).lineLimit(2)
                 }
             }
         } else {
@@ -146,11 +146,10 @@ struct SessionSheet: View {
                 Image(systemName: "folder").foregroundStyle(.secondary)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(wherePath).lineLimit(1).truncationMode(.middle)
-                    Text(footerText).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                    Text(footerText).font(Theme.Font.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                Button("更改…") { changeFolder() }
-                    .buttonStyle(.plain).font(.system(size: 12)).foregroundStyle(.secondary)
+                Button("更改") { changeFolder() }.buttonStyle(.link)
             }
             .help(wherePath)
         }
@@ -176,29 +175,16 @@ struct SessionSheet: View {
     // MARK: 加入已有会话
 
     private var existingList: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                ForEach(request.existing, id: \.self) { f in
-                    let on = existing == f
-                    Button { existing = f } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "checkmark").font(.system(size: 11, weight: .semibold)).opacity(on ? 1 : 0).frame(width: 16)
-                            Text(f.deletingPathExtension().lastPathComponent).fontWeight(on ? .semibold : .regular).lineLimit(1)
-                            Spacer(minLength: 8)
-                            Text(Self.when(f)).font(.system(size: 11)).foregroundStyle(.secondary)
-                        }
-                        .padding(.horizontal, 8).frame(height: 28)
-                        .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(on ? Color.primary.opacity(0.12) : .clear))
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityAddTraits(on ? .isSelected : [])
-                }
+        // 系统列表：选中行用系统的高亮，不自己画对勾。
+        List(request.existing, id: \.self, selection: $existing) { f in
+            HStack {
+                Text(f.deletingPathExtension().lastPathComponent).lineLimit(1)
+                Spacer(minLength: 8)
+                Text(Self.when(f)).font(Theme.Font.caption).foregroundStyle(.secondary)
             }
-            .padding(3)
         }
-        .frame(height: 160)
-        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.primary.opacity(0.06)))
+        .listStyle(.bordered(alternatesRowBackgrounds: false))
+        .frame(height: 180)
         .accessibilityLabel("最近 15 个会话")
     }
 
@@ -219,10 +205,10 @@ struct SessionSheet: View {
         let name = sessionName(g)
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
-                Text(g.title).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
+                Text(g.title).font(Theme.Font.caption).foregroundStyle(.secondary).lineLimit(1)
                     .frame(width: groups.count > 1 ? 170 : 96, alignment: .leading)
                 if let r = request.resume[g.id] {
-                    Text("继续导入至“\(r.name)”").font(.system(size: 13)).lineLimit(1)
+                    Text("继续导入至“\(r.name)”").lineLimit(1)
                     Spacer(minLength: 0)
                 } else {
                     TextField("事件名", text: binding(g.id), prompt: Text("例如：公园"))
@@ -230,19 +216,19 @@ struct SessionSheet: View {
                         .focused($focusedRow, equals: g.id)
                         .onSubmit { if canStart { start() } }
                 }
-                Text(AppModel.countText(photos: g.shotCount - g.videoCount, videos: g.videoCount)).font(.system(size: 12).monospacedDigit()).foregroundStyle(.secondary)
+                Text(AppModel.countText(photos: g.shotCount - g.videoCount, videos: g.videoCount)).font(Theme.Font.caption.monospacedDigit()).foregroundStyle(.secondary)
                     .frame(minWidth: 44, alignment: .trailing)
             }
             if request.resume[g.id] == nil, groups.count > 1 {
                 HStack(spacing: 4) {
                     if let problem = problem(g) {
-                        Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange)
+                        Image(systemName: "exclamationmark.triangle").foregroundStyle(Theme.warning)
                         Text(problem)
                     } else {
                         Text("\(unit)：\(name)").foregroundStyle(.secondary)
                     }
                 }
-                .font(.system(size: 11))
+                .font(Theme.Font.caption)
                 .padding(.leading, groups.count > 1 ? 178 : 104)
             }
         }

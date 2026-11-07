@@ -46,6 +46,10 @@ struct KnownCamera: Codable, Hashable, Identifiable {
 
     /// 名字还是 IP（第一次连接时没读到型号）。
     var nameIsAddress: Bool { name == host || name.allSatisfy { $0.isNumber || $0 == "." } }
+    /// 没读到型号、名字只是 IP 的直连相机：同一台相机换了 IP 会被记成好几台。
+    var unidentified: Bool { nameIsAddress && model == nil }
+    /// 界面上显示的名字：不用 IP 当名字。
+    var displayName: String { unidentified ? "未识别的相机" : name }
 
     static let key = "knownCameras"
 
@@ -57,6 +61,10 @@ struct KnownCamera: Codable, Hashable, Identifiable {
     /// - front: 排到最前（启动时自动连接的就是第一台）。同时连接的第二台相机不抢这个位置。
     static func remember(_ cam: KnownCamera, front: Bool = true) {
         var all = load()
+        // 直连相机这次读到了型号：之前同样直连、没读到型号、名字只是 IP 的记录多半是同一台换了 IP，一并清掉。
+        if cam.fingerprint.hasPrefix("direct:"), cam.model != nil {
+            all.removeAll { $0.fingerprint != cam.fingerprint && $0.fingerprint.hasPrefix("direct:") && $0.unidentified }
+        }
         if !front, let i = all.firstIndex(where: { $0.fingerprint == cam.fingerprint }) {
             all[i] = cam
         } else {

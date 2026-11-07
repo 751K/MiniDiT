@@ -159,7 +159,8 @@ private struct SourceCard: View {
                 }
             }
         }
-        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.primary.opacity(0.06)))
+        .background(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).fill(Theme.surface))
+        .overlay(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).strokeBorder(Theme.border))
         .accessibilityElement(children: .contain)
         .onChange(of: model.progress != nil) { _, busy in if busy { expanded = false } }
         .onChange(of: model.renamingSource) { _, id in if let id { newName = model.profile(id)?.nickname ?? "" } }
@@ -212,13 +213,13 @@ private struct SourceCard: View {
         HStack(spacing: 10) {
             Image(systemName: "square.stack").font(.system(size: 17)).frame(width: 24)
             VStack(alignment: .leading, spacing: 2) {
-                Text("\(model.sources.count) 个来源").font(.system(size: 14, weight: .semibold))
+                Text("\(model.sources.count) 个来源").font(Theme.Font.headline)
                 if model.clocksUnaligned {
                     Label("相机时间尚未对齐", systemImage: "clock.badge.exclamationmark")
-                        .font(.system(size: 11)).foregroundStyle(.orange)
+                        .font(Theme.Font.caption).foregroundStyle(Theme.warning)
                         .help("各相机的时钟可能不一致，合并后的顺序会错位。选中两台相机在同一时刻拍的各一张照片，右键选“按这两张对齐时间”。")
                 } else {
-                    Text("按拍摄时间合并显示").font(.system(size: 11)).foregroundStyle(.secondary)
+                    Text("按拍摄时间合并显示").font(Theme.Font.caption).foregroundStyle(.secondary)
                 }
             }
             Spacer(minLength: 4)
@@ -233,12 +234,13 @@ private struct SourceCard: View {
                 Image(systemName: model.sourceKind == .card ? "sdcard" : "camera")
                     .font(.system(size: 18)).frame(width: 24)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(model.sourceName(AppModel.primarySource)).font(.system(size: 14, weight: .semibold)).lineLimit(1)
-                    HStack(spacing: 5) {
-                        Circle().fill(model.offline ? Color.orange : Color.green).frame(width: 6, height: 6)
+                    Text(model.sourceName(AppModel.primarySource)).font(Theme.Font.headline).lineLimit(1)
+                    HStack(spacing: 4) {
+                        // 正常不上色；断开时才有橙色警告。
+                        if model.offline { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.warning) }
                         Text(statusText).lineLimit(1)
                     }
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                    .font(Theme.Font.caption).foregroundStyle(.secondary)
                     .help(statusHelp)
                 }
                 Spacer(minLength: 4)
@@ -284,7 +286,7 @@ private struct SourceList: View {
                 }
                 // 连过的相机：和当前来源同时连接（多机位）。
                 ForEach(cameras) { k in
-                    row(icon: open ? "plus.circle" : "camera", title: k.name,
+                    row(icon: open ? "plus.circle" : "camera", title: k.displayName,
                         detail: model.switchingTo == k.fingerprint ? "正在检查…" : (open ? "同时连接此相机 · \(k.host)" : (k.name == k.host ? "上次连接的相机" : "上次连接：\(k.host)"))) {
                         if open { model.addCamera(known: k) } else { model.switchTo(known: k) }
                     }
@@ -319,8 +321,8 @@ private struct SourceListRow: View {
             HStack(spacing: 10) {
                 Image(systemName: icon).font(.system(size: 13)).foregroundStyle(.secondary).frame(width: 24)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(title).font(.system(size: 12)).lineLimit(1)
-                    if let detail { Text(detail).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1) }
+                    Text(title).lineLimit(1)
+                    if let detail { Text(detail).font(Theme.Font.caption).foregroundStyle(.secondary).lineLimit(1) }
                 }
                 Spacer(minLength: 0)
             }
@@ -352,21 +354,21 @@ private struct SourceRow: View {
         HStack(spacing: 8) {
             Image(systemName: source.isCard ? "sdcard" : "camera").font(.system(size: 13)).foregroundStyle(.secondary).frame(width: 24)
             VStack(alignment: .leading, spacing: 1) {
-                Text(source.name).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                Text(source.name).font(Theme.Font.headline).lineLimit(1)
                 HStack(spacing: 4) {
                     if (source.id == AppModel.primarySource && model.offline) || source.offline {
-                        Circle().fill(Color.orange).frame(width: 6, height: 6)
+                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.warning)
                         Text("已断开，正在重新连接…")
                     } else if source.connecting {
                         ProgressView().controlSize(.mini)
                         Text("正在连接…")
                     } else {
                         Image(systemName: c.canFormat ? "checkmark.shield.fill" : "exclamationmark.shield")
-                            .foregroundStyle(c.canFormat ? .green : .orange)
+                            .foregroundStyle(c.canFormat ? Theme.accent : Theme.warning)
                         Text(source.detail + extra)
                     }
                 }
-                .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
+                .font(Theme.Font.caption).foregroundStyle(.secondary).lineLimit(1)
                 .help(source.detail + extra + "\n" + (c.canFormat ? "可格式化：全部文件均已存有两份" : "暂不可格式化：\((c.one + c.none).formatted()) 个文件尚未存有两份"))
             }
             Spacer(minLength: 0)
@@ -414,34 +416,15 @@ struct SourceMenu: View {
     }
 }
 
-/// 几个来源时的筛选条：全部 / 每个来源，下面是张数。和卡槽切换条同一个样子。
+/// 几个来源时的筛选：全部 / 每个来源，后面是张数。不超过三项用系统分段控件，再多用弹出菜单。
 private struct SourcePicker: View {
     @Environment(AppModel.self) private var model
-    @Namespace private var thumb
 
     var body: some View {
-        HStack(spacing: 2) {
-            segment("全部", count: model.sources.reduce(0) { $0 + model.shotCount(source: $1.id) }, on: model.sourceFilter == nil) { model.sourceFilter = nil }
-            ForEach(model.sources) { s in
-                segment(model.sourceLabel(s.id), count: model.shotCount(source: s.id), on: model.sourceFilter == s.id) { model.sourceFilter = s.id }
-            }
-        }
-        .padding(3)
-        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.primary.opacity(0.06)))
-    }
-
-    private func segment(_ title: String, count: Int, on: Bool, action: @escaping () -> Void) -> some View {
-        Button { withAnimation(.snappy(duration: 0.28)) { action() } } label: {
-            VStack(spacing: 1) {
-                Text(title).font(.system(size: 12, weight: on ? .semibold : .regular)).lineLimit(1)
-                Text(count.formatted()).font(.system(size: 11).monospacedDigit()).foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity).padding(.vertical, 5).padding(.horizontal, 2)
-            .background { if on { SlotThumb().matchedGeometryEffect(id: "thumb", in: thumb) } }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(on ? .isSelected : [])
+        let options: [(String, Int?)] = [("全部 \(model.sources.reduce(0) { $0 + model.shotCount(source: $1.id) })", nil)]
+            + model.sources.map { ("\(model.sourceLabel($0.id)) \(model.shotCount(source: $0.id))", $0.id) }
+        ChoicePicker(title: "来源", options: options,
+                     selection: Binding(get: { model.sourceFilter }, set: { model.sourceFilter = $0 }))
     }
 }
 
@@ -449,80 +432,46 @@ private struct SourcePicker: View {
 private struct SourceSlotPicker: View {
     @Environment(AppModel.self) private var model
     let id: Int
-    @Namespace private var thumb
 
     var body: some View {
-        let only = model.onlySlot(id)
-        HStack(spacing: 2) {
-            segment("全部", count: model.shotCount(source: id, slot: nil), on: only == nil) { model.setOnlySlot(id, nil) }
-            ForEach(model.sourceSlots(id), id: \.self) { slot in
-                segment("卡 \(slot)", count: model.shotCount(source: id, slot: slot), on: only == slot) { model.setOnlySlot(id, slot) }
-            }
-        }
-        .padding(2)
-        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.primary.opacity(0.06)))
-        .disabled(model.progress != nil)
-        .help("只显示并导入这台相机的某张存储卡；按机身记住")
-    }
-
-    private func segment(_ title: String, count: Int, on: Bool, action: @escaping () -> Void) -> some View {
-        Button { withAnimation(.snappy(duration: 0.28)) { action() } } label: {
-            HStack(spacing: 4) {
-                Text(title).font(.system(size: 11, weight: on ? .semibold : .regular))
-                Text(count.formatted()).font(.system(size: 10).monospacedDigit()).foregroundStyle(.secondary)
-            }
-            .lineLimit(1)
-            .frame(maxWidth: .infinity).padding(.vertical, 3)
-            .background { if on { SlotThumb(radius: 6).matchedGeometryEffect(id: "thumb", in: thumb) } }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("\(title)，\(count) 张")
-        .accessibilityAddTraits(on ? .isSelected : [])
+        let options: [(String, UInt32?)] = [("全部 \(model.shotCount(source: id, slot: nil))", nil)]
+            + model.sourceSlots(id).map { ("卡 \($0) \(model.shotCount(source: id, slot: $0))", $0) }
+        ChoicePicker(title: "卡槽", options: options,
+                     selection: Binding(get: { model.onlySlot(id) }, set: { model.setOnlySlot(id, $0) }))
+            .disabled(model.progress != nil)
+            .help("只显示并导入这台相机的某张存储卡；按机身记住")
     }
 }
 
-/// 卡槽：全部 / 卡 1 / 卡 2，下面是张数。选中的那格是一块玻璃滑块，换卡槽时滑过去。
+/// 卡槽：全部 / 卡 1 / 卡 2，后面是张数。
 private struct SlotPicker: View {
     @Environment(AppModel.self) private var model
-    @Namespace private var thumb
 
     var body: some View {
-        HStack(spacing: 2) {
-            segment("全部", count: model.allShots.count, on: model.slotFilter == nil) { model.slotFilter = nil }
-            ForEach(model.slots, id: \.self) { slot in
-                segment("卡 \(slot)", count: model.shotCount(slot: slot), on: model.slotFilter == slot) { model.slotFilter = slot }
-            }
-        }
-        .padding(3)
-        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.primary.opacity(0.06)))
-    }
-
-    private func segment(_ title: String, count: Int, on: Bool, action: @escaping () -> Void) -> some View {
-        Button { withAnimation(.snappy(duration: 0.28)) { action() } } label: {
-            VStack(spacing: 1) {
-                Text(title).font(.system(size: 12, weight: on ? .semibold : .regular))
-                Text(count.formatted()).font(.system(size: 11).monospacedDigit()).foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity).padding(.vertical, 5)
-            .background {
-                if on { SlotThumb().matchedGeometryEffect(id: "thumb", in: thumb) }
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(on ? .isSelected : [])
+        let options: [(String, UInt32?)] = [("全部 \(model.allShots.count)", nil)]
+            + model.slots.map { ("卡 \($0) \(model.shotCount(slot: $0))", $0) }
+        ChoicePicker(title: "卡槽", options: options,
+                     selection: Binding(get: { model.slotFilter }, set: { model.slotFilter = $0 }))
     }
 }
 
-/// 卡槽切换条里的滑块：macOS 26 起是液态玻璃，更早的系统用浅色底。
-private struct SlotThumb: View {
-    var radius: CGFloat = 8
+/// 单选：不超过三项用系统分段控件，再多用系统弹出菜单（见 docs/MiniDiT-DESIGN.md）。
+struct ChoicePicker<T: Hashable>: View {
+    let title: String
+    let options: [(String, T)]
+    @Binding var selection: T
+
     var body: some View {
-        if #available(macOS 26.0, *) {
-            Color.clear.glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: radius, style: .continuous))
+        if options.count <= 3 {
+            Picker(title, selection: $selection) {
+                ForEach(options, id: \.1) { Text($0.0).tag($0.1) }
+            }
+            .pickerStyle(.segmented).labelsHidden()
         } else {
-            RoundedRectangle(cornerRadius: radius, style: .continuous).fill(Color.primary.opacity(0.12))
+            Picker(title, selection: $selection) {
+                ForEach(options, id: \.1) { Text($0.0).tag($0.1) }
+            }
+            .labelsHidden()
         }
     }
 }
@@ -535,11 +484,11 @@ private struct FormatSafety: View {
         let c = model.cardSafety
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: c.canFormat ? "checkmark.shield.fill" : "exclamationmark.shield")
-                .font(.system(size: 15)).foregroundStyle(c.canFormat ? .green : .orange).frame(width: 24)
+                .font(.system(size: 15)).foregroundStyle(c.canFormat ? Theme.accent : Theme.warning).frame(width: 24)
             VStack(alignment: .leading, spacing: 2) {
-                Text(c.canFormat ? "可格式化存储卡" : "暂不可格式化存储卡").font(.system(size: 12, weight: .semibold))
+                Text(c.canFormat ? "可格式化存储卡" : "暂不可格式化存储卡").font(Theme.Font.headline)
                 Text(c.canFormat ? "全部文件均已存有两份" : "\((c.one + c.none).formatted()) 个文件尚未存有两份")
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                    .font(Theme.Font.caption).foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
         }
@@ -623,7 +572,7 @@ private struct ShotCounts: View {
                 Text("\(new) 新").font(.system(size: size, weight: .semibold).monospacedDigit())
             } else {
                 Image(systemName: "checkmark").font(.system(size: size - 2, weight: .semibold))
-                    .foregroundStyle(copies == 1 ? Color.orange : Color.secondary)
+                    .foregroundStyle(copies == 1 ? Theme.warning : Color.secondary)
                     .help(copies == 1 ? "均已导入，部分照片仅存有一份" : "均已导入")
             }
             Text(total.formatted()).font(.system(size: size).monospacedDigit()).foregroundStyle(.secondary)
@@ -653,7 +602,7 @@ private struct SceneRow: View {
             .accessibilityLabel("导入 \(day.title) \(AppModel.sceneTitle(scene))")
             .accessibilityValue(state == .on ? "已勾选" : state == .mixed ? "部分勾选" : "未勾选")
             .help(scene.newCount > 0 ? "勾选该场次 \(model.countText(scene.shots.filter { !model.isImported(shot: $0) }, fresh: true))" : "勾选该场次全部内容")
-            Text(scene.timeRange.isEmpty ? "第 \(scene.number) 场" : scene.timeRange).font(.system(size: 12)).lineLimit(1)
+            Text(scene.timeRange.isEmpty ? "第 \(scene.number) 场" : scene.timeRange).font(Theme.Font.caption).lineLimit(1)
             Spacer(minLength: 4)
             ShotCounts(new: scene.newCount, total: scene.shots.count, copies: 2, size: 11)
         }
@@ -687,21 +636,24 @@ struct BrowseHeader: View {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 let counts = model.countTitle
                 Text(counts.new)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(Theme.Font.headline)
                 Text(counts.total)
-                    .font(.system(size: 12)).foregroundStyle(.secondary)
+                    .font(Theme.Font.caption).foregroundStyle(.secondary)
             }
             .lineLimit(1)
             Spacer(minLength: 8)
-            SlidingSegment(options: [("全部", false), ("未导入", true)], selection: $model.onlyNew)
-                .accessibilityElement(children: .contain)
-                .accessibilityLabel("显示范围")
-            HStack(spacing: 1) {
-                TypeToggle(label: "RAW", on: $model.showRaw)
-                TypeToggle(label: "JPG/HIF", on: $model.showPhotos)
-                TypeToggle(label: "视频", on: $model.showVideo)
+            // 单选用系统分段控件；文件类型可以同时选几种，用系统按钮式开关。
+            Picker("显示范围", selection: $model.onlyNew) {
+                Text("全部").tag(false)
+                Text("未导入").tag(true)
             }
-            .segmentTrack()
+            .pickerStyle(.segmented).labelsHidden().fixedSize()
+            HStack(spacing: 4) {
+                Toggle("RAW", isOn: $model.showRaw)
+                Toggle("JPG/HIF", isOn: $model.showPhotos)
+                Toggle("视频", isOn: $model.showVideo)
+            }
+            .toggleStyle(.button)
             .accessibilityElement(children: .contain)
             .accessibilityLabel("文件类型")
             Slider(value: $model.thumbSize, in: 110...320)
@@ -714,84 +666,20 @@ struct BrowseHeader: View {
     }
 }
 
-/// 分段控件里每一格的高度（外面的灰底再多 2 pt 边距）。
-private let segmentHeight: CGFloat = 24
-
-extension View {
-    /// 分段控件的灰色底槽。
-    func segmentTrack() -> some View {
-        padding(2).background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.primary.opacity(0.06)))
-    }
-}
-
-/// 导入栏里的「备份」开关和「…」菜单（存放位置、导入后删除原片；和设置里是同一个设置）。
-/// 底栏上的开关按钮（「仅代理」「备份」）：打开时是蓝色玻璃、白字、✓，关着时是普通玻璃、灰字，一眼能分清。
-private struct ChipToggle: View {
-    let title: String
-    let on: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 5) {
-                if on { Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)) }
-                Text(title).fontWeight(on ? .semibold : .regular)
-            }
-            .padding(.horizontal, 14).frame(height: 36)
-            .foregroundStyle(on ? Self.onText : Color.secondary)
-            .chipGlass(on: on)
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(on ? .isSelected : [])
-    }
-
-    /// 打开时的文字：玻璃上是蓝底白字，更早的系统是浅蓝底蓝字。
-    private static var onText: Color {
-        if #available(macOS 26.0, *) { return .white }
-        return .accentColor
-    }
-}
-
-private extension View {
-    /// 底栏小按钮的底：macOS 26 起用玻璃（打开时带蓝色调），更早的系统用淡色填充。
-    @ViewBuilder func chipGlass(on: Bool) -> some View {
-        if #available(macOS 26.0, *) {
-            // 玻璃的色调在窗口不在前台时会被系统去掉，打开状态用实心蓝底，上面再叠一层透明玻璃的高光。
-            if on {
-                background(Capsule().fill(Color.accentColor))
-                    .glassEffect(.clear.interactive(), in: Capsule())
-            } else {
-                glassEffect(.regular.interactive(), in: Capsule())
-            }
-        } else {
-            background(Capsule().fill(on ? Color.accentColor.opacity(0.18) : Color.primary.opacity(0.06)))
-                .overlay(Capsule().strokeBorder(on ? Color.accentColor.opacity(0.45) : .clear, lineWidth: 1))
-        }
-    }
-
-    @ViewBuilder func circleGlass(highlighted: Bool) -> some View {
-        if #available(macOS 26.0, *) {
-            glassEffect(.regular.interactive(), in: Circle())
-        } else {
-            background(Circle().fill(Color.primary.opacity(highlighted ? 0.12 : 0.06)))
-        }
-    }
-}
-
 private struct ImportOptions: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
         @Bindable var model = model
         HStack(spacing: 6) {
+            // 底栏的开关和按钮都用系统控件（按钮式开关、bordered），尺寸和导入按钮一致。
             // 选中了 Wi-Fi 相机上的视频时才出现：只导代理，原片留在卡上。
             if model.selectionHasWiFiVideo {
-                ChipToggle(title: "仅代理", on: model.proxyOnlyWiFi) { model.proxyOnlyWiFi.toggle() }
+                Toggle("仅代理", isOn: $model.proxyOnlyWiFi)
                 .help(model.proxyOnlyWiFi ? "视频只导入代理和 XML，原片留在存储卡上；点按改为导入原片"
                                           : "导入视频原片；点按改为只导入代理，原片留在存储卡上，之后可用读卡器导入")
             }
-            ChipToggle(title: "备份", on: model.backupEnabled) { model.backupEnabled.toggle() }
+            Toggle("备份", isOn: $model.backupEnabled)
             .help(model.backupEnabled ? "同时备份至另一磁盘；点按改为仅存储一份" : "仅存储一份；点按以同时备份")
 
             Menu {
@@ -808,16 +696,15 @@ private struct ImportOptions: View {
                     Text("仅适用于 Wi-Fi 连接的相机")
                 }
             } label: {
-                Image(systemName: "ellipsis").font(.system(size: 13, weight: .semibold))
-                    .frame(width: 36, height: 36)
-                    .circleGlass(highlighted: model.willDeleteFromSource)
-                    .contentShape(Circle())
+                // 菜单按钮不跟着 controlSize 变高，给图标一个和文字按钮一样的高度。
+                Image(systemName: "ellipsis").frame(height: 20)
             }
-            .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
+            .menuStyle(.button).buttonStyle(.bordered).menuIndicator(.hidden).controlSize(.large)
             .fixedSize()
             .accessibilityLabel("更多操作")
             .help("更多操作")
         }
+        .toggleStyle(.button).controlSize(.large)
         .fixedSize()
     }
 
@@ -831,54 +718,6 @@ private struct ImportOptions: View {
     }
 }
 
-private struct TypeToggle: View {
-    let label: String
-    @Binding var on: Bool
-
-    var body: some View {
-        Button { on.toggle() } label: {
-            Text(label)
-                .font(.system(size: 13, weight: on ? .semibold : .regular))
-                .padding(.horizontal, 10).frame(height: segmentHeight)
-                .foregroundStyle(on ? Color.primary : Color.secondary)
-                .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(on ? Color.primary.opacity(0.12) : Color.clear))
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(on ? .isSelected : [])
-    }
-}
-
-/// 单选分段控件：选中的一格是一块会滑动的液态玻璃（和侧栏的卡槽切换一样）。
-struct SlidingSegment<T: Hashable>: View {
-    let options: [(String, T)]
-    @Binding var selection: T
-    /// 撑满整行，每格等宽（弹层里用）。
-    var fill = false
-    @Environment(\.isEnabled) private var enabled
-    @Namespace private var ns
-
-    var body: some View {
-        HStack(spacing: 0) {
-            ForEach(options, id: \.1) { label, value in
-                let on = selection == value
-                Button { withAnimation(.snappy(duration: 0.28)) { selection = value } } label: {
-                    Text(label)
-                        .font(.system(size: 13, weight: on ? .semibold : .regular))
-                        .foregroundStyle(on ? Color.primary : Color.secondary)
-                        .padding(.horizontal, 10).frame(maxWidth: fill ? .infinity : nil).frame(height: segmentHeight)
-                        .background { if on { SlotThumb(radius: 6).matchedGeometryEffect(id: "on", in: ns) } }
-                        .opacity(enabled || on ? 1 : 0.5)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(on ? .isSelected : [])
-            }
-        }
-        .segmentTrack()
-    }
-}
-
 struct OfflineBanner: View {
     @Environment(AppModel.self) private var model
 
@@ -888,7 +727,7 @@ struct OfflineBanner: View {
             Text("相机已断开，正在重新连接").fontWeight(.semibold)
             Text("已保留当前选择").foregroundStyle(.secondary)
             Spacer(minLength: 8)
-            Button("重新连接") { model.reconnectNow() }.buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.small)
+            Button("重新连接") { model.reconnectNow() }.buttonStyle(.bordered)
         }
         .padding(.init(top: 8, leading: 12, bottom: 8, trailing: 8))
         .glassRounded(10)
@@ -912,7 +751,7 @@ struct LoadingGrid: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                Text(model.status.isEmpty ? "正在读取照片列表…" : model.status).font(.system(size: 15, weight: .semibold))
+                Text(model.status.isEmpty ? "正在读取照片列表…" : model.status).font(Theme.Font.headline)
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: model.thumbSize), spacing: 16)], spacing: 16) {
                     ForEach(0..<12, id: \.self) { _ in
                         VStack(alignment: .leading, spacing: 8) {
@@ -1023,12 +862,14 @@ struct GridView: View {
         .padding(.init(top: 2, leading: 13, bottom: bottom, trailing: 13))
     }
 
-    /// 在空白处或缩略图上拖动 = 框选（按住 ⌘ / ⇧ 在原有选择上增减）。
+    /// 已选中的缩略图用于拖出文件；空白处或未选中处开始框选（⌘ / ⇧ 增减）。
     private var boxGesture: some Gesture {
         DragGesture(minimumDistance: 6, coordinateSpace: .named("grid"))
             .onChanged { v in
                 if box == nil {
                     let flags = NSEvent.modifierFlags
+                    if flags.intersection([.command, .shift]).isEmpty,
+                       frames.contains(where: { model.grid.contains($0.key) && $0.value.contains(v.startLocation) }) { return }
                     model.grid.beginBox(additive: flags.contains(.command) || flags.contains(.shift))
                     focused = true
                 }
@@ -1049,11 +890,11 @@ private struct EmptyState: View {
 
     var body: some View {
         VStack(spacing: 6) {
-            Text(title).font(.system(size: 17, weight: .semibold))
+            Text(title).font(Theme.Font.headline)
             Text(detail).foregroundStyle(.secondary).multilineTextAlignment(.center)
             if model.days.isEmpty && model.onlyNew {
                 Button("显示全部") { model.onlyNew = false }
-                    .buttonStyle(.bordered).buttonBorderShape(.capsule).padding(.top, 10)
+                    .buttonStyle(.bordered).padding(.top, 10)
             }
         }
         .padding(48)
@@ -1078,9 +919,9 @@ struct DayHeader: View {
     var body: some View {
         let picked = day.shots.contains(where: model.grid.contains)
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(day.title).font(.system(size: 13, weight: .semibold)).foregroundStyle(.primary)
+            Text(day.title).font(Theme.Font.headline).foregroundStyle(.primary)
             if day.partial, day.scenes.count == 1 {
-                Text(AppModel.sceneTitle(day.scenes[0])).font(.system(size: 13, weight: .semibold)).foregroundStyle(.primary)
+                Text(AppModel.sceneTitle(day.scenes[0])).font(Theme.Font.headline).foregroundStyle(.primary)
             }
             Text(GroupMeta.text(model, shots: day.shots))
             Spacer(minLength: 8)
@@ -1107,7 +948,7 @@ struct SceneHeader: View {
     var body: some View {
         let picked = scene.shots.contains(where: model.grid.contains)
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(AppModel.sceneTitle(scene)).font(.system(size: 13, weight: .medium)).foregroundStyle(.primary)
+            Text(AppModel.sceneTitle(scene)).font(Theme.Font.headline).foregroundStyle(.primary)
             Text(GroupMeta.text(model, shots: scene.shots))
             Spacer(minLength: 8)
             Button(picked ? "取消选择" : scene.newCount > 0 ? "选择新照片" : "全选") {
@@ -1190,7 +1031,7 @@ struct ThumbCell: View {
                     let copies = model.copyCount(shot: shotID)
                     let text = copies >= 2 ? "两份" : copies == 1 ? "一份" : "已导入"
                     Badge(text: model.thumbSize >= 150 ? text : "", check: true,
-                          checkColor: copies == 1 ? .orange : .green).padding(5)
+                          checkColor: copies == 1 ? Theme.warning : Theme.accent).padding(5)
                         .help(copies >= 2 ? "电脑上存有两份，均已校验" : copies == 1 ? "仅存有一份，尚未备份" : "已导入，但电脑上未找到该文件")
                 }
             }
@@ -1269,7 +1110,7 @@ struct ThumbCell: View {
 private struct Badge: View {
     let text: String
     var check = false
-    var checkColor: Color = .green
+    var checkColor: Color = Theme.accent
 
     var body: some View {
         HStack(spacing: 2) {
@@ -1298,11 +1139,11 @@ struct FloatingBar: View {
                             if let from = p.resumingFrom {
                                 // 续传：明确告诉用户这个文件不是从头来的。
                                 Label("从 \(Self.bytes(from)) 处继续", systemImage: "arrow.clockwise")
-                                    .font(.system(size: 11, weight: .medium)).foregroundStyle(.tint).fixedSize()
+                                    .font(Theme.Font.caption).foregroundStyle(.tint).fixedSize()
                             }
                             Spacer(minLength: 8)
                             Text("\(p.done + p.skipped + p.reused + p.failed.count) / \(p.total) 个文件")
-                                .font(.system(size: 12).monospacedDigit())
+                                .font(Theme.Font.caption.monospacedDigit())
                         }
                         ProgressView(value: p.fraction).progressViewStyle(.linear).controlSize(.small)
                         HStack(spacing: 0) {
@@ -1310,7 +1151,7 @@ struct FloatingBar: View {
                             Text(" · \(Self.bytes(p.bytesDone)) / \(Self.bytes(p.bytesTotal)) · \(Self.timeLeft(p.secondsLeft))")
                                 .monospacedDigit().lineLimit(1).layoutPriority(1)
                         }
-                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                        .font(Theme.Font.caption).foregroundStyle(.secondary)
                         .help(p.bytesPerSecond.map { "\(Self.bytes(UInt64($0)))/s" } ?? "")
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -1338,9 +1179,9 @@ struct FloatingBar: View {
                     if let r = model.lastResult, r.cancelled, r.savedBytes > 0, !model.sourcesOffline {
                         VStack(alignment: .leading, spacing: 1) {
                             Text("已选 \(model.countText(model.grid.selected)) · \(Self.bytes(model.selectionBytes))")
-                                .font(.system(size: 15, weight: .semibold)).lineLimit(1)
+                                .font(Theme.Font.headline).lineLimit(1)
                             Label("已保存未传输完成的 \(Self.bytes(r.savedBytes))，再次导入时将从断点续传", systemImage: "arrow.clockwise")
-                                .font(.system(size: 11, weight: .medium)).foregroundStyle(.tint).lineLimit(1)
+                                .font(Theme.Font.caption).foregroundStyle(.tint).lineLimit(1)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                     } else {
@@ -1358,13 +1199,8 @@ struct FloatingBar: View {
                     if let folder = AppModel.commonFolder(model.lastBatch) {
                         secondaryButton("在访达中显示") { NSWorkspace.shared.open(folder) }
                     }
-                    Button { model.dismissResult() } label: {
-                        Image(systemName: "xmark").font(.system(size: 11, weight: .semibold))
-                            .frame(width: 36, height: 36)
-                            .background(Circle().fill(Color.primary.opacity(0.1)))
-                            .contentShape(Circle())
-                    }
-                    .buttonStyle(.plain)
+                    Button { model.dismissResult() } label: { Image(systemName: "xmark") }
+                    .buttonStyle(.bordered).controlSize(.large)
                     .accessibilityLabel("关闭")
                 }
             } else if model.phase == .ready {
@@ -1452,18 +1288,12 @@ struct FloatingBar: View {
     private func statusIcon(warning: Bool) -> some View {
         Image(systemName: warning ? "exclamationmark.triangle" : "checkmark")
             .font(.system(size: 15, weight: .semibold))
-            .foregroundStyle(warning ? .orange : .green)
+            .foregroundStyle(warning ? Theme.warning : Theme.accent)
             .padding(.trailing, 6)
     }
 
     private func secondaryButton(_ title: String, _ action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title).padding(.horizontal, 14).frame(height: 36)
-                .background(Capsule().fill(Color.primary.opacity(0.1)))
-                .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .fixedSize()
+        Button(title, action: action).buttonStyle(.bordered).controlSize(.large).fixedSize()
     }
 
     private func pill<C: View>(@ViewBuilder _ content: () -> C) -> some View {
@@ -1474,18 +1304,16 @@ struct FloatingBar: View {
 
     private func twoLines(_ title: String, _ detail: String) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(title).font(.system(size: 13, weight: .semibold)).lineLimit(1)
-            Text(detail).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
+            Text(title).font(Theme.Font.headline).lineLimit(1)
+            Text(detail).font(Theme.Font.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.trailing, 12)
     }
 
     private func mainButton(_ title: String, disabled: Bool = false, _ action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title).font(.system(size: 15, weight: .semibold)).padding(.horizontal, 8).frame(height: 26)
-        }
-        .glassProminentButton()
+        Button(title, action: action)
+        .buttonStyle(.borderedProminent)
         .controlSize(.large)
         .disabled(disabled)
     }
@@ -1567,9 +1395,9 @@ struct PreviewOverlay: View {
         HStack(spacing: 6) {
             VStack(alignment: .leading, spacing: 1) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(item?.baseName ?? "").font(.system(size: 13, weight: .semibold))
+                    Text(item?.baseName ?? "").font(Theme.Font.headline)
                     if let x = model.previewExif {
-                        Text(x.exposureText).font(.system(size: 12).monospacedDigit()).foregroundStyle(.white.opacity(0.85))
+                        Text(x.exposureText).font(Theme.Font.caption.monospacedDigit()).foregroundStyle(.white.opacity(0.85))
                     }
                 }
                 HStack(spacing: 4) {
@@ -1577,7 +1405,7 @@ struct PreviewOverlay: View {
                     if model.isImported(shot: id) {
                         let copies = model.copyCount(shot: id)
                         Text("·")
-                        Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)).foregroundStyle(copies == 1 ? .orange : .green)
+                        Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)).foregroundStyle(copies == 1 ? Theme.warning : Theme.accent)
                         Text(copies >= 2 ? "存有两份" : copies == 1 ? "仅一份" : "已导入")
                     }
                     if let gear = model.previewExif?.gearText, !gear.isEmpty {
@@ -1609,7 +1437,7 @@ struct PreviewOverlay: View {
 
             Button { model.togglePreviewSelection() } label: {
                 HStack(spacing: 8) {
-                    Text(selected ? "已选中" : "选中").font(.system(size: 15, weight: .semibold))
+                    Text(selected ? "已选中" : "选中").font(Theme.Font.headline)
                     Text("P").font(.system(size: 11, weight: .medium))
                         .frame(minWidth: 18, minHeight: 18)
                         .background(RoundedRectangle(cornerRadius: 4).fill(.white.opacity(0.2)))
@@ -1700,11 +1528,4 @@ extension View {
         }
     }
 
-    @ViewBuilder func glassProminentButton() -> some View {
-        if #available(macOS 26.0, *) {
-            buttonStyle(.glassProminent)
-        } else {
-            buttonStyle(.borderedProminent).buttonBorderShape(.capsule)
-        }
-    }
 }

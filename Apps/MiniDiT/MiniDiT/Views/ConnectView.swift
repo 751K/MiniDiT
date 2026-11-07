@@ -10,10 +10,7 @@ struct ConnectView: View {
     var body: some View {
         VStack(spacing: 0) {
             VStack(spacing: 24) {
-                VStack(spacing: 4) {
-                    Text("选择来源").font(.system(size: 26, weight: .semibold))
-                    Text("请选择相机或存储卡，然后按日期挑选照片。").foregroundStyle(.secondary)
-                }
+                Text("选择来源").font(Theme.Font.title)
                 HStack(spacing: 16) {
                     ForEach(tiles) { SourceTile(tile: $0) }
                 }
@@ -23,18 +20,18 @@ struct ConnectView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             HStack(spacing: 8) {
-                Text("未找到相机？可手动输入 IP 地址").foregroundStyle(.secondary)
+                Text("手动输入 IP 地址").font(Theme.Font.caption).foregroundStyle(.secondary)
                 TextField("192.168.1.23", text: $manualHost)
                     .textFieldStyle(.roundedBorder).frame(width: 132)
                     .onSubmit { model.connect(host: manualHost) }
                 Button("连接") { model.connect(host: manualHost) }
-                    .buttonStyle(.bordered).buttonBorderShape(.capsule)
+                    .buttonStyle(.bordered)
                     .disabled(manualHost.trimmingCharacters(in: .whitespaces).isEmpty || model.phase != .idle)
             }
             .padding(.init(top: 10, leading: 20, bottom: 14, trailing: 20))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(Theme.surface)
     }
 
     // MARK: 卡片
@@ -43,7 +40,7 @@ struct ConnectView: View {
         var out: [SourceTile.Model] = []
         let busy = model.phase == .searching || model.phase == .connecting
         if model.phase == .connecting, let h = model.connectingHost {
-            let name = model.found.first { $0.host == h }?.knownName ?? model.knownCameras.first { $0.host == h }?.name ?? h
+            let name = model.found.first { $0.host == h }?.knownName ?? model.knownCameras.first { $0.host == h }?.displayName ?? "相机"
             return [.init(id: "c:" + h, kind: .camera, name: name, detail: "正在连接…", state: .busy, action: nil)]
         }
         for url in model.cards {
@@ -57,9 +54,12 @@ struct ConnectView: View {
             out.append(.init(id: "f:" + cam.fingerprint, kind: .camera, name: cam.knownName ?? "相机", detail: detail,
                              state: .online, action: { model.connect(cam) }))
         }
+        // 没识别出型号的直连相机（名字只是 IP）多半是同一台换了 IP，只列最近的一台。
+        var unidentifiedShown = false
         for k in model.knownCameras where !shown.contains(k.fingerprint) {
+            if k.unidentified { if unidentifiedShown { continue }; unidentifiedShown = true }
             let detail: String = model.phase == .searching ? "正在查找…" : model.searched ? "离线" : "上次连接：\(k.host)"
-            out.append(.init(id: "k:" + k.fingerprint, kind: .camera, name: k.name, detail: detail,
+            out.append(.init(id: "k:" + k.fingerprint, kind: .camera, name: k.displayName, detail: detail,
                              state: model.phase == .searching ? .busy : .quiet,
                              action: model.phase == .idle ? { model.connect(known: k) } : nil))
         }
@@ -77,11 +77,11 @@ struct ConnectView: View {
             switch model.phase {
             case .searching:
                 StatusText(title: model.status.isEmpty ? "正在搜索局域网" : model.status, body: "通常需要数秒")
-                Button("取消") { model.cancelConnect() }.buttonStyle(.bordered).buttonBorderShape(.capsule)
+                Button("取消") { model.cancelConnect() }.buttonStyle(.bordered).controlSize(.large)
             case .connecting, .loading:
                 StatusText(title: model.status.isEmpty ? "正在连接…" : model.status)
                 if model.phase == .connecting {
-                    Button("取消") { model.cancelConnect() }.buttonStyle(.bordered).buttonBorderShape(.capsule)
+                    Button("取消") { model.cancelConnect() }.buttonStyle(.bordered).controlSize(.large)
                 }
             case .idle, .ready:
                 if let notice = model.notice {
@@ -94,7 +94,10 @@ struct ConnectView: View {
                     }
                 } else if !model.found.isEmpty {
                     StatusText(title: "请选择要连接的相机")
-                    Button("重新搜索") { model.search() }.buttonStyle(.bordered).buttonBorderShape(.capsule)
+                    Button("重新搜索") { model.search() }.buttonStyle(.bordered).controlSize(.large)
+                } else if model.searched, !model.cards.isEmpty {
+                    // 插着存储卡时没找到相机不算问题，不出警告。
+                    Button("重新搜索相机") { model.search() }.buttonStyle(.bordered).controlSize(.large)
                 } else if model.searched {
                     StatusText(title: "未找到相机", body: "请确认相机与 Mac 已连接至同一 Wi-Fi 网络，并已在相机上开启遥控拍摄。", icon: .warn)
                     primary("重新搜索") { model.search() }
@@ -107,8 +110,8 @@ struct ConnectView: View {
     }
 
     private func primary(_ title: String, _ action: @escaping () -> Void) -> some View {
-        Button(action: action) { Text(title).font(.system(size: 17, weight: .semibold)).padding(.horizontal, 10).frame(height: 30) }
-            .buttonStyle(.borderedProminent).buttonBorderShape(.capsule).controlSize(.large)
+        Button(title, action: action)
+            .buttonStyle(.borderedProminent).controlSize(.large)
             .keyboardShortcut(.defaultAction)
     }
 }
@@ -129,13 +132,13 @@ private struct StatusText: View {
         VStack(spacing: 2) {
             HStack(spacing: 6) {
                 switch icon {
-                case .warn: Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange)
-                case .ok: Image(systemName: "checkmark").foregroundStyle(.green)
+                case .warn: Image(systemName: "exclamationmark.triangle").foregroundStyle(Theme.warning)
+                case .ok: Image(systemName: "checkmark").foregroundStyle(Theme.accent)
                 case nil: EmptyView()
                 }
-                Text(title).fontWeight(.semibold)
+                Text(title).font(Theme.Font.headline)
             }
-            if !body_.isEmpty { Text(body_).font(.system(size: 12)).foregroundStyle(.secondary).multilineTextAlignment(.center) }
+            if !body_.isEmpty { Text(body_).font(Theme.Font.caption).foregroundStyle(.secondary).multilineTextAlignment(.center) }
         }
         .accessibilityElement(children: .combine)
     }
@@ -161,10 +164,10 @@ struct SourceTile: View {
         Button { tile.action?() } label: {
             VStack(spacing: 2) {
                 ZStack(alignment: .bottomTrailing) {
-                    Image(systemName: tile.kind == .camera ? "camera.fill" : "sdcard.fill")
-                        .font(.system(size: tile.kind == .camera ? 54 : 50))
-                        .foregroundStyle(Color(nsColor: .darkGray))
-                        .opacity(tile.state == .quiet ? 0.35 : 1)
+                    // 主题色线条图标；离线的用灰色。
+                    Image(systemName: tile.kind == .camera ? "camera" : "sdcard")
+                        .font(.system(size: tile.kind == .camera ? 44 : 40, weight: .light))
+                        .foregroundStyle(tile.state == .quiet ? Color.secondary : Theme.accent)
                         .frame(width: 96, height: 80)
                     if tile.state == .busy {
                         ProgressView().controlSize(.small)
@@ -173,22 +176,19 @@ struct SourceTile: View {
                     }
                 }
                 Spacer(minLength: 0)
-                Text(tile.name).font(.system(size: 15, weight: .semibold)).lineLimit(1)
-                Text(tile.detail).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                Text(tile.name).font(Theme.Font.headline).lineLimit(1)
+                Text(tile.detail).font(Theme.Font.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             .padding(.init(top: 16, leading: 10, bottom: 14, trailing: 10))
             .frame(width: 172, height: 172)
             .foregroundStyle(tile.state == .quiet ? Color.secondary : Color.primary)
-            .background {
-                RoundedRectangle(cornerRadius: 14)
-                    .fill(tile.state == .quiet ? Color.clear : Color(nsColor: .controlBackgroundColor))
-                    .brightness(hover && tile.action != nil && tile.state != .quiet ? -0.03 : 0)
-            }
+            // 白底细边框（和设置向导的卡片一样）；可点的卡片悬停时边框换成主题色。
+            .background(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).fill(Theme.surface))
             .overlay {
-                RoundedRectangle(cornerRadius: 14)
-                    .strokeBorder(Color(nsColor: .separatorColor), style: StrokeStyle(lineWidth: 1, dash: tile.state == .quiet ? [5, 4] : []))
+                RoundedRectangle(cornerRadius: Theme.radius, style: .continuous)
+                    .strokeBorder(hover && tile.action != nil ? Theme.accent : Theme.border)
             }
-            .contentShape(RoundedRectangle(cornerRadius: 14))
+            .contentShape(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
         }
         .buttonStyle(.plain)
         .disabled(tile.action == nil)

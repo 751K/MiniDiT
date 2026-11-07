@@ -38,7 +38,7 @@ struct AppsSettings: View {
                     LabeledContent("Lightroom · \(m)", value: lr[m]!.map(\.code).joined(separator: " · "))
                 }
                 if looksScanned && looks.isEmpty && lr.isEmpty {
-                    Text("未找到 Look 配置文件。").font(.callout).foregroundStyle(.orange)
+                    Text("未找到 Look 配置文件。").font(Theme.Font.caption).foregroundStyle(.secondary)
                 }
             } header: {
                 Text("创意外观")
@@ -222,32 +222,31 @@ private struct LightroomRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             AppIconView(url: app.url)
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
-                    Text(app.kind.title).fontWeight(.semibold)
+                    Text(app.kind.title).font(Theme.Font.headline)
                     if let v = app.version { Text(v).foregroundStyle(.secondary) }
                 }
+                // 每个软件一行状态：正常是灰字，需要处理时才有橙色警告。
                 switch status {
                 case .appMissing:
-                    StatusLine(color: .secondary, text: "未安装")
+                    StatusLine(text: "未安装")
                 case .pluginMissing:
-                    StatusLine(color: .orange, text: "尚未安装 MiniDiT 插件")
-                case .pluginOutdated(let v):
-                    StatusLine(color: .orange, text: "插件 \(v) 须更新至 \(LightroomPlugin.version)")
+                    StatusLine(text: "尚未安装 MiniDiT 插件", warning: true)
+                case .pluginOutdated:
+                    StatusLine(text: "插件需更新至 \(LightroomPlugin.version)", warning: true)
                 case .starting:
-                    StatusLine(color: .secondary, text: "正在唤醒 Lightroom Classic 中的插件…")
+                    StatusLine(text: "正在唤醒插件…")
                 case .needsRestart:
-                    StatusLine(color: .orange, text: "插件已安装但未运行。请重新打开 Lightroom Classic，并确认已在“增效工具管理器”中启用该插件")
+                    StatusLine(text: "插件未运行，请重新打开 Lightroom Classic", warning: true)
                 case .notRunning:
-                    StatusLine(color: .green, text: "插件 \(LightroomPlugin.version) 已安装")
-                    StatusLine(color: .secondary, text: "未运行，导入时将自动打开")
+                    StatusLine(text: "插件 \(LightroomPlugin.version) · 未运行")
                 case .ready(let catalog):
-                    StatusLine(color: .green, text: "插件 \(LightroomPlugin.version) 正在运行")
-                    StatusLine(color: .secondary, text: "当前目录：\(catalog)")
+                    StatusLine(text: "插件 \(LightroomPlugin.version) · 当前目录：\(catalog)")
                 }
                 let pending = LightroomBridge.pendingJobs
-                if pending > 0 { StatusLine(color: .secondary, text: "尚有 \(pending) 个文件等待添加到 Lightroom Classic") }
-                if let message { Text(message).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
+                if pending > 0 { StatusLine(text: "尚有 \(pending) 个文件等待添加") }
+                if let message { StatusLine(text: message) }
             }
             Spacer(minLength: 8)
             switch status {
@@ -292,31 +291,20 @@ private struct CaptureOneRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             AppIconView(url: app.url)
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
-                    Text(app.kind.title).fontWeight(.semibold)
+                    Text(app.kind.title).font(Theme.Font.headline)
                     if let v = app.version { Text(v).foregroundStyle(.secondary) }
                 }
                 if !app.isInstalled {
-                    StatusLine(color: .orange, text: "未安装。导入方式仅可选择“只下载”。")
+                    StatusLine(text: "未安装")
+                } else if !app.isRunning {
+                    StatusLine(text: "未运行")
                 } else {
-                    StatusLine(color: app.isRunning ? .green : .secondary,
-                               text: app.isRunning ? "正在运行" : "未运行，导入时将自动打开")
-                    if app.isRunning {
-                        switch permission {
-                        case .granted: StatusLine(color: .green, text: "已允许 MiniDiT 控制")
-                        case .denied: StatusLine(color: .red, text: "未允许 MiniDiT 控制，导入的照片将不会出现在 C1 中")
-                        case .notAsked: StatusLine(color: .orange, text: "尚未授权，首次导入时系统将请求授权")
-                        case .unknown: StatusLine(color: .secondary, text: "无法检查授权")
-                        }
-                        if let d = document {
-                            StatusLine(color: .secondary, text: "当前打开的\(d.kind)：\(d.name)")
-                        }
-                    } else {
-                        StatusLine(color: .secondary, text: "打开后方可检查授权")
-                    }
-                    if !inUse {
-                        StatusLine(color: .secondary, text: "当前导入方式为“只下载”，不使用 Capture One")
+                    switch permission {
+                    case .denied: StatusLine(text: "未允许 MiniDiT 控制", warning: true)
+                    case .notAsked: StatusLine(text: "首次导入时将请求授权")
+                    default: StatusLine(text: document.map { "当前\($0.kind)：\($0.name)" } ?? "正在运行")
                     }
                 }
             }
@@ -350,24 +338,26 @@ private struct FolderAppRow: View {
                     Text(app.kind.title)
                     if let v = app.version { Text(v).foregroundStyle(.secondary) }
                 }
-                Text(app.isInstalled ? (app.isRunning ? "已安装 · 正在运行" : "已安装") : "未安装")
-                    .font(.caption).foregroundStyle(.secondary)
+                Text(app.isInstalled ? (app.isRunning ? "正在运行" : "已安装") : "未安装")
+                    .font(Theme.Font.caption).foregroundStyle(.secondary)
             }
             Spacer()
-            if let usage { Text(usage).font(.caption).foregroundStyle(.secondary) }
+            if let usage { Text(usage).font(Theme.Font.caption).foregroundStyle(.secondary) }
         }
     }
 }
 
+/// 软件的一行状态：说明字号、灰色；需要处理时前面加橙色警告图标（不用彩色圆点，见设计规范）。
 private struct StatusLine: View {
-    let color: Color
     let text: String
+    var warning = false
 
     var body: some View {
-        HStack(spacing: 6) {
-            Circle().fill(color).frame(width: 7, height: 7)
-            Text(text).font(.system(size: 12)).foregroundStyle(.secondary)
+        HStack(spacing: 4) {
+            if warning { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.warning) }
+            Text(text).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
+        .font(Theme.Font.caption)
     }
 }
 

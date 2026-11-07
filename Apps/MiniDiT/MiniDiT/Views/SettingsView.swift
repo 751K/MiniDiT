@@ -181,8 +181,8 @@ private struct ConnectSettings: View {
                     HStack {
                         Image(systemName: "camera")
                         VStack(alignment: .leading) {
-                            Text(cam.name)
-                            Text("上次连接：\(Self.when(cam.lastSeen)) · \(cam.host)").font(.caption).foregroundStyle(.secondary)
+                            Text(cam.displayName)
+                            Text("上次连接：\(Self.when(cam.lastSeen)) · \(cam.host)").font(Theme.Font.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
                         Button("忘记") { model.forget(cam) }
@@ -231,8 +231,6 @@ private struct UsageSection: View {
             } label: {
                 Text("设置向导")
             }
-        } header: {
-            Text("使用方式")
         }
         .confirmationDialog("按“\(pending?.title ?? "")”模式重设默认值？", isPresented: Binding(get: { pending != nil }, set: { if !$0 { pending = nil } }),
                             presenting: pending) { m in
