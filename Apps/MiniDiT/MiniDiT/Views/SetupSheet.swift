@@ -107,7 +107,9 @@ struct SetupSheet: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title).font(.system(size: 24, weight: .bold))
-            Text(subtitle).font(.body).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            if let subtitle {
+                Text(subtitle).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
@@ -145,14 +147,8 @@ struct SetupSheet: View {
         }
     }
 
-    private var subtitle: String {
-        switch step {
-        case .mode: "使用方式决定默认设置及设置中显示的选项，可随时在“设置 › 通用”中更改。"
-        case .photos: "选择导入照片所用的软件。仅列出本机已安装的软件。"
-        case .video: "视频保留原文件名，按日期和事件分文件夹存放。"
-        case .backup: "导入时可在另一磁盘上同时保存一份副本。"
-        case .done: "以下设置均可在“设置”中修改。"
-        }
+    private var subtitle: String? {
+        step == .mode ? "可随时在“设置”中更改。" : nil
     }
 
     @ViewBuilder private var content: some View {
@@ -169,10 +165,10 @@ struct SetupSheet: View {
 
     private var modeStep: some View {
         HStack(alignment: .top, spacing: 14) {
-            ModeTile(symbol: "person", title: "个人", tagline: "适用于个人拍摄与后期",
+            ModeTile(symbol: "person", title: "个人",
                      points: ["照片直接导入 Capture One 或 Lightroom", "后台完成校验与备份", "仅显示常用设置"],
                      selected: model.usageMode == .personal) { setMode(.personal) }
-            ModeTile(symbol: "person.3", title: "专业", tagline: "适用于团队协作与素材交付",
+            ModeTile(symbol: "person.3", title: "专业",
                      points: ["视频按卷号分文件夹，写入卷名与色彩空间", "显示全部设置项", "关闭自动导入，不删除存储卡上的文件"],
                      selected: model.usageMode == .pro) { setMode(.pro) }
         }
@@ -192,20 +188,18 @@ struct SetupSheet: View {
         VStack(spacing: 10) {
             if let c1 = apps[.captureOne], c1.isInstalled {
                 ChoiceCard(icon: .app(c1.url), title: "Capture One",
-                           detail: "每次导入新建会话，照片存入会话的 Capture 文件夹。",
                            selected: isC1) {
                     if !isC1 { model.captureOneMode = .newSession }
                 }
             }
             if let lr = apps[.lightroom], lr.isInstalled {
                 ChoiceCard(icon: .app(lr.url), title: "Lightroom Classic",
-                           detail: "导入当前目录并按收藏夹整理。首次导入时需安装 MiniDiT 插件。",
+                           detail: "需安装 MiniDiT 插件。",
                            selected: model.captureOneMode == .lightroom) {
                     model.captureOneMode = .lightroom
                 }
             }
             ChoiceCard(icon: .symbol("folder"), title: "仅存储至文件夹",
-                       detail: "按日期分文件夹存放，不导入任何软件。",
                        selected: model.captureOneMode == .off) {
                 model.captureOneMode = .off
             }
@@ -238,8 +232,7 @@ struct SetupSheet: View {
         Panel {
             FolderRow(title: "视频存放位置", url: model.videoDestination) { model.videoDestination = $0 }
             PanelDivider()
-            PanelRow(icon: .symbol("square.on.square"), title: "同时导入代理文件",
-                     detail: "存入“Proxy”文件夹，剪辑软件可自动关联。") {
+            PanelRow(icon: .symbol("square.on.square"), title: "同时导入代理文件") {
                 Toggle("同时导入代理文件", isOn: $model.importProxies).labelsHidden().toggleStyle(.switch)
             }
         }
@@ -251,12 +244,11 @@ struct SetupSheet: View {
                     if i > 0 { PanelDivider() }
                     if app.kind == .resolve {
                         PanelRow(icon: .app(app.url), title: "DaVinci Resolve",
-                                 detail: "添加至当前项目，每个视频文件夹对应一个媒体夹。需在 Resolve 偏好设置中将“外部脚本使用”设为“本地”。") {
+                                 detail: "需将“外部脚本使用”设为“本地”。") {
                             Toggle("DaVinci Resolve", isOn: $model.sendToResolve).labelsHidden().toggleStyle(.switch)
                         }
                     } else {
-                        PanelRow(icon: .app(app.url), title: "Final Cut Pro",
-                                 detail: "每个视频文件夹对应一个事件，片段以引用方式添加，不复制至资源库。") {
+                        PanelRow(icon: .app(app.url), title: "Final Cut Pro") {
                             Toggle("Final Cut Pro", isOn: $model.sendToFCP).labelsHidden().toggleStyle(.switch)
                         }
                     }
@@ -271,10 +263,8 @@ struct SetupSheet: View {
         @Bindable var model = model
         VStack(spacing: 10) {
             ChoiceCard(icon: .symbol("internaldrive"), title: "仅存储一份",
-                       detail: "不创建备份。",
                        selected: !model.backupEnabled) { model.backupEnabled = false }
             ChoiceCard(icon: .symbol("externaldrive.badge.plus"), title: "同时备份",
-                       detail: "在另一磁盘上保存副本，两份均校验通过方视为导入完成。",
                        selected: model.backupEnabled) { model.backupEnabled = true }
         }
         if model.backupEnabled || !model.isPro {
@@ -284,8 +274,7 @@ struct SetupSheet: View {
                     if !model.isPro { PanelDivider() }
                 }
                 if !model.isPro {
-                    PanelRow(icon: .symbol("sdcard"), title: "导入后删除存储卡上的照片",
-                             detail: "仅限读卡器，且仅删除校验通过的照片。") {
+                    PanelRow(icon: .symbol("sdcard"), title: "导入后删除存储卡上已校验的照片（仅限读卡器）") {
                         Toggle("导入后删除存储卡上的照片", isOn: $model.deleteAfterImport).labelsHidden().toggleStyle(.switch)
                     }
                 }
@@ -298,7 +287,7 @@ struct SetupSheet: View {
     @ViewBuilder private var doneStep: some View {
         Panel {
             SummaryRow(icon: .symbol(model.usageMode == .personal ? "person" : "person.3"),
-                       label: "使用方式", value: model.usageMode.title, detail: model.isPro ? "显示全部设置项" : "仅显示常用设置") { go(.mode) }
+                       label: "使用方式", value: model.usageMode.title) { go(.mode) }
             PanelDivider()
             SummaryRow(icon: photoIcon, label: "照片", value: photoTitle, detail: photoDetail) { go(.photos) }
             PanelDivider()
@@ -311,8 +300,7 @@ struct SetupSheet: View {
         // 和上面的分组同一种行：图标、文字的位置都对齐。
         Panel {
             PanelRow(icon: .symbol("lightbulb"), title: "后续步骤",
-                     detail: "插入存储卡，或将相机连接至与 Mac 相同的 Wi-Fi 并开启遥控拍摄，MiniDiT 将自动识别。"
-                        + (model.captureOneMode == .lightroom ? "首次导入 Lightroom Classic 时需安装 MiniDiT 插件。" : "")) {
+                     detail: "插入存储卡，或将相机接入同一 Wi-Fi 并开启遥控拍摄。") {
                 EmptyView()
             }
         }
@@ -412,7 +400,6 @@ private struct StepRow: View {
 private struct ModeTile: View {
     let symbol: String
     let title: String
-    let tagline: String
     let points: [String]
     let selected: Bool
     let action: () -> Void
@@ -425,10 +412,7 @@ private struct ModeTile: View {
                     Spacer()
                     SelectMark(selected: selected)
                 }
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(title).font(.title3.weight(.semibold))
-                    Text(tagline).font(.callout).foregroundStyle(.secondary)
-                }
+                Text(title).font(.title3.weight(.semibold))
                 Divider()
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(points, id: \.self) { p in
@@ -441,7 +425,7 @@ private struct ModeTile: View {
                 Spacer(minLength: 0)
             }
             .padding(18)
-            .frame(maxWidth: .infinity, minHeight: 260, alignment: .topLeading)
+            .frame(maxWidth: .infinity, minHeight: 220, alignment: .topLeading)
             .modifier(CardBackground(selected: selected))
         }
         .buttonStyle(.plain)
@@ -453,7 +437,7 @@ private struct ModeTile: View {
 private struct ChoiceCard: View {
     let icon: CardIcon
     let title: String
-    let detail: String
+    var detail: String? = nil
     let selected: Bool
     let action: () -> Void
 
@@ -463,8 +447,10 @@ private struct ChoiceCard: View {
                 CardIconView(icon: icon)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(title).font(.body.weight(.semibold))
-                    Text(detail).font(.callout).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    if let detail {
+                        Text(detail).font(.callout).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
                 Spacer(minLength: 8)
                 SelectMark(selected: selected)
