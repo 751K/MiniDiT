@@ -89,6 +89,7 @@ struct Sidebar: View {
                 if !new.isEmpty { model.shownDays = new }
             })
         List(selection: selection) {
+            SessionSection()
             Section("日期") {
                 ForEach(model.days) { day in
                     DayRow(day: day).tag(day.id)
@@ -101,11 +102,7 @@ struct Sidebar: View {
             }
         }
         .safeAreaInset(edge: .top, spacing: 6) {
-            VStack(spacing: 14) {
-                SourceCard()
-                SessionSection()
-            }
-            .padding(.horizontal, 10).padding(.top, 4)
+            SourceCard().padding(.horizontal, 10).padding(.top, 4)
         }
         .safeAreaInset(edge: .bottom) {
             Button { openSettings() } label: {

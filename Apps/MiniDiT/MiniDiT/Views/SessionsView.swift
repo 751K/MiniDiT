@@ -4,8 +4,8 @@ import SwiftUI
 
 // MARK: - 侧栏「会话」
 
-/// 侧栏里软件自己管理的会话：点一个就选为导入目标；点行右边的箭头查看已导入的文件。
-/// 放在来源卡片下面、日期列表外面：点会话不会动到日期的选择。
+/// 侧栏里软件自己管理的会话：和日期在同一个列表里，行高、缩进、字号都和日期一样。
+/// 会话行不参与列表的选择（点会话不会动到日期）：点一下选为导入目标，双击或点悬停时出现的箭头查看已导入的文件。
 struct SessionSection: View {
     @Environment(AppModel.self) private var model
     @State private var showAll = false
@@ -13,71 +13,87 @@ struct SessionSection: View {
 
     var body: some View {
         let all = model.sortedSessions
-        VStack(alignment: .leading, spacing: 2) {
-            HStack {
-                Text("会话").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
-                Spacer()
-                Button { model.newSessionPrompt = .init(importAfter: false) } label: {
-                    Image(systemName: "plus").font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
-                        .frame(width: 20, height: 20).contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help("新建会话")
-                .accessibilityLabel("新建会话")
-            }
-            .padding(.leading, 8).padding(.bottom, 2)
+        Section {
             if all.isEmpty {
                 Button { model.newSessionPrompt = .init(importAfter: false) } label: {
-                    Label("新建会话", systemImage: "plus").foregroundStyle(.secondary)
-                        .padding(.horizontal, 6).padding(.vertical, 4)
-                        .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                    HStack(spacing: 8) {
+                        Image(systemName: "plus").font(.system(size: 13)).frame(width: 18, height: 22)
+                        Text("新建会话")
+                    }
+                    .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
+                .selectionDisabled()
             }
             ForEach(showAll ? all : Array(all.prefix(limit))) { SessionRow(session: $0) }
             if all.count > limit {
                 Button(showAll ? "收起" : "显示全部 \(all.count) 个") { withAnimation(.snappy(duration: 0.2)) { showAll.toggle() } }
                     .buttonStyle(.plain).font(Theme.Font.caption).foregroundStyle(.secondary)
-                    .padding(.leading, 8).padding(.top, 2)
+                    .selectionDisabled()
+            }
+        } header: {
+            HStack {
+                Text("会话")
+                Spacer()
+                Button { model.newSessionPrompt = .init(importAfter: false) } label: {
+                    Image(systemName: "plus").frame(width: 20, height: 20).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("新建会话")
+                .accessibilityLabel("新建会话")
             }
         }
     }
 }
 
-/// 一个会话：点按选为导入目标（浅蓝底、实心文件夹），不占用侧栏的日期选择；右边的箭头查看已导入的文件。
+/// 一个会话：左边文件夹图标和日期行的勾选框同宽，右边数字和日期行的数字对齐。
+/// 导入目标：实心蓝色文件夹、加粗、浅蓝底（和日期行的选中底同样大小）。
 struct SessionRow: View {
     @Environment(AppModel.self) private var model
     let session: ShootSession
+    @State private var hover = false
 
     var body: some View {
         let current = model.currentSessionID == session.id
         HStack(spacing: 8) {
             Image(systemName: current ? "folder.fill" : "folder")
+                .font(.system(size: 14))
                 .foregroundStyle(current ? Theme.accent : Color.secondary)
-                .frame(width: 18)
+                .frame(width: 18, height: 22)
             Text(session.name).fontWeight(current ? .semibold : .regular).lineLimit(1).truncationMode(.middle)
             Spacer(minLength: 4)
-            Text("\(session.files.count)").monospacedDigit().foregroundStyle(.secondary)
-            Button { model.browsingSession = session.id } label: {
-                Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 18, height: 20).contentShape(Rectangle())
+            ZStack(alignment: .trailing) {
+                Text("\(session.files.count)").font(.system(size: 12).monospacedDigit()).foregroundStyle(.secondary)
+                    .opacity(hover ? 0 : 1)
+                if hover {
+                    Button { model.browsingSession = session.id } label: {
+                        Image(systemName: "chevron.right.circle.fill").font(.system(size: 14)).foregroundStyle(.secondary)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("查看已导入此会话的文件")
+                }
             }
-            .buttonStyle(.plain)
-            .help("查看已导入此会话的文件")
-            .accessibilityLabel("查看\(session.name)")
+            .frame(minWidth: 22, alignment: .trailing)
         }
-        .padding(.horizontal, 6).padding(.vertical, 3)
-        .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(current ? Theme.accent.opacity(0.14) : .clear))
         .contentShape(Rectangle())
+        .onHover { hover = $0 }
+        .onTapGesture(count: 2) { model.currentSessionID = session.id; model.browsingSession = session.id }
         .onTapGesture { model.currentSessionID = session.id }
-        .help(current ? "导入目标：导入的内容将归入“\(session.name)”" : "点按以选为导入目标")
+        .selectionDisabled()
+        .listRowBackground(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(current ? Theme.accent.opacity(0.14) : .clear)
+                .padding(.horizontal, 10)
+        )
+        .help(current ? "导入目标：导入的内容将归入“\(session.name)”。双击查看已导入的文件" : "点按以选为导入目标，双击查看已导入的文件")
         .contextMenu {
             if current {
                 Button("取消选为导入目标") { model.currentSessionID = nil }
             } else {
                 Button("选为导入目标") { model.currentSessionID = session.id }
             }
+            Button("查看已导入的文件") { model.browsingSession = session.id }
             Button("在访达中显示") { SessionBrowser.reveal(session) }
                 .disabled(SessionBrowser.folder(of: session) == nil)
             Divider()
@@ -86,6 +102,7 @@ struct SessionRow: View {
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(current ? [.isButton, .isSelected] : .isButton)
         .accessibilityAction { model.currentSessionID = session.id }
+        .accessibilityAction(named: "查看已导入的文件") { model.browsingSession = session.id }
         .accessibilityValue(current ? "导入目标" : "")
     }
 }
