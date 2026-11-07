@@ -76,11 +76,13 @@ private struct ImportSettings: View {
                     }
                 }
             }
-            Section("同时存在 RAW 与 JPG/HIF 时") {
-                SlidingSegment(options: [("全部导入", PairPolicy.both), ("仅导入 RAW", .rawOnly), ("仅导入 JPG/HIF", .jpegOnly)],
-                               selection: $model.pairPolicy, fill: true)
-                    .accessibilityElement(children: .contain)
-                    .accessibilityLabel("配对规则")
+            Section {
+                // 和“导入完成后打开”同一种弹出菜单行。
+                Picker("同时存在 RAW 与 JPG/HIF 时", selection: $model.pairPolicy) {
+                    Text("全部导入").tag(PairPolicy.both)
+                    Text("仅导入 RAW").tag(PairPolicy.rawOnly)
+                    Text("仅导入 JPG/HIF").tag(PairPolicy.jpegOnly)
+                }
             }
             if !model.isPro || model.deleteAfterImport {
                 Section("导入完成后") {
