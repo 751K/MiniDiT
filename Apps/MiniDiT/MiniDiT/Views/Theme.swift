@@ -11,6 +11,8 @@ enum Theme {
     static let warning = Color.orange
     /// 底色：浅色模式下是白色。
     static let surface = Color(nsColor: .textBackgroundColor)
+    /// 侧栏里的分组底：浅色半透明，跟着侧栏的灰底走。
+    static let sidebarGroup = Color.primary.opacity(0.05)
     /// 卡片、分组的边框。
     static let border = Color.primary.opacity(0.1)
     static let radius: CGFloat = 10
@@ -72,5 +74,97 @@ struct GlassToggle: View {
             .glassButton(prominent: isOn)
             .accessibilityAddTraits(isOn ? .isSelected : [])
             .accessibilityValue(isOn ? "开" : "关")
+    }
+}
+
+// MARK: - 分段选择（规范：灰色底槽 + 玻璃滑块，不用系统分段控件的整块蓝色）
+
+/// 分段里每一格的高度（底槽再多 2 pt 边距）。
+private let segmentHeight: CGFloat = 24
+
+/// 选中格的底：macOS 26 起是液态玻璃，更早的系统用浅色底。
+private struct SegmentThumb: View {
+    var body: some View {
+        if #available(macOS 26.0, *) {
+            Color.clear.glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+        } else {
+            RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color.primary.opacity(0.12))
+        }
+    }
+}
+
+private extension View {
+    func segmentTrack() -> some View {
+        padding(2).background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.primary.opacity(0.06)))
+    }
+}
+
+/// 一格的文字：名称，后面可跟一个灰色数字（「卡 1  1045」）。
+private struct SegmentLabel: View {
+    let title: String
+    let count: String?
+    let on: Bool
+    var body: some View {
+        HStack(spacing: 4) {
+            Text(title).fontWeight(on ? .semibold : .regular).foregroundStyle(on ? Color.primary : Color.secondary)
+            if let count { Text(count).monospacedDigit().foregroundStyle(.secondary) }
+        }
+        .font(Theme.Font.body)
+        .lineLimit(1)
+    }
+}
+
+/// 单选分段：选中的一格是一块会滑动的玻璃。
+struct GlassSegment<T: Hashable>: View {
+    struct Option { let title: String; var count: String? = nil; let value: T }
+    let options: [Option]
+    @Binding var selection: T
+    /// 撑满整行，每格等宽。
+    var fill = false
+    @Environment(\.isEnabled) private var enabled
+    @Namespace private var ns
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(options, id: \.value) { o in
+                let on = selection == o.value
+                Button { withAnimation(.snappy(duration: 0.28)) { selection = o.value } } label: {
+                    SegmentLabel(title: o.title, count: o.count, on: on)
+                        .padding(.horizontal, 10).frame(maxWidth: fill ? .infinity : nil).frame(height: segmentHeight)
+                        .background { if on { SegmentThumb().matchedGeometryEffect(id: "on", in: ns) } }
+                        .opacity(enabled || on ? 1 : 0.5)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(o.title + (o.count.map { "，\($0)" } ?? ""))
+                .accessibilityAddTraits(on ? .isSelected : [])
+            }
+        }
+        .segmentTrack()
+        .accessibilityElement(children: .contain)
+    }
+}
+
+/// 多选分段（文件类型）：每格各自开关，打开的格子有一块玻璃。
+struct GlassMultiSegment: View {
+    struct Option { let title: String; let isOn: Binding<Bool> }
+    let options: [Option]
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(options.indices, id: \.self) { i in
+                let o = options[i]
+                Button { withAnimation(.snappy(duration: 0.2)) { o.isOn.wrappedValue.toggle() } } label: {
+                    SegmentLabel(title: o.title, count: nil, on: o.isOn.wrappedValue)
+                        .padding(.horizontal, 10).frame(height: segmentHeight)
+                        .background { if o.isOn.wrappedValue { SegmentThumb() } }
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(o.isOn.wrappedValue ? .isSelected : [])
+            }
+        }
+        .segmentTrack()
+        .accessibilityElement(children: .contain)
     }
 }

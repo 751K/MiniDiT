@@ -159,8 +159,8 @@ private struct SourceCard: View {
                 }
             }
         }
-        .background(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).fill(Theme.surface))
-        .overlay(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).strokeBorder(Theme.border))
+        // 侧栏是系统的灰色底：分组用浅色半透明底跟着侧栏走，不用白底（白块在侧栏里很突兀）。
+        .background(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).fill(Theme.sidebarGroup))
         .accessibilityElement(children: .contain)
         .onChange(of: model.progress != nil) { _, busy in if busy { expanded = false } }
         .onChange(of: model.renamingSource) { _, id in if let id { newName = model.profile(id)?.nickname ?? "" } }
@@ -421,8 +421,8 @@ private struct SourcePicker: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        let options: [(String, Int?)] = [("全部 \(model.sources.reduce(0) { $0 + model.shotCount(source: $1.id) })", nil)]
-            + model.sources.map { ("\(model.sourceLabel($0.id)) \(model.shotCount(source: $0.id))", $0.id) }
+        let options: [GlassSegment<Int?>.Option] = [.init(title: "全部", count: "\(model.sources.reduce(0) { $0 + model.shotCount(source: $1.id) })", value: nil)]
+            + model.sources.map { .init(title: model.sourceLabel($0.id), count: "\(model.shotCount(source: $0.id))", value: $0.id) }
         ChoicePicker(title: "来源", options: options,
                      selection: Binding(get: { model.sourceFilter }, set: { model.sourceFilter = $0 }))
     }
@@ -434,8 +434,8 @@ private struct SourceSlotPicker: View {
     let id: Int
 
     var body: some View {
-        let options: [(String, UInt32?)] = [("全部 \(model.shotCount(source: id, slot: nil))", nil)]
-            + model.sourceSlots(id).map { ("卡 \($0) \(model.shotCount(source: id, slot: $0))", $0) }
+        let options: [GlassSegment<UInt32?>.Option] = [.init(title: "全部", count: "\(model.shotCount(source: id, slot: nil))", value: nil)]
+            + model.sourceSlots(id).map { .init(title: "卡 \($0)", count: "\(model.shotCount(source: id, slot: $0))", value: $0) }
         ChoicePicker(title: "卡槽", options: options,
                      selection: Binding(get: { model.onlySlot(id) }, set: { model.setOnlySlot(id, $0) }))
             .disabled(model.progress != nil)
@@ -448,28 +448,26 @@ private struct SlotPicker: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        let options: [(String, UInt32?)] = [("全部 \(model.allShots.count)", nil)]
-            + model.slots.map { ("卡 \($0) \(model.shotCount(slot: $0))", $0) }
+        let options: [GlassSegment<UInt32?>.Option] = [.init(title: "全部", count: "\(model.allShots.count)", value: nil)]
+            + model.slots.map { .init(title: "卡 \($0)", count: "\(model.shotCount(slot: $0))", value: $0) }
         ChoicePicker(title: "卡槽", options: options,
                      selection: Binding(get: { model.slotFilter }, set: { model.slotFilter = $0 }))
     }
 }
 
-/// 单选：不超过三项用系统分段控件，再多用系统弹出菜单（见 docs/MiniDiT-DESIGN.md）。
+/// 单选：不超过三项用玻璃分段（撑满整行），再多用系统弹出菜单（见 docs/MiniDiT-DESIGN.md）。
 struct ChoicePicker<T: Hashable>: View {
     let title: String
-    let options: [(String, T)]
+    let options: [GlassSegment<T>.Option]
     @Binding var selection: T
 
     var body: some View {
         if options.count <= 3 {
-            Picker(title, selection: $selection) {
-                ForEach(options, id: \.1) { Text($0.0).tag($0.1) }
-            }
-            .pickerStyle(.segmented).labelsHidden()
+            GlassSegment(options: options, selection: $selection, fill: true)
+                .accessibilityLabel(title)
         } else {
             Picker(title, selection: $selection) {
-                ForEach(options, id: \.1) { Text($0.0).tag($0.1) }
+                ForEach(options, id: \.value) { Text($0.title + ($0.count.map { " \($0)" } ?? "")).tag($0.value) }
             }
             .labelsHidden()
         }
@@ -642,20 +640,13 @@ struct BrowseHeader: View {
             }
             .lineLimit(1)
             Spacer(minLength: 8)
-            // 单选用系统分段控件；文件类型可以同时选几种，用系统按钮式开关。
-            Picker("显示范围", selection: $model.onlyNew) {
-                Text("全部").tag(false)
-                Text("未导入").tag(true)
-            }
-            .pickerStyle(.segmented).labelsHidden().fixedSize()
-            HStack(spacing: 4) {
-                Toggle("RAW", isOn: $model.showRaw)
-                Toggle("JPG/HIF", isOn: $model.showPhotos)
-                Toggle("视频", isOn: $model.showVideo)
-            }
-            .toggleStyle(.button)
-            .accessibilityElement(children: .contain)
-            .accessibilityLabel("文件类型")
+            // 单选、多选都用玻璃分段（灰色底槽 + 玻璃滑块），不用系统分段控件的整块蓝色。
+            GlassSegment(options: [.init(title: "全部", value: false), .init(title: "未导入", value: true)], selection: $model.onlyNew)
+                .accessibilityLabel("显示范围")
+            GlassMultiSegment(options: [.init(title: "RAW", isOn: $model.showRaw),
+                                        .init(title: "JPG/HIF", isOn: $model.showPhotos),
+                                        .init(title: "视频", isOn: $model.showVideo)])
+                .accessibilityLabel("文件类型")
             Slider(value: $model.thumbSize, in: 110...320)
                 .frame(width: 76)
                 .accessibilityLabel("缩略图大小")
