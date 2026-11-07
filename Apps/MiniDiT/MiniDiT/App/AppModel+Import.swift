@@ -38,11 +38,9 @@ extension AppModel {
                                             resume: resume)
         } else if currentSession != nil {
             importToCurrentSession()
-        } else if captureOneMode.namesGroups || captureOneMode == .off {
-            // 要起名字的方式：先新建会话（日期 + 事件），建好就导入。
-            newSessionPrompt = NewSessionPrompt(importAfter: true)
         } else {
-            startImport(session: nil)
+            // 导入的目标是会话：还没选就先新建一个（日期 + 事件），建好就导入。
+            newSessionPrompt = NewSessionPrompt(importAfter: true)
         }
     }
 

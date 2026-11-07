@@ -14,7 +14,7 @@ struct BrowserView: View {
                 .toolbar(removing: .sidebarToggle)
         } detail: {
             if let id = model.browsingSession, let session = model.sessions.first(where: { $0.id == id }) {
-                SessionBrowser(session: session)
+                SessionBrowser(session: session) { model.browsingSession = nil }
             } else {
             ZStack(alignment: .bottom) {
                 VStack(spacing: 0) {
@@ -81,20 +81,14 @@ struct Sidebar: View {
 
     var body: some View {
         @Bindable var model = model
-        // 侧栏同一个列表里有会话和日期：点会话 = 浏览它并设为当前会话；点日期 = 回到相机 / 存储卡。
+        // 点日期时如果正在看会话，回到相机 / 存储卡。
         let selection = Binding<Set<String>>(
-            get: { model.browsingSession.map { [SessionRow.tag($0)] } ?? model.shownDays },
+            get: { model.shownDays },
             set: { new in
-                if let id = new.lazy.compactMap(SessionRow.id(from:)).first {
-                    model.browsingSession = id
-                    model.currentSessionID = id
-                } else {
-                    model.browsingSession = nil
-                    if !new.isEmpty { model.shownDays = new }
-                }
+                model.browsingSession = nil
+                if !new.isEmpty { model.shownDays = new }
             })
         List(selection: selection) {
-            SessionSection()
             Section("日期") {
                 ForEach(model.days) { day in
                     DayRow(day: day).tag(day.id)
@@ -107,7 +101,11 @@ struct Sidebar: View {
             }
         }
         .safeAreaInset(edge: .top, spacing: 6) {
-            SourceCard().padding(.horizontal, 10).padding(.top, 4)
+            VStack(spacing: 14) {
+                SourceCard()
+                SessionSection()
+            }
+            .padding(.horizontal, 10).padding(.top, 4)
         }
         .safeAreaInset(edge: .bottom) {
             Button { openSettings() } label: {
@@ -1193,8 +1191,7 @@ struct FloatingBar: View {
     private var importLabel: String {
         switch model.captureOneMode {
         case _ where model.currentSession != nil: "导入"
-        case .newSession, .lightroom, .off: "导入…"
-        default: "导入到 Capture One"
+        default: "导入…"
         }
     }
 
@@ -1202,16 +1199,11 @@ struct FloatingBar: View {
         if model.sourcesOffline { return "相机重新连接后方可导入" }
         let files = model.selectedFiles()
         let days = Set(files.map(AppModel.dayKey)).count
-        let dest = model.captureOneMode == .newSession ? model.sessionsFolder : model.destination
-        let videos = files.contains { $0.kind == .video }, photos = files.contains { $0.kind != .video }
         var s = "\(files.count) 个文件 · \(days) 天 · "
         if let cur = model.currentSession {
             s += "导入会话“\(cur.name)”"
         } else {
-            if photos {
-                s += model.captureOneMode.namesGroups || model.captureOneMode == .off ? "导入前新建会话" : "存储至“\(dest.lastPathComponent)”"
-            }
-            if videos { s += (photos ? "，视频存储至“" : "视频存储至“") + model.videoDestination.lastPathComponent + "”" }
+            s += "尚未选择会话，导入前先新建"
         }
         if model.backupEnabled {
             s += model.backupAvailable ? " · 备份至“\(model.backupFolder!.lastPathComponent)”" : " · ⚠︎ 备份磁盘未连接"
