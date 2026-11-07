@@ -43,15 +43,19 @@ private extension View {
 
 private struct ImportSettings: View {
     @Environment(AppModel.self) private var model
+    @State private var appURLs: [AppInfo.Kind: URL] = [:]
 
     var body: some View {
         @Bindable var model = model
         Form {
             Section {
-                // 和其他设置一样用系统的弹出菜单，不另做单选样式。
-                Picker("导入方式", selection: $model.captureOneMode) {
-                    ForEach(modes) { Text(Self.title($0)).tag($0) }
+                ForEach(modes) { m in
+                    ModeRow(icon: icon(m), title: Self.title(m), on: model.captureOneMode == m) {
+                        model.captureOneMode = m
+                    }
                 }
+            } header: {
+                Text("导入方式")
             } footer: {
                 if let d = model.captureOneDocument, model.captureOneMode != .off, model.captureOneMode != .lightroom {
                     Text("Capture One 当前打开：\(d.name)").font(.caption).foregroundStyle(.secondary)
@@ -95,6 +99,15 @@ private struct ImportSettings: View {
         .formStyle(.grouped)
         .onAppear {
             model.refreshCaptureOne()
+            for k in [AppInfo.Kind.captureOne, .lightroom] { appURLs[k] = AppInfo.find(k).url }
+        }
+    }
+
+    private func icon(_ m: CaptureOneMode) -> CardIcon {
+        switch m {
+        case .newSession, .c1Settings, .inPlace: .app(appURLs[.captureOne])
+        case .lightroom: .app(appURLs[.lightroom])
+        case .off: .symbol("folder")
         }
     }
 
@@ -276,6 +289,25 @@ private struct RecordSections: View {
                 } label: {
                     Text("诊断日志")
                 }
+            }
+        }
+    }
+}
+
+/// 导入方式的一行：左边软件图标，右边开关（和其他设置同一种控件）。几行之间互斥，打开一个即关闭其他，
+/// 已打开的那一行不能直接关掉（总得有一种导入方式）。
+private struct ModeRow: View {
+    let icon: CardIcon
+    let title: String
+    let on: Bool
+    let action: () -> Void
+
+    var body: some View {
+        // 用 Form 自带的开关行（左边标签、右边开关），和其他设置项完全同一种控件。
+        Toggle(isOn: Binding(get: { on }, set: { if $0 { action() } })) {
+            HStack(spacing: 10) {
+                CardIconView(icon: icon, size: 24)
+                Text(title)
             }
         }
     }

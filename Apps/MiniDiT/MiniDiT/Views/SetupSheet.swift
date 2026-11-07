@@ -185,7 +185,9 @@ struct SetupSheet: View {
     private var isC1: Bool { [.newSession, .c1Settings, .inPlace].contains(model.captureOneMode) }
 
     @ViewBuilder private var photosStep: some View {
-        VStack(spacing: 10) {
+        let c1On = apps[.captureOne]?.isInstalled == true, lrOn = apps[.lightroom]?.isInstalled == true
+        // 和“设置 › 照片”同一种列表：一组里每行一个开关，选中靠开关表示，不另加描边。
+        Panel {
             if let c1 = apps[.captureOne], c1.isInstalled {
                 ChoiceCard(icon: .app(c1.url), title: "Capture One",
                            selected: isC1) {
@@ -193,12 +195,14 @@ struct SetupSheet: View {
                 }
             }
             if let lr = apps[.lightroom], lr.isInstalled {
+                if c1On { PanelDivider() }
                 ChoiceCard(icon: .app(lr.url), title: "Lightroom Classic",
                            detail: "需安装 MiniDiT 插件。",
                            selected: model.captureOneMode == .lightroom) {
                     model.captureOneMode = .lightroom
                 }
             }
+            if c1On || lrOn { PanelDivider() }
             ChoiceCard(icon: .symbol("folder"), title: "仅存储至文件夹",
                        selected: model.captureOneMode == .off) {
                 model.captureOneMode = .off
@@ -261,22 +265,20 @@ struct SetupSheet: View {
 
     @ViewBuilder private var backupStep: some View {
         @Bindable var model = model
-        VStack(spacing: 10) {
-            ChoiceCard(icon: .symbol("internaldrive"), title: "仅存储一份",
-                       selected: !model.backupEnabled) { model.backupEnabled = false }
-            ChoiceCard(icon: .symbol("externaldrive.badge.plus"), title: "同时备份",
-                       selected: model.backupEnabled) { model.backupEnabled = true }
+        // 和“设置 › 备份”一样：一个开关，打开后选位置。
+        Panel {
+            PanelRow(icon: .symbol("externaldrive.badge.plus"), title: "导入时同时备份") {
+                Toggle("导入时同时备份", isOn: $model.backupEnabled).labelsHidden().toggleStyle(.switch)
+            }
+            if model.backupEnabled {
+                PanelDivider()
+                FolderRow(title: "备份位置", url: model.backupFolder, empty: "尚未选择") { model.backupFolder = $0 }
+            }
         }
-        if model.backupEnabled || !model.isPro {
+        if !model.isPro {
             Panel {
-                if model.backupEnabled {
-                    FolderRow(title: "备份位置", url: model.backupFolder, empty: "尚未选择") { model.backupFolder = $0 }
-                    if !model.isPro { PanelDivider() }
-                }
-                if !model.isPro {
-                    PanelRow(icon: .symbol("sdcard"), title: "导入后删除存储卡上已校验的照片（仅限读卡器）") {
-                        Toggle("导入后删除存储卡上的照片", isOn: $model.deleteAfterImport).labelsHidden().toggleStyle(.switch)
-                    }
+                PanelRow(icon: .symbol("sdcard"), title: "导入后删除存储卡上已校验的照片（仅限读卡器）") {
+                    Toggle("导入后删除存储卡上的照片", isOn: $model.deleteAfterImport).labelsHidden().toggleStyle(.switch)
                 }
             }
         }
@@ -410,7 +412,7 @@ private struct ModeTile: View {
                 HStack(alignment: .top) {
                     CardIconView(icon: .symbol(symbol), size: 40)
                     Spacer()
-                    SelectMark(selected: selected)
+                    SelectMark(selected: selected, action: action)
                 }
                 Text(title).font(.title3.weight(.semibold))
                 Divider()
@@ -433,7 +435,7 @@ private struct ModeTile: View {
     }
 }
 
-/// 单选的一张卡片：图标、标题、说明，选中时描边。
+/// 单选的一行（放在 Panel 里）：图标、标题、说明，右边开关。
 private struct ChoiceCard: View {
     let icon: CardIcon
     let title: String
@@ -444,34 +446,33 @@ private struct ChoiceCard: View {
     var body: some View {
         Button(action: action) {
             HStack(alignment: .center, spacing: 14) {
-                CardIconView(icon: icon)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(title).font(.body.weight(.semibold))
+                CardIconView(icon: icon, size: 32)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
                     if let detail {
-                        Text(detail).font(.callout).foregroundStyle(.secondary)
+                        Text(detail).font(.caption).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
-                Spacer(minLength: 8)
-                SelectMark(selected: selected)
+                Spacer(minLength: 12)
+                SelectMark(selected: selected, action: action)
             }
-            .padding(.horizontal, 16).padding(.vertical, 13)
-            .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
-            .modifier(CardBackground(selected: selected))
+            .padding(.horizontal, 14).padding(.vertical, 11)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 
+/// 单选卡片右边的开关：和设置、向导里其他开关同一种控件。打开一个即选中这一项；已选中的不能直接关掉。
 struct SelectMark: View {
     let selected: Bool
+    var action: () -> Void = {}
     var body: some View {
-        // 选中只标一个主题色的对勾（和系统列表一样），没选中不画东西；卡片的描边已经表示了选中。
-        Image(systemName: "checkmark").font(.system(size: 14, weight: .semibold))
-            .foregroundStyle(Theme.accent)
-            .opacity(selected ? 1 : 0)
-            .frame(width: 20, height: 20)
+        Toggle("", isOn: Binding(get: { selected }, set: { if $0 { action() } }))
+            .labelsHidden().toggleStyle(.switch)
     }
 }
 
@@ -481,7 +482,7 @@ private struct CardBackground: ViewModifier {
         content
             .background(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).fill(Theme.surface))
             .overlay(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous)
-                .strokeBorder(selected ? Theme.accent : Theme.border, lineWidth: selected ? 1.5 : 1))
+                .strokeBorder(Theme.border))
             .contentShape(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
     }
 }
