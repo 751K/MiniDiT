@@ -77,21 +77,15 @@ struct GlassToggle: View {
     }
 }
 
-// MARK: - 分段选择（规范：灰色底槽 + 蓝色玻璃滑块）
+// MARK: - 分段选择（规范：灰色底槽 + 蓝色滑块）
 
 /// 分段里每一格的高度（底槽再多 2 pt 边距）。
 private let segmentHeight: CGFloat = 24
 
-/// 选中格的底：主题蓝，macOS 26 起再叠一层透明玻璃的高光。
-/// 玻璃自带的色调在窗口不在前台时会被系统去掉，所以蓝色用实心底，保证后台时也认得出选中的是哪格。
+/// 选中格的底：实心主题蓝，不加玻璃（玻璃只用在浮层上）。
 private struct SegmentThumb: View {
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
-        if #available(macOS 26.0, *) {
-            shape.fill(Theme.accent).glassEffect(.clear.interactive(), in: shape)
-        } else {
-            shape.fill(Theme.accent)
-        }
+        RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Theme.accent)
     }
 }
 
@@ -116,8 +110,8 @@ private struct SegmentLabel: View {
     }
 }
 
-/// 单选分段：选中的一格是一块会滑动的玻璃。
-struct GlassSegment<T: Hashable>: View {
+/// 单选分段：选中的一格是一块会滑动的蓝色滑块。
+struct SegmentPicker<T: Hashable>: View {
     struct Option { let title: String; var count: String? = nil; let value: T }
     let options: [Option]
     @Binding var selection: T
@@ -147,8 +141,8 @@ struct GlassSegment<T: Hashable>: View {
     }
 }
 
-/// 多选分段（文件类型）：每格各自开关，打开的格子有一块玻璃。
-struct GlassMultiSegment: View {
+/// 多选分段（文件类型）：每格各自开关，打开的格子是蓝色。
+struct MultiSegmentPicker: View {
     struct Option { let title: String; let isOn: Binding<Bool> }
     let options: [Option]
 

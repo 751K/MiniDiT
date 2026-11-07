@@ -42,7 +42,7 @@ struct SessionSheet: View {
                     .font(Theme.Font.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             if !isLightroom {
-                GlassSegment(options: [.init(title: "新建会话", value: false), .init(title: "加入已有会话", value: true)],
+                SegmentPicker(options: [.init(title: "新建会话", value: false), .init(title: "加入已有会话", value: true)],
                              selection: $useExisting, fill: true)
                     .disabled(request.existing.isEmpty || !request.resume.isEmpty)
                     .help(request.existing.isEmpty ? "会话文件夹中尚无会话" : "")
@@ -90,7 +90,7 @@ struct SessionSheet: View {
         @Bindable var model = model
         return VStack(alignment: .leading, spacing: 10) {
             if groupings.count > 1 {
-                GlassSegment(options: groupings.map { .init(title: $0.title, value: $0) },
+                SegmentPicker(options: groupings.map { .init(title: $0.title, value: $0) },
                              selection: $model.sessionGrouping, fill: true)
                     .disabled(!request.resume.isEmpty)
                     .accessibilityElement(children: .contain)

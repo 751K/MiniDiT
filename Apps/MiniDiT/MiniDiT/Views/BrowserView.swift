@@ -421,7 +421,7 @@ private struct SourcePicker: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        let options: [GlassSegment<Int?>.Option] = [.init(title: "全部", count: "\(model.sources.reduce(0) { $0 + model.shotCount(source: $1.id) })", value: nil)]
+        let options: [SegmentPicker<Int?>.Option] = [.init(title: "全部", count: "\(model.sources.reduce(0) { $0 + model.shotCount(source: $1.id) })", value: nil)]
             + model.sources.map { .init(title: model.sourceLabel($0.id), count: "\(model.shotCount(source: $0.id))", value: $0.id) }
         ChoicePicker(title: "来源", options: options,
                      selection: Binding(get: { model.sourceFilter }, set: { model.sourceFilter = $0 }))
@@ -434,7 +434,7 @@ private struct SourceSlotPicker: View {
     let id: Int
 
     var body: some View {
-        let options: [GlassSegment<UInt32?>.Option] = [.init(title: "全部", count: "\(model.shotCount(source: id, slot: nil))", value: nil)]
+        let options: [SegmentPicker<UInt32?>.Option] = [.init(title: "全部", count: "\(model.shotCount(source: id, slot: nil))", value: nil)]
             + model.sourceSlots(id).map { .init(title: "卡 \($0)", count: "\(model.shotCount(source: id, slot: $0))", value: $0) }
         ChoicePicker(title: "卡槽", options: options,
                      selection: Binding(get: { model.onlySlot(id) }, set: { model.setOnlySlot(id, $0) }))
@@ -448,7 +448,7 @@ private struct SlotPicker: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        let options: [GlassSegment<UInt32?>.Option] = [.init(title: "全部", count: "\(model.allShots.count)", value: nil)]
+        let options: [SegmentPicker<UInt32?>.Option] = [.init(title: "全部", count: "\(model.allShots.count)", value: nil)]
             + model.slots.map { .init(title: "卡 \($0)", count: "\(model.shotCount(slot: $0))", value: $0) }
         ChoicePicker(title: "卡槽", options: options,
                      selection: Binding(get: { model.slotFilter }, set: { model.slotFilter = $0 }))
@@ -458,12 +458,12 @@ private struct SlotPicker: View {
 /// 单选：不超过三项用玻璃分段（撑满整行），再多用系统弹出菜单（见 docs/MiniDiT-DESIGN.md）。
 struct ChoicePicker<T: Hashable>: View {
     let title: String
-    let options: [GlassSegment<T>.Option]
+    let options: [SegmentPicker<T>.Option]
     @Binding var selection: T
 
     var body: some View {
         if options.count <= 3 {
-            GlassSegment(options: options, selection: $selection, fill: true)
+            SegmentPicker(options: options, selection: $selection, fill: true)
                 .accessibilityLabel(title)
         } else {
             Picker(title, selection: $selection) {
@@ -641,9 +641,9 @@ struct BrowseHeader: View {
             .lineLimit(1)
             Spacer(minLength: 8)
             // 单选、多选都用玻璃分段（灰色底槽 + 玻璃滑块），不用系统分段控件的整块蓝色。
-            GlassSegment(options: [.init(title: "全部", value: false), .init(title: "未导入", value: true)], selection: $model.onlyNew)
+            SegmentPicker(options: [.init(title: "全部", value: false), .init(title: "未导入", value: true)], selection: $model.onlyNew)
                 .accessibilityLabel("显示范围")
-            GlassMultiSegment(options: [.init(title: "RAW", isOn: $model.showRaw),
+            MultiSegmentPicker(options: [.init(title: "RAW", isOn: $model.showRaw),
                                         .init(title: "JPG/HIF", isOn: $model.showPhotos),
                                         .init(title: "视频", isOn: $model.showVideo)])
                 .accessibilityLabel("文件类型")

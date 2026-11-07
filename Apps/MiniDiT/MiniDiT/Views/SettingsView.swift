@@ -217,7 +217,7 @@ private struct UsageSection: View {
     var body: some View {
         Section {
             LabeledContent("使用方式") {
-                GlassSegment(options: UsageMode.allCases.map { .init(title: $0.title, value: $0) },
+                SegmentPicker(options: UsageMode.allCases.map { .init(title: $0.title, value: $0) },
                              selection: Binding(get: { model.usageMode }, set: { if $0 != model.usageMode { pending = $0 } }))
             }
             LabeledContent {
