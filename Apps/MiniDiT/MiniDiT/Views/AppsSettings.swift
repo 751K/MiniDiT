@@ -383,7 +383,7 @@ private struct AppIconView: View {
     var body: some View {
         Group {
             if let url {
-                Image(nsImage: NSWorkspace.shared.icon(forFile: url.path))
+                Image(nsImage: AppIcon.image(for: url))
                     .resizable()
             } else {
                 Image(systemName: "app.dashed").resizable().foregroundStyle(.tertiary)

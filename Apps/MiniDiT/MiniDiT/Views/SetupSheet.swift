@@ -381,7 +381,7 @@ private struct CardIconView: View {
                 .frame(width: size, height: size)
         case .app(let u):
             if let u {
-                Image(nsImage: NSWorkspace.shared.icon(forFile: u.path(percentEncoded: false)))
+                Image(nsImage: AppIcon.image(for: u))
                     .resizable().interpolation(.high).frame(width: size + 6, height: size + 6).padding(-3)
             } else {
                 CardIconView(icon: .symbol("app"), size: size)
