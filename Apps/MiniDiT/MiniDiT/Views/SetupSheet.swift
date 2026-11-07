@@ -308,18 +308,14 @@ struct SetupSheet: View {
                        value: backupOn ? "同时备份" : "仅存储一份",
                        detail: backupOn ? short(model.backupFolder!) : nil) { go(.backup) }
         }
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "lightbulb").font(.system(size: 16)).foregroundStyle(Theme.accent)
-            VStack(alignment: .leading, spacing: 4) {
-                Text("接下来").font(.callout.weight(.semibold))
-                Text("插入存储卡，或让相机连上与 Mac 相同的 Wi-Fi 并开启遥控拍摄，MiniDiT 会自动找到它。"
-                     + (model.captureOneMode == .lightroom ? "第一次导入到 Lightroom Classic 时，会提示安装 MiniDiT 插件。" : ""))
-                    .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        // 和上面的分组同一种行：图标、文字的位置都对齐。
+        Panel {
+            PanelRow(icon: .symbol("lightbulb"), title: "接下来",
+                     detail: "插入存储卡，或让相机连上与 Mac 相同的 Wi-Fi 并开启遥控拍摄，MiniDiT 会自动找到它。"
+                        + (model.captureOneMode == .lightroom ? "第一次导入到 Lightroom Classic 时，会提示安装 MiniDiT 插件。" : "")) {
+                EmptyView()
             }
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .overlay(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).strokeBorder(Theme.border))
     }
 
     private var backupOn: Bool { model.backupEnabled && model.backupFolder != nil }
