@@ -147,7 +147,7 @@ struct MultiSegmentPicker: View {
     let options: [Option]
 
     var body: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: 2) {  // 几格同时打开时，蓝色块之间留缝，不连成一条
             ForEach(options.indices, id: \.self) { i in
                 let o = options[i]
                 Button { withAnimation(.snappy(duration: 0.2)) { o.isOn.wrappedValue.toggle() } } label: {
