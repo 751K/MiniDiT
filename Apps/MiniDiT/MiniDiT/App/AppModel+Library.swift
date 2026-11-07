@@ -285,29 +285,6 @@ extension AppModel {
         return files.map { fileCopies[$0] ?? 0 }.min() ?? 0
     }
 
-    /// 整张卡（当前来源上的所有文件，不管筛选）：几个有两份、几个只有一份、几个没导。
-    struct CardSafety {
-        var two = 0, one = 0, none = 0
-        var total: Int { two + one + none }
-        /// 每个文件都有两份，可以格式化。
-        var canFormat: Bool { total > 0 && two == total }
-    }
-
-    var cardSafety: CardSafety { cardSafety(source: nil) }
-
-    /// 某个来源（nil = 全部）上的文件的备份情况。
-    func cardSafety(source id: Int?) -> CardSafety {
-        var c = CardSafety()
-        for h in items.keys where id == nil || source(of: h) == id {
-            switch fileCopies[h] ?? 0 {
-            case 2...: c.two += 1
-            case 1: c.one += 1
-            default: c.none += 1
-            }
-        }
-        return c
-    }
-
     // MARK: 选择
 
     func checkState(_ day: ShootingDay) -> CheckState { checkState(shots: day.shots) }

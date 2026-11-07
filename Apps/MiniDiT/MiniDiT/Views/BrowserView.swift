@@ -121,7 +121,7 @@ struct Sidebar: View {
     }
 }
 
-/// 侧栏顶上的来源卡片：当前相机 / 存储卡、卡槽切换、这张卡能不能格式化。换来源在右边的菜单里。
+/// 侧栏顶上的来源卡片：当前相机 / 存储卡、卡槽切换。换来源在右边的菜单里。
 private struct SourceCard: View {
     @Environment(AppModel.self) private var model
     /// 展开换来源的列表。
@@ -169,10 +169,6 @@ private struct SourceCard: View {
                     SourceSlotPicker(id: AppModel.primarySource).padding(.horizontal, 10).padding(.bottom, 10)
                 } else if model.slots.count > 1 {
                     SlotPicker().padding(.horizontal, 10).padding(.bottom, 10)
-                }
-                if !model.items.isEmpty {
-                    Divider().padding(.horizontal, 10)
-                    FormatSafety().padding(.horizontal, 12).padding(.vertical, 10)
                 }
             }
         }
@@ -352,7 +348,7 @@ private struct SourceListRow: View {
     }
 }
 
-/// 同时打开几个来源时，卡片里的一行：名字、读卡器 / Wi-Fi、能不能格式化；右边推出或关闭。
+/// 同时打开几个来源时，卡片里的一行：名字、读卡器 / Wi-Fi；右边推出或关闭。
 private struct SourceRow: View {
     @Environment(AppModel.self) private var model
     let source: SourceSummary
@@ -367,7 +363,6 @@ private struct SourceRow: View {
     }
 
     var body: some View {
-        let c = model.cardSafety(source: source.id)
         HStack(spacing: 8) {
             Image(systemName: source.isCard ? "sdcard" : "camera").font(.system(size: 13)).foregroundStyle(.secondary).frame(width: 24)
             VStack(alignment: .leading, spacing: 1) {
@@ -380,13 +375,11 @@ private struct SourceRow: View {
                         ProgressView().controlSize(.mini)
                         Text("正在连接…")
                     } else {
-                        Image(systemName: c.canFormat ? "checkmark.shield.fill" : "shield")
-                            .foregroundStyle(c.canFormat ? Theme.accent : Color.secondary)
                         Text(source.detail + extra)
                     }
                 }
                 .font(Theme.Font.caption).foregroundStyle(.secondary).lineLimit(1)
-                .help(source.detail + extra + "\n" + (c.canFormat ? "可格式化：全部文件均已存有两份" : "已存两份：\(c.two.formatted()) / \(c.total.formatted())，全部存有两份后可格式化"))
+                .help(source.detail + extra)
             }
             Spacer(minLength: 0)
             Button {
@@ -488,42 +481,6 @@ struct ChoicePicker<T: Hashable>: View {
             }
             .labelsHidden()
         }
-    }
-}
-
-/// 这张卡能不能格式化：卡上每个文件都在电脑上有两份才行。
-/// 还没齐时是平常状态，不用橙色警告，只显示进度：已存两份的文件数和一条进度条；齐了才说「可以格式化」。
-private struct FormatSafety: View {
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        let c = model.cardSafety
-        HStack(alignment: c.canFormat ? .top : .center, spacing: 10) {
-            Image(systemName: c.canFormat ? "checkmark.shield.fill" : "shield")
-                .font(.system(size: 15)).foregroundStyle(c.canFormat ? Theme.accent : Color.secondary).frame(width: 24)
-            if c.canFormat {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("可以格式化存储卡").font(Theme.Font.headline)
-                    Text("全部文件均已存有两份").font(Theme.Font.caption).foregroundStyle(.secondary)
-                }
-            } else {
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(alignment: .firstTextBaseline) {
-                        Text("已存两份").font(Theme.Font.headline)
-                        Spacer(minLength: 4)
-                        Text("\(c.two.formatted()) / \(c.total.formatted())")
-                            .font(Theme.Font.caption).monospacedDigit().foregroundStyle(.secondary)
-                    }
-                    ProgressView(value: Double(c.two), total: Double(max(c.total, 1)))
-                        .progressViewStyle(.linear).controlSize(.small).tint(Theme.accent)
-                }
-            }
-            Spacer(minLength: 0)
-        }
-        .accessibilityElement(children: .combine)
-        .help(c.canFormat
-              ? "存储卡上全部 \(c.total) 个文件均已存有两份（本机与备份盘），可以放心格式化。"
-              : "全部文件都存有两份（本机与备份盘）后，才能放心格式化存储卡。\n共 \(c.total) 个文件：两份 \(c.two) · 一份 \(c.one) · 未导入 \(c.none)（含未显示的类型，如视频）")
     }
 }
 
