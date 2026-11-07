@@ -363,13 +363,13 @@ private struct SourceRow: View {
                         ProgressView().controlSize(.mini)
                         Text("正在连接…")
                     } else {
-                        Image(systemName: c.canFormat ? "checkmark.shield.fill" : "exclamationmark.shield")
-                            .foregroundStyle(c.canFormat ? Theme.accent : Theme.warning)
+                        Image(systemName: c.canFormat ? "checkmark.shield.fill" : "shield")
+                            .foregroundStyle(c.canFormat ? Theme.accent : Color.secondary)
                         Text(source.detail + extra)
                     }
                 }
                 .font(Theme.Font.caption).foregroundStyle(.secondary).lineLimit(1)
-                .help(source.detail + extra + "\n" + (c.canFormat ? "可格式化：全部文件均已存有两份" : "暂不可格式化：\((c.one + c.none).formatted()) 个文件尚未存有两份"))
+                .help(source.detail + extra + "\n" + (c.canFormat ? "可格式化：全部文件均已存有两份" : "已存两份：\(c.two.formatted()) / \(c.total.formatted())，全部存有两份后可格式化"))
             }
             Spacer(minLength: 0)
             Button {
@@ -475,22 +475,38 @@ struct ChoicePicker<T: Hashable>: View {
 }
 
 /// 这张卡能不能格式化：卡上每个文件都在电脑上有两份才行。
+/// 还没齐时是平常状态，不用橙色警告，只显示进度：已存两份的文件数和一条进度条；齐了才说「可以格式化」。
 private struct FormatSafety: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
         let c = model.cardSafety
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: c.canFormat ? "checkmark.shield.fill" : "exclamationmark.shield")
-                .font(.system(size: 15)).foregroundStyle(c.canFormat ? Theme.accent : Theme.warning).frame(width: 24)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(c.canFormat ? "可格式化存储卡" : "暂不可格式化存储卡").font(Theme.Font.headline)
-                Text(c.canFormat ? "全部文件均已存有两份" : "\((c.one + c.none).formatted()) 个文件尚未存有两份")
-                    .font(Theme.Font.caption).foregroundStyle(.secondary)
+        HStack(alignment: c.canFormat ? .top : .center, spacing: 10) {
+            Image(systemName: c.canFormat ? "checkmark.shield.fill" : "shield")
+                .font(.system(size: 15)).foregroundStyle(c.canFormat ? Theme.accent : Color.secondary).frame(width: 24)
+            if c.canFormat {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("可以格式化存储卡").font(Theme.Font.headline)
+                    Text("全部文件均已存有两份").font(Theme.Font.caption).foregroundStyle(.secondary)
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text("已存两份").font(Theme.Font.headline)
+                        Spacer(minLength: 4)
+                        Text("\(c.two.formatted()) / \(c.total.formatted())")
+                            .font(Theme.Font.caption).monospacedDigit().foregroundStyle(.secondary)
+                    }
+                    ProgressView(value: Double(c.two), total: Double(max(c.total, 1)))
+                        .progressViewStyle(.linear).controlSize(.small).tint(Theme.accent)
+                }
             }
             Spacer(minLength: 0)
         }
-        .help("存储卡上共 \(c.total) 个文件：两份 \(c.two) · 一份 \(c.one) · 未导入 \(c.none)（含未显示的类型，如视频）")
+        .accessibilityElement(children: .combine)
+        .help(c.canFormat
+              ? "存储卡上全部 \(c.total) 个文件均已存有两份（本机与备份盘），可以放心格式化。"
+              : "全部文件都存有两份（本机与备份盘）后，才能放心格式化存储卡。\n共 \(c.total) 个文件：两份 \(c.two) · 一份 \(c.one) · 未导入 \(c.none)（含未显示的类型，如视频）")
     }
 }
 
