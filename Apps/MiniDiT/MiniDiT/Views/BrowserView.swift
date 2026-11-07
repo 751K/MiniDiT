@@ -699,12 +699,12 @@ private struct ImportOptions: View {
                 // 菜单按钮不跟着 controlSize 变高，给图标一个和文字按钮一样的高度。
                 Image(systemName: "ellipsis").frame(height: 20)
             }
-            .menuStyle(.button).glassButton().menuIndicator(.hidden).controlSize(.large)
+            .menuStyle(.button).glassButton().menuIndicator(.hidden).controlSize(.extraLarge)
             .fixedSize()
             .accessibilityLabel("更多操作")
             .help("更多操作")
         }
-        .controlSize(.large)
+        .controlSize(.extraLarge)
         .fixedSize()
     }
 
@@ -1200,7 +1200,7 @@ struct FloatingBar: View {
                         secondaryButton("在访达中显示") { NSWorkspace.shared.open(folder) }
                     }
                     Button { model.dismissResult() } label: { Image(systemName: "xmark").frame(height: 20) }
-                    .glassButton().controlSize(.large)
+                    .glassButton().controlSize(.extraLarge)
                     .accessibilityLabel("关闭")
                 }
             } else if model.phase == .ready {
@@ -1293,7 +1293,7 @@ struct FloatingBar: View {
     }
 
     private func secondaryButton(_ title: String, _ action: @escaping () -> Void) -> some View {
-        Button(title, action: action).glassButton().controlSize(.large).fixedSize()
+        Button(title, action: action).glassButton().controlSize(.extraLarge).fixedSize()
     }
 
     private func pill<C: View>(@ViewBuilder _ content: () -> C) -> some View {
@@ -1312,9 +1312,9 @@ struct FloatingBar: View {
     }
 
     private func mainButton(_ title: String, disabled: Bool = false, _ action: @escaping () -> Void) -> some View {
-        Button(title, action: action)
+        Button { action() } label: { Text(title).fontWeight(.semibold) }
         .glassButton(prominent: true)
-        .controlSize(.large)
+        .controlSize(.extraLarge)
         .disabled(disabled)
     }
 
