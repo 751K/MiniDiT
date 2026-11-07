@@ -556,9 +556,8 @@ private struct ShotCounts: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            if new > 0 {
-                Text("\(new) 新").font(.system(size: size, weight: .semibold).monospacedDigit())
-            } else {
+            // 还有没导入的不另外标数字；全部导入过才打勾。
+            if new == 0 {
                 Image(systemName: "checkmark").font(.system(size: size - 2, weight: .semibold))
                     .foregroundStyle(copies == 1 ? Theme.warning : Color.secondary)
                     .help(copies == 1 ? "均已导入，部分照片仅存有一份" : "均已导入")
