@@ -122,8 +122,9 @@ struct RootView: View {
         .sheet(item: $model.credentialRequest) { CredentialSheet(request: $0) }
         .sheet(item: $model.fingerprintRequest) { FingerprintSheet(request: $0) }
         .sheet(item: $model.sessionRequest) { SessionSheet(request: $0) }
-        .sheet(isPresented: Binding(get: { !model.setupDone }, set: { if !$0 { model.setupDone = true } })) {
-            SetupSheet().interactiveDismissDisabled()
+        .sheet(isPresented: Binding(get: { !model.setupDone || model.showingSetup },
+                                    set: { if !$0 { model.setupDone = true; model.showingSetup = false } })) {
+            SetupSheet(reopened: model.setupDone) { model.showingSetup = false }.interactiveDismissDisabled()
         }
         .alert(model.backupFolder == nil ? "尚未设置备份位置" : "未找到备份磁盘", isPresented: $model.backupMissingPrompt) {
             Button("仅存储一份并继续") { model.beginImport(checkBackup: false) }

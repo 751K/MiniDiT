@@ -223,7 +223,7 @@ private struct ConnectSettings: View {
 private struct UsageSection: View {
     @Environment(AppModel.self) private var model
     @State private var pending: UsageMode?
-    @State private var wizard = false
+    @Environment(\.openWindow) private var openWindow
 
     static let proHint = "命名模板、卷号、色彩空间等更多选项，在“设置 › 通用”中切换到专业模式后显示。"
 
@@ -235,7 +235,13 @@ private struct UsageSection: View {
             .pickerStyle(.segmented)
             Text(model.usageMode.detail).font(.caption).foregroundStyle(.secondary)
             LabeledContent {
-                Button("打开…") { wizard = true }
+                // 向导比设置窗口宽，放到主窗口里显示，并关掉设置窗口。
+                Button("打开…") {
+                    NSApp.keyWindow?.close()
+                    openWindow(id: "main")
+                    NSApp.activate()
+                    model.showingSetup = true
+                }
             } label: {
                 Text("设置向导")
                 Text("按步骤重新设置照片、视频和备份。")
@@ -252,9 +258,6 @@ private struct UsageSection: View {
             Text(m == .pro
                  ? "视频文件夹改为按卷号分子文件夹，并关闭自动导入和导入后删除存储卡上的照片。其他设置不变。"
                  : "视频文件夹不再按卷号分子文件夹。其他设置不变。")
-        }
-        .sheet(isPresented: $wizard) {
-            SetupSheet(reopened: true) { wizard = false }
         }
     }
 }

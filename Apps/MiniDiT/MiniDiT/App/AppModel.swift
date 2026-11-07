@@ -382,6 +382,8 @@ final class AppModel {
     var setupDone: Bool = UserDefaults.standard.integer(forKey: "setupVersion") >= AppModel.setupVersion {
         didSet { UserDefaults.standard.set(setupDone ? Self.setupVersion : 0, forKey: "setupVersion") }
     }
+    /// 从“设置 › 通用”重新打开设置向导（在主窗口里显示）。
+    var showingSetup = false
     /// 使用方式：决定默认值和设置里显示哪些选项，不锁功能。
     var usageMode: UsageMode = UsageMode(rawValue: UserDefaults.standard.string(forKey: "usageMode") ?? "") ?? .personal {
         didSet { UserDefaults.standard.set(usageMode.rawValue, forKey: "usageMode") }
