@@ -599,8 +599,8 @@ enum UsageMode: String, CaseIterable, Identifiable {
     var title: String { self == .personal ? "个人" : "专业" }
     var detail: String {
         switch self {
-        case .personal: "自己拍、自己修图剪辑。设置只保留常用选项，校验在后台完成。"
-        case .pro: "给团队或客户交付素材。显示命名模板、卷号、色彩空间等全部选项；不自动导入，不删除存储卡上的文件。"
+        case .personal: "仅显示常用设置，校验与备份在后台完成。"
+        case .pro: "显示全部设置项，关闭自动导入，不删除存储卡上的文件。"
         }
     }
     /// 专业模式的视频文件夹：每卷一个子文件夹。

@@ -43,7 +43,7 @@ struct AppsSettings: View {
             } header: {
                 Text("创意外观")
             } footer: {
-                Text("读取 RAW 文件中记录的创意外观（ST、FL、IN 等）。导入到 Capture One 会话时，ICC 配置文件设为对应的“… Look-ST”（~/Library/ColorSync/Profiles），曲线设为“Linear Response”；导入到 Lightroom Classic 时，配置文件设为 Camera Raw 中安装的“… Look ST”。未安装对应 Look 的照片保持原样。仅处理 RAW 文件。")
+                Text("仅处理 RAW 文件；未安装对应 Look 的照片保持原样。")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section {
@@ -52,20 +52,14 @@ struct AppsSettings: View {
                 }
             } header: {
                 Text("按文件夹管理")
-            } footer: {
-                Text("导入方式选“只下载”时，可在“设置 › 照片”中设置导入完成后用哪个软件打开下载的文件夹。")
-                    .font(.caption).foregroundStyle(.secondary)
             }
             Section {
                 ForEach(apps.filter(\.kind.isEditor)) { app in
                     let on = app.kind == .resolve ? model.sendToResolve : model.sendToFCP
-                    FolderAppRow(app: app, usage: app.isInstalled && on ? (app.kind == .resolve ? "导入后加入当前项目" : "导入后交给 FCP") : nil)
+                    FolderAppRow(app: app, usage: app.isInstalled && on ? (app.kind == .resolve ? "导入后添加至当前项目" : "导入后发送至 FCP") : nil)
                 }
             } header: {
                 Text("视频剪辑")
-            } footer: {
-                Text("可在“设置 › 视频”中设置导入视频后交给哪个剪辑软件。")
-                    .font(.caption).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)

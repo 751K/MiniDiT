@@ -137,21 +137,21 @@ struct SetupSheet: View {
 
     private var title: String {
         switch step {
-        case .mode: reopened ? "选择使用方式" : "欢迎使用 MiniDiT"
-        case .photos: "照片交给哪个软件"
-        case .video: "视频放在哪里"
-        case .backup: "要不要备份"
-        case .done: "一切就绪"
+        case .mode: reopened ? "使用方式" : "欢迎使用 MiniDiT"
+        case .photos: "照片导入方式"
+        case .video: "视频存放"
+        case .backup: "备份"
+        case .done: "设置完成"
         }
     }
 
     private var subtitle: String {
         switch step {
-        case .mode: "它只决定默认设置和显示哪些选项，不会锁住任何功能。\n之后可在“设置 › 通用”中更改。"
-        case .photos: "照片导入后直接进入你修图用的软件。只列出这台 Mac 上安装了的软件。"
-        case .video: "视频保留原文件名，按日期和事件建文件夹存放，不进入修图软件。"
-        case .backup: "导入时可同时在另一块磁盘上再存一份，照片和视频都会备份。"
-        case .done: "以下设置随时可在“设置”中修改，也可以点“更改”回到对应的步骤。"
+        case .mode: "使用方式决定默认设置及设置中显示的选项，可随时在“设置 › 通用”中更改。"
+        case .photos: "选择导入照片所用的软件。仅列出本机已安装的软件。"
+        case .video: "视频保留原文件名，按日期和事件分文件夹存放。"
+        case .backup: "导入时可在另一磁盘上同时保存一份副本。"
+        case .done: "以下设置均可在“设置”中修改。"
         }
     }
 
@@ -169,11 +169,11 @@ struct SetupSheet: View {
 
     private var modeStep: some View {
         HStack(alignment: .top, spacing: 14) {
-            ModeTile(symbol: "person", title: "个人", tagline: "自己拍，自己修图剪辑",
-                     points: ["照片直接进入 Capture One 或 Lightroom", "校验和备份在后台完成", "设置只显示常用选项"],
+            ModeTile(symbol: "person", title: "个人", tagline: "适用于个人拍摄与后期",
+                     points: ["照片直接导入 Capture One 或 Lightroom", "后台完成校验与备份", "仅显示常用设置"],
                      selected: model.usageMode == .personal) { setMode(.personal) }
-            ModeTile(symbol: "person.3", title: "专业", tagline: "给团队或客户交付素材",
-                     points: ["视频按卷号分文件夹，写入卷名和色彩空间", "显示命名模板等全部选项", "不自动导入，不删除存储卡上的文件"],
+            ModeTile(symbol: "person.3", title: "专业", tagline: "适用于团队协作与素材交付",
+                     points: ["视频按卷号分文件夹，写入卷名与色彩空间", "显示全部设置项", "关闭自动导入，不删除存储卡上的文件"],
                      selected: model.usageMode == .pro) { setMode(.pro) }
         }
     }
@@ -192,20 +192,20 @@ struct SetupSheet: View {
         VStack(spacing: 10) {
             if let c1 = apps[.captureOne], c1.isInstalled {
                 ChoiceCard(icon: .app(c1.url), title: "Capture One",
-                           detail: "每次导入新建一个会话（如“11.7-公园”），照片存入会话的 Capture 文件夹。",
+                           detail: "每次导入新建会话，照片存入会话的 Capture 文件夹。",
                            selected: isC1) {
                     if !isC1 { model.captureOneMode = .newSession }
                 }
             }
             if let lr = apps[.lightroom], lr.isInstalled {
                 ChoiceCard(icon: .app(lr.url), title: "Lightroom Classic",
-                           detail: "下载后添加到当前目录，按收藏夹整理。第一次导入时会提示安装 MiniDiT 插件。",
+                           detail: "导入当前目录并按收藏夹整理。首次导入时需安装 MiniDiT 插件。",
                            selected: model.captureOneMode == .lightroom) {
                     model.captureOneMode = .lightroom
                 }
             }
-            ChoiceCard(icon: .symbol("folder"), title: "只存到文件夹",
-                       detail: "按日期分文件夹存放，之后用访达、Bridge 或其他软件打开。",
+            ChoiceCard(icon: .symbol("folder"), title: "仅存储至文件夹",
+                       detail: "按日期分文件夹存放，不导入任何软件。",
                        selected: model.captureOneMode == .off) {
                 model.captureOneMode = .off
             }
@@ -239,24 +239,24 @@ struct SetupSheet: View {
             FolderRow(title: "视频存放位置", url: model.videoDestination) { model.videoDestination = $0 }
             PanelDivider()
             PanelRow(icon: .symbol("square.on.square"), title: "同时导入代理文件",
-                     detail: "存入旁边的“Proxy”文件夹，剪辑软件会自动链接。") {
+                     detail: "存入“Proxy”文件夹，剪辑软件可自动关联。") {
                 Toggle("同时导入代理文件", isOn: $model.importProxies).labelsHidden().toggleStyle(.switch)
             }
         }
         let editors = [apps[.resolve], apps[.finalCut]].compactMap { $0 }.filter(\.isInstalled)
         if !editors.isEmpty {
-            SectionTitle("导入完成后交给剪辑软件")
+            SectionTitle("导入完成后发送至剪辑软件")
             Panel {
                 ForEach(Array(editors.enumerated()), id: \.element.kind) { i, app in
                     if i > 0 { PanelDivider() }
                     if app.kind == .resolve {
                         PanelRow(icon: .app(app.url), title: "DaVinci Resolve",
-                                 detail: "加入当前项目，每个视频文件夹一个媒体夹。须在 Resolve 的“偏好设置 › 系统 › 常规”中把“外部脚本使用”设为“本地”。") {
+                                 detail: "添加至当前项目，每个视频文件夹对应一个媒体夹。需在 Resolve 偏好设置中将“外部脚本使用”设为“本地”。") {
                             Toggle("DaVinci Resolve", isOn: $model.sendToResolve).labelsHidden().toggleStyle(.switch)
                         }
                     } else {
                         PanelRow(icon: .app(app.url), title: "Final Cut Pro",
-                                 detail: "每个视频文件夹一个事件，片段原地引用，不复制进资源库。") {
+                                 detail: "每个视频文件夹对应一个事件，片段以引用方式添加，不复制至资源库。") {
                             Toggle("Final Cut Pro", isOn: $model.sendToFCP).labelsHidden().toggleStyle(.switch)
                         }
                     }
@@ -271,21 +271,21 @@ struct SetupSheet: View {
         @Bindable var model = model
         VStack(spacing: 10) {
             ChoiceCard(icon: .symbol("internaldrive"), title: "仅存储一份",
-                       detail: "只存到前面选的照片和视频存放位置。",
+                       detail: "不创建备份。",
                        selected: !model.backupEnabled) { model.backupEnabled = false }
             ChoiceCard(icon: .symbol("externaldrive.badge.plus"), title: "同时备份",
-                       detail: "在另一块磁盘上再存一份，两份都校验通过才算导入完成。备份磁盘没接上时会先询问。",
+                       detail: "在另一磁盘上保存副本，两份均校验通过方视为导入完成。",
                        selected: model.backupEnabled) { model.backupEnabled = true }
         }
         if model.backupEnabled || !model.isPro {
             Panel {
                 if model.backupEnabled {
-                    FolderRow(title: "备份位置", url: model.backupFolder, empty: "尚未选择，请选择另一块磁盘上的文件夹") { model.backupFolder = $0 }
+                    FolderRow(title: "备份位置", url: model.backupFolder, empty: "尚未选择") { model.backupFolder = $0 }
                     if !model.isPro { PanelDivider() }
                 }
                 if !model.isPro {
                     PanelRow(icon: .symbol("sdcard"), title: "导入后删除存储卡上的照片",
-                             detail: "仅适用于读卡器，且只删除校验通过的照片。") {
+                             detail: "仅限读卡器，且仅删除校验通过的照片。") {
                         Toggle("导入后删除存储卡上的照片", isOn: $model.deleteAfterImport).labelsHidden().toggleStyle(.switch)
                     }
                 }
@@ -298,7 +298,7 @@ struct SetupSheet: View {
     @ViewBuilder private var doneStep: some View {
         Panel {
             SummaryRow(icon: .symbol(model.usageMode == .personal ? "person" : "person.3"),
-                       label: "使用方式", value: model.usageMode.title, detail: model.isPro ? "显示全部选项" : "只显示常用选项") { go(.mode) }
+                       label: "使用方式", value: model.usageMode.title, detail: model.isPro ? "显示全部设置项" : "仅显示常用设置") { go(.mode) }
             PanelDivider()
             SummaryRow(icon: photoIcon, label: "照片", value: photoTitle, detail: photoDetail) { go(.photos) }
             PanelDivider()
@@ -310,9 +310,9 @@ struct SetupSheet: View {
         }
         // 和上面的分组同一种行：图标、文字的位置都对齐。
         Panel {
-            PanelRow(icon: .symbol("lightbulb"), title: "接下来",
-                     detail: "插入存储卡，或让相机连上与 Mac 相同的 Wi-Fi 并开启遥控拍摄，MiniDiT 会自动找到它。"
-                        + (model.captureOneMode == .lightroom ? "第一次导入到 Lightroom Classic 时，会提示安装 MiniDiT 插件。" : "")) {
+            PanelRow(icon: .symbol("lightbulb"), title: "后续步骤",
+                     detail: "插入存储卡，或将相机连接至与 Mac 相同的 Wi-Fi 并开启遥控拍摄，MiniDiT 将自动识别。"
+                        + (model.captureOneMode == .lightroom ? "首次导入 Lightroom Classic 时需安装 MiniDiT 插件。" : "")) {
                 EmptyView()
             }
         }
@@ -334,14 +334,14 @@ struct SetupSheet: View {
         case .c1Settings: "Capture One · 按导入设置"
         case .inPlace: "Capture One · 就地添加"
         case .lightroom: "Lightroom Classic"
-        case .off: "只存到文件夹"
+        case .off: "仅存储至文件夹"
         }
     }
 
     private var photoDetail: String? {
         switch model.captureOneMode {
         case .newSession: short(model.sessionsFolder)
-        case .c1Settings, .inPlace: "Capture One 当前打开的文档"
+        case .c1Settings, .inPlace: "Capture One 当前文档"
         case .lightroom, .off: short(model.destination)
         }
     }
@@ -350,7 +350,7 @@ struct SetupSheet: View {
         var to: [String] = []
         if model.sendToResolve, apps[.resolve]?.isInstalled == true { to.append("DaVinci Resolve") }
         if model.sendToFCP, apps[.finalCut]?.isInstalled == true { to.append("Final Cut Pro") }
-        return to.isEmpty ? "存到文件夹，不交给剪辑软件" : "交给 " + to.joined(separator: " 和 ")
+        return to.isEmpty ? "仅存储至文件夹" : "发送至 " + to.joined(separator: "、")
     }
 
     /// 「~/Pictures/MiniDiT」

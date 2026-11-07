@@ -82,13 +82,8 @@ private struct ImportSettings: View {
                     .accessibilityLabel("配对规则")
             }
             if !model.isPro || model.deleteAfterImport {
-                Section {
-                    Toggle("删除存储卡上已导入的照片", isOn: $model.deleteAfterImport)
-                } header: {
-                    Text("导入完成后")
-                } footer: {
-                    Text("仅适用于读卡器，且只删除校验通过的照片。")
-                        .font(.caption).foregroundStyle(.secondary)
+                Section("导入完成后") {
+                    Toggle("删除存储卡上已校验的照片（仅限读卡器）", isOn: $model.deleteAfterImport)
                 }
             }
             if model.isPro { NamingSection() }
@@ -98,9 +93,6 @@ private struct ImportSettings: View {
                 }
             } header: {
                 Text("场次")
-            } footer: {
-                Text("同一天内相邻照片的间隔超过所选时间，即分为两场。" + (model.isPro ? "" : "\n" + UsageSection.proHint))
-                    .font(.caption).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
@@ -115,10 +107,9 @@ private struct ImportSettings: View {
 
     private var locationText: String {
         if model.captureOneMode == .newSession {
-            let explicit = UserDefaults.standard.url(forKey: "sessionsFolder") != nil
-            return (explicit ? "" : "与 Capture One 当前会话相同 · ") + model.sessionsFolder.path(percentEncoded: false)
+            return model.sessionsFolder.path(percentEncoded: false)
         }
-        return model.destination.path(percentEncoded: false) + "，按“\(NameTemplate.current(.folder))”分目录存放"
+        return model.destination.path(percentEncoded: false)
     }
 
     static func title(_ m: CaptureOneMode) -> String {
@@ -127,7 +118,7 @@ private struct ImportSettings: View {
         case .c1Settings: "按 Capture One 的导入设置"
         case .inPlace: "就地添加"
         case .lightroom: "导入到 Lightroom Classic"
-        case .off: "只下载"
+        case .off: "仅下载"
         }
     }
 
@@ -176,11 +167,6 @@ private struct ConnectSettings: View {
                 }
             } header: {
                 Text("启动与后台")
-            } footer: {
-                Text(model.keepInMenuBar
-                     ? "关闭窗口后，导入照常进行，可从菜单栏重新打开窗口。登录时打开的话，只显示菜单栏图标。相机须与 Mac 在同一网络，约 30 秒内发现。\n自动导入：只导未导入过的照片，按当前的导入方式、存放位置、备份和命名设置进行；开始前倒计时 10 秒，可点通知取消；不会删除存储卡上的照片；备份磁盘未连接或空间不足时不导入，改为通知。"
-                     : "关闭窗口即退出 MiniDiT。")
-                    .font(.caption).foregroundStyle(.secondary)
             }
             Section {
                 if model.knownCameras.isEmpty {
@@ -199,8 +185,6 @@ private struct ConnectSettings: View {
                 }
             } header: {
                 Text("已连接过的相机")
-            } footer: {
-                Text("忘记后，再次连接时须重新核对指纹并填写账号。").font(.caption).foregroundStyle(.secondary)
             }
             RecordSections()
         }
@@ -225,15 +209,12 @@ private struct UsageSection: View {
     @State private var pending: UsageMode?
     @Environment(\.openWindow) private var openWindow
 
-    static let proHint = "命名模板、卷号、色彩空间等更多选项，在“设置 › 通用”中切换到专业模式后显示。"
-
     var body: some View {
         Section {
             Picker("使用方式", selection: Binding(get: { model.usageMode }, set: { if $0 != model.usageMode { pending = $0 } })) {
                 ForEach(UsageMode.allCases) { Text($0.title).tag($0) }
             }
             .pickerStyle(.segmented)
-            Text(model.usageMode.detail).font(.caption).foregroundStyle(.secondary)
             LabeledContent {
                 // 向导比设置窗口宽，放到主窗口里显示，并关掉设置窗口。
                 Button("打开…") {
@@ -244,7 +225,6 @@ private struct UsageSection: View {
                 }
             } label: {
                 Text("设置向导")
-                Text("按步骤重新设置照片、视频和备份。")
             }
         } header: {
             Text("使用方式")
@@ -293,7 +273,6 @@ private struct RecordSections: View {
                         Button("清除…") { confirmClear = true }.disabled(count == 0)
                     } label: {
                         Text(count > 0 ? "已记录 \(count.formatted()) 条" : "无导入记录")
-                        Text("用于判断哪些照片已导入。")
                     }
                 }
             }
@@ -306,7 +285,6 @@ private struct RecordSections: View {
                     }
                 } label: {
                     Text("诊断日志")
-                    Text("反馈问题时可附上。")
                 }
             }
         }
@@ -325,10 +303,7 @@ private struct ModeRow: View {
             HStack(spacing: 8) {
                 Image(systemName: "checkmark").font(.system(size: 12, weight: .semibold))
                     .opacity(on ? 1 : 0).frame(width: 14)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(title).fontWeight(on ? .semibold : .regular)
-                    Text(detail).font(.caption).foregroundStyle(.secondary)
-                }
+                Text(title).fontWeight(on ? .semibold : .regular)
                 Spacer(minLength: 0)
             }
             .contentShape(Rectangle())
@@ -366,49 +341,32 @@ private struct VideoSettings: View {
                 }
             } header: {
                 Text("存放")
-            } footer: {
-                Text(model.isPro
-                     ? "视频不导入 Capture One 或 Lightroom Classic，按原文件名平铺存放，同名的 XML 元数据文件一并导入；同时连接多台相机时按相机分开存放。\n卷号：每次导入、每种机型一卷（A001、A002…，第二种机型从 B001 开始），交给 DaVinci Resolve 和 Final Cut Pro 时写入卷名；文件夹名中可用 {卷号}。"
-                     : "按日期和事件建文件夹，片段保留原文件名，同名的 XML 元数据文件一并导入。")
-                    .font(.caption).foregroundStyle(.secondary)
             }
             Section {
-                Toggle(isOn: $model.importProxies) {
-                    Text("同时导入代理文件")
-                    Text("存入旁边的“Proxy”文件夹，改为与原片同名。")
-                }
-                Toggle(isOn: $model.proxyOnlyWiFi) {
-                    Text("通过 Wi-Fi 导入时只导入代理")
-                    Text("原片留在存储卡上并标为“仅代理”，之后用读卡器导入原片即可。")
-                }
+                Toggle("同时导入代理文件", isOn: $model.importProxies)
+                Toggle("通过 Wi-Fi 导入时仅导入代理", isOn: $model.proxyOnlyWiFi)
             } header: {
                 Text("代理")
             }
             Section {
                 if resolve {
                     Toggle(isOn: $model.sendToResolve) {
-                        Text("加入 DaVinci Resolve 当前项目")
-                        Text("每个视频文件夹建一个媒体夹，代理自动链接。须在 Resolve 的“偏好设置 › 系统 › 常规”中把“外部脚本使用”设为“本地”。")
+                        Text("添加至 DaVinci Resolve 当前项目")
+                        Text("需在 Resolve 中将“外部脚本使用”设为“本地”。")
                     }
                     if model.isPro {
                         Toggle(isOn: $model.resolveColorSpace) {
                             Text("设置片段的输入色彩空间")
-                            Text("按拍摄时的伽马，为 S-Log3、S-Log2、HLG 片段设置输入色彩空间，不套用 LUT。项目须开启色彩管理（RCM 或 ACES）。")
+                            Text("需开启色彩管理（RCM 或 ACES）。")
                         }
                         .padding(.leading, 16)
                         .disabled(!model.sendToResolve)
                     }
                 }
                 if fcp {
-                    Toggle(isOn: $model.sendToFCP) {
-                        Text("交给 Final Cut Pro")
-                        Text("每个视频文件夹建一个事件，片段原地引用、不复制进资源库，代理一并链接。")
-                    }
+                    Toggle("发送至 Final Cut Pro", isOn: $model.sendToFCP)
                     if model.isPro {
-                        Toggle(isOn: $model.fcpLogProcessing) {
-                            Text("设置片段的 Log 处理")
-                            Text("为 S-Log3 片段选用 Final Cut Pro 内置的 Sony S-Log3 Log 处理（S-Gamut3.Cine 或 S-Gamut3，按拍摄设置）。")
-                        }
+                        Toggle("设置片段的 Log 处理", isOn: $model.fcpLogProcessing)
                         .padding(.leading, 16)
                         .disabled(!model.sendToFCP)
                     }
@@ -447,16 +405,13 @@ private struct BackupSettings: View {
                                                  set: { model.backupEnabled = $0 }))
                     .disabled(model.backupFolder == nil)
                 if model.isPro { NameField(title: "备份文件夹", kind: .backup, text: $backup) }
-            } footer: {
-                Text("照片和视频都会备份，视频存入备份文件夹中的“视频”文件夹。导入窗口底部的“备份”按钮与此开关相同。" + (model.isPro ? "可用标记：{YYYY} {MM} {DD} {M} {D} {事件} {场次}。" : ""))
-                    .font(.caption).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
     }
 
     private var backupText: String {
-        guard let u = model.backupFolder else { return "尚未设置；设置后方可另存一份" }
+        guard let u = model.backupFolder else { return "尚未设置" }
         let p = u.path(percentEncoded: false)
         return model.backupAvailable ? p : p + "（磁盘未连接）"
     }
