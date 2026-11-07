@@ -33,11 +33,46 @@ extension AppModel {
             sessionRequest = SessionRequest(existing: [], resume: resume)
         } else if captureOneMode == .newSession {
             refreshCaptureOne()
-            sessionRequest = SessionRequest(existing: Array(CaptureOneBridge.sessions(in: sessionsFolder).prefix(15)),
-                                            resume: resume)
+            if !resume.isEmpty {
+                // 中断后继续、还有分组没建会话：沿用原来的询问。
+                sessionRequest = SessionRequest(existing: Array(CaptureOneBridge.sessions(in: sessionsFolder).prefix(15)),
+                                                resume: resume)
+            } else if currentSession != nil {
+                importToCurrentSession()
+            } else {
+                newSessionPrompt = NewSessionPrompt(importAfter: true)
+            }
         } else {
             startImport(session: nil)
         }
+    }
+
+    // MARK: 当前会话
+
+    /// 会话文件夹里已有的会话（新的在前）。
+    var existingSessions: [URL] { CaptureOneBridge.sessions(in: sessionsFolder) }
+
+    /// 选中的内容导入当前会话（视频照旧存到视频位置）：会话在磁盘上已有就打开，没有就新建。
+    func importToCurrentSession() {
+        guard let s = currentSession else { return }
+        let file = existingSessions.first { $0.deletingLastPathComponent().lastPathComponent == s.name }
+        startImport(jobs: [ImportJob(key: "all", files: Array(selectedFiles().reversed()),
+                                     session: file.map { .existing($0) } ?? .new(s.name), event: s.event)],
+                    grouping: .single)
+    }
+
+    /// 选一个已有会话作为当前会话。
+    func useSession(_ file: URL) {
+        let name = file.deletingPathExtension().lastPathComponent
+        currentSession = CurrentSession(name: name, event: Self.eventName(of: name))
+    }
+
+    /// 新建会话时默认的日期：侧栏里选中的那天，没有就取所选文件里最早的一天，再没有就是今天。
+    var defaultSessionDay: Date {
+        let f = DateFormatter(); f.dateFormat = "yyyyMMdd"; f.locale = Locale(identifier: "en_US_POSIX")
+        let picked = days.first { d in shownDays.contains(d.id) || d.scenes.contains { shownDays.contains($0.id) } }
+        let key = picked?.id ?? selectedFiles().map(Self.dayKey).filter { $0 != "unknown" }.min()
+        return key.flatMap(f.date(from:)) ?? .now
     }
 
     /// 两块盘够不够放这次要导的文件。本地已经有的（上次导过、还在）不算。

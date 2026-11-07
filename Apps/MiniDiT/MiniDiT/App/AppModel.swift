@@ -449,6 +449,14 @@ final class AppModel {
         var resume: [String: ResumeSession] = [:]
     }
     var sessionRequest: SessionRequest?
+
+    /// 当前会话（新建 C1 会话模式）：由用户新建或从已有会话中选择，之后点「导入」都存入这里，不再逐次询问。
+    /// 只记名字，第一次导入时才在磁盘上建会话。
+    struct CurrentSession: Equatable { var name: String; var event: String? }
+    var currentSession: CurrentSession?
+    /// 弹出「新建会话」窗口；importAfter = 建好后马上导入当前选中的内容。
+    struct NewSessionPrompt: Identifiable { let id = UUID(); var importAfter: Bool }
+    var newSessionPrompt: NewSessionPrompt?
     /// 导入到 LrC 前发现插件没装好 / 要重启 LrC。
     var lightroomPrompt: LightroomBridge.Status?
     /// 导入后 LrC 那边的进度（「Lightroom Classic 已添加 12/30」）。

@@ -284,3 +284,107 @@ struct SessionSheet: View {
         model.startImport(jobs: jobs, grouping: model.sessionGrouping)
     }
 }
+
+/// 新建会话：由用户主动发起，填日期和事件。日期默认取侧栏里选中的那天。
+/// 建好后成为当前会话，之后点「导入」都进这个会话（视频照旧存到视频位置，文件夹也用这个事件名）。
+struct NewSessionSheet: View {
+    @Environment(AppModel.self) private var model
+    let prompt: AppModel.NewSessionPrompt
+    @State private var date = Date.now
+    @State private var event = ""
+    @State private var openInC1: Set<String> = []
+    @FocusState private var eventFocused: Bool
+
+    private var dayKey: String {
+        let f = DateFormatter(); f.dateFormat = "yyyyMMdd"; f.locale = Locale(identifier: "en_US_POSIX")
+        return f.string(from: date)
+    }
+    private var cleanEvent: String? {
+        let e = NameTemplate.sanitize(event)
+        return e.isEmpty ? nil : e
+    }
+    private var name: String { NameTemplate.render(.session, day: dayKey, event: cleanEvent) }
+    private var exists: Bool {
+        FileManager.default.fileExists(atPath: model.sessionsFolder.appending(path: name).appending(path: name + ".cosessiondb").path)
+    }
+    /// 磁盘上没有、但 C1 里开着同名文档：建不了。
+    private var blocked: Bool { !exists && openInC1.contains(name) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("新建会话").font(Theme.Font.headline)
+
+            Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 12) {
+                GridRow {
+                    Text("日期").gridColumnAlignment(.trailing)
+                    DatePicker("日期", selection: $date, displayedComponents: .date)
+                        .datePickerStyle(.field).labelsHidden().fixedSize()
+                        .environment(\.locale, Locale(identifier: "zh_CN"))  // 显示成 2026/11/6
+                }
+                GridRow {
+                    Text("事件")
+                    TextField("事件", text: $event, prompt: Text("例如：公园"))
+                        .textFieldStyle(.roundedBorder).controlSize(.large).labelsHidden()
+                        .focused($eventFocused)
+                        .onSubmit { if !blocked { create() } }
+                }
+                if !model.recentContents.isEmpty {
+                    GridRow {
+                        Text("最近").foregroundStyle(.secondary)
+                        HStack(spacing: 6) {
+                            ForEach(model.recentContents.prefix(5), id: \.self) { c in
+                                Button(c) { event = c }.buttonStyle(.bordered).controlSize(.small)
+                            }
+                        }
+                    }
+                }
+            }
+
+            Divider()
+
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: blocked ? "exclamationmark.triangle" : "folder")
+                    .foregroundStyle(blocked ? Theme.warning : Color.secondary)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(name).lineLimit(1).truncationMode(.middle)
+                    Text(blocked ? "Capture One 中已打开同名会话，请更换事件名"
+                         : exists ? "已有同名会话，将加入该会话"
+                         : "位于“\(model.sessionsFolder.lastPathComponent)”，首次导入时创建")
+                        .font(Theme.Font.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Button("更改位置") {
+                    if let url = FolderPicker.choose(start: model.sessionsFolder) { model.sessionsFolder = url }
+                    openInC1 = CaptureOneBridge.openDocumentNames()
+                }
+                .buttonStyle(.link)
+            }
+            .help(model.sessionsFolder.appending(path: name).path(percentEncoded: false))
+
+            HStack(spacing: 6) {
+                Spacer()
+                Button("取消") { model.newSessionPrompt = nil }
+                    .buttonStyle(.bordered).controlSize(.large)
+                    .keyboardShortcut(.cancelAction)
+                Button(prompt.importAfter ? "新建并导入" : "新建") { create() }
+                    .buttonStyle(.borderedProminent).controlSize(.large)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(blocked)
+            }
+        }
+        .padding(18)
+        .frame(width: 420)
+        .onAppear {
+            date = model.defaultSessionDay
+            openInC1 = CaptureOneBridge.openDocumentNames()
+            eventFocused = true
+        }
+    }
+
+    private func create() {
+        model.rememberEvent(cleanEvent)
+        model.currentSession = .init(name: name, event: cleanEvent)
+        model.newSessionPrompt = nil
+        if prompt.importAfter, !model.grid.selected.isEmpty { model.importToCurrentSession() }
+    }
+}

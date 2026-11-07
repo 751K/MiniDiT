@@ -122,6 +122,7 @@ struct RootView: View {
         .sheet(item: $model.credentialRequest) { CredentialSheet(request: $0) }
         .sheet(item: $model.fingerprintRequest) { FingerprintSheet(request: $0) }
         .sheet(item: $model.sessionRequest) { SessionSheet(request: $0) }
+        .sheet(item: $model.newSessionPrompt) { NewSessionSheet(prompt: $0) }
         .sheet(isPresented: Binding(get: { !model.setupDone || model.showingSetup },
                                     set: { if !$0 { model.setupDone = true; model.showingSetup = false } })) {
             SetupSheet(reopened: model.setupDone) { model.showingSetup = false }.interactiveDismissDisabled()

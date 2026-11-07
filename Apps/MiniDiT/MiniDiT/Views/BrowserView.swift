@@ -725,6 +725,41 @@ private struct ImportOptions: View {
     }
 }
 
+/// 底栏上的当前会话（新建 C1 会话模式）：显示导入到哪个会话；菜单里新建会话或换成已有的会话。
+private struct SessionMenu: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        let current = model.currentSession
+        Menu {
+            Button("新建会话…") { model.newSessionPrompt = .init(importAfter: false) }
+            let existing = Array(model.existingSessions.prefix(10))
+            let names = existing.map { $0.deletingPathExtension().lastPathComponent }
+            if let current, !names.contains(current.name) {
+                Divider()
+                // 刚新建、还没导入过的会话：磁盘上还没有。
+                Toggle(current.name, isOn: .constant(true))
+            }
+            if !existing.isEmpty {
+                Divider()
+                Section("已有会话") {
+                    ForEach(existing, id: \.self) { f in
+                        let n = f.deletingPathExtension().lastPathComponent
+                        Toggle(n, isOn: Binding(get: { current?.name == n }, set: { _ in model.useSession(f) }))
+                    }
+                }
+            }
+        } label: {
+            Label(current?.name ?? "未选择会话", systemImage: "folder")
+                .lineLimit(1).frame(maxWidth: 200).frame(height: 20)
+        }
+        .menuStyle(.button).glassButton().controlSize(.extraLarge)
+        .fixedSize()
+        .help(current.map { "当前会话：\($0.name)。点按以新建或更换会话" } ?? "尚未选择会话。点按以新建或选择已有会话")
+        .accessibilityLabel("会话")
+    }
+}
+
 struct OfflineBanner: View {
     @Environment(AppModel.self) private var model
 
@@ -1195,6 +1230,7 @@ struct FloatingBar: View {
                         twoLines("已选 \(model.countText(model.grid.selected)) · \(Self.bytes(model.selectionBytes))", pickedDetail)
                     }
                     ImportOptions()
+                    if model.captureOneMode == .newSession { SessionMenu() }
                     mainButton(importLabel, disabled: model.sourcesOffline) { model.beginImport() }
                         .keyboardShortcut(.return, modifiers: .command)
                 }
@@ -1219,7 +1255,7 @@ struct FloatingBar: View {
 
     private var importLabel: String {
         switch model.captureOneMode {
-        case .newSession: "导入到新会话…"
+        case .newSession: model.currentSession == nil ? "导入…" : "导入"
         case .lightroom: "导入到 Lightroom…"
         case .off: "下载"
         default: "导入到 Capture One"
@@ -1233,7 +1269,13 @@ struct FloatingBar: View {
         let dest = model.captureOneMode == .newSession ? model.sessionsFolder : model.destination
         let videos = files.contains { $0.kind == .video }, photos = files.contains { $0.kind != .video }
         var s = "\(files.count) 个文件 · \(days) 天 · "
-        if photos { s += "存储至“\(dest.lastPathComponent)”" }
+        if photos {
+            if model.captureOneMode == .newSession {
+                s += model.currentSession.map { "存入会话“\($0.name)”" } ?? "导入前新建会话"
+            } else {
+                s += "存储至“\(dest.lastPathComponent)”"
+            }
+        }
         if videos { s += (photos ? "，视频存储至“" : "视频存储至“") + model.videoDestination.lastPathComponent + "”" }
         if model.backupEnabled {
             s += model.backupAvailable ? " · 备份至“\(model.backupFolder!.lastPathComponent)”" : " · ⚠︎ 备份磁盘未连接"
