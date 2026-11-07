@@ -421,13 +421,13 @@ struct SourceMenu: View {
     }
 }
 
-/// 几个来源时的筛选：全部 / 每个来源，后面是张数。不超过三项用系统分段控件，再多用弹出菜单。
+/// 几个来源时的筛选：全部 / 每个来源，不超过三项用系统分段控件，再多用弹出菜单。
 private struct SourcePicker: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        let options: [SegmentPicker<Int?>.Option] = [.init(title: "全部", count: "\(model.sources.reduce(0) { $0 + model.shotCount(source: $1.id) })", value: nil)]
-            + model.sources.map { .init(title: model.sourceLabel($0.id), count: "\(model.shotCount(source: $0.id))", value: $0.id) }
+        let options: [SegmentPicker<Int?>.Option] = [.init(title: "全部", value: nil)]
+            + model.sources.map { .init(title: model.sourceLabel($0.id), value: $0.id) }
         ChoicePicker(title: "来源", options: options,
                      selection: Binding(get: { model.sourceFilter }, set: { model.sourceFilter = $0 }))
     }
@@ -439,8 +439,8 @@ private struct SourceSlotPicker: View {
     let id: Int
 
     var body: some View {
-        let options: [SegmentPicker<UInt32?>.Option] = [.init(title: "全部", count: "\(model.shotCount(source: id, slot: nil))", value: nil)]
-            + model.sourceSlots(id).map { .init(title: "卡 \($0)", count: "\(model.shotCount(source: id, slot: $0))", value: $0) }
+        let options: [SegmentPicker<UInt32?>.Option] = [.init(title: "全部", value: nil)]
+            + model.sourceSlots(id).map { .init(title: "卡 \($0)", value: $0) }
         ChoicePicker(title: "卡槽", options: options,
                      selection: Binding(get: { model.onlySlot(id) }, set: { model.setOnlySlot(id, $0) }))
             .disabled(model.progress != nil)
@@ -448,13 +448,13 @@ private struct SourceSlotPicker: View {
     }
 }
 
-/// 卡槽：全部 / 卡 1 / 卡 2，后面是张数。
+/// 卡槽：全部 / 卡 1 / 卡 2。
 private struct SlotPicker: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        let options: [SegmentPicker<UInt32?>.Option] = [.init(title: "全部", count: "\(model.allShots.count)", value: nil)]
-            + model.slots.map { .init(title: "卡 \($0)", count: "\(model.shotCount(slot: $0))", value: $0) }
+        let options: [SegmentPicker<UInt32?>.Option] = [.init(title: "全部", value: nil)]
+            + model.slots.map { .init(title: "卡 \($0)", value: $0) }
         ChoicePicker(title: "卡槽", options: options,
                      selection: Binding(get: { model.slotFilter }, set: { model.slotFilter = $0 }))
     }
