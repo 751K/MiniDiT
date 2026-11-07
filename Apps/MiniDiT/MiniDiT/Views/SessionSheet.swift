@@ -292,6 +292,9 @@ struct NewSessionSheet: View {
     let prompt: AppModel.NewSessionPrompt
     /// yyyyMMdd：从卡上的拍摄日里选（再加上今天），不用系统的日期输入框和日历。
     @State private var day = ShootSession.dayKey(.now)
+    @State private var showingCalendar = false
+    /// 菜单里「其他日期…」的标记。
+    private static let other = "other"
     @State private var event = ""
     @State private var openInC1: Set<String> = []
     @FocusState private var eventFocused: Bool
@@ -332,12 +335,19 @@ struct NewSessionSheet: View {
             Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 12) {
                 GridRow {
                     Text("日期").gridColumnAlignment(.trailing)
-                    Picker("日期", selection: $day) {
+                    Picker("日期", selection: Binding(get: { day }, set: { new in
+                        if new == Self.other { showingCalendar = true } else { day = new }
+                    })) {
                         ForEach(dayChoices, id: \.self) { k in
                             Text(AppModel.dayTitle(k) + (k == ShootSession.dayKey(.now) ? "（今天）" : "")).tag(k)
                         }
+                        Divider()
+                        Text("其他日期…").tag(Self.other)
                     }
                     .labelsHidden().fixedSize()
+                    .popover(isPresented: $showingCalendar, arrowEdge: .bottom) {
+                        MiniCalendar(selection: $day, marked: Set(model.days.map(\.id))) { showingCalendar = false }
+                    }
                 }
                 GridRow {
                     Text("事件")
@@ -396,5 +406,98 @@ struct NewSessionSheet: View {
         model.createSession(day: day, event: cleanEvent)
         model.newSessionPrompt = nil
         if prompt.importAfter, !model.grid.selected.isEmpty { model.importToCurrentSession() }
+    }
+}
+
+/// 选日期的小日历（「其他日期…」）：一个月一页，选中的是蓝色圆点，今天是蓝色数字，卡上有拍摄的日子下面有小点。
+/// 不用系统的日历控件（样式太旧）。
+struct MiniCalendar: View {
+    /// yyyyMMdd
+    @Binding var selection: String
+    /// 卡上的拍摄日（yyyyMMdd），下面画一个小点。
+    var marked: Set<String> = []
+    var onPick: () -> Void = {}
+    @State private var month = Date.now
+
+    private var cal: Calendar {
+        var c = Calendar(identifier: .gregorian)
+        c.locale = Locale(identifier: "zh_CN")
+        c.firstWeekday = 1
+        return c
+    }
+
+    private var title: String {
+        let f = DateFormatter(); f.locale = Locale(identifier: "zh_CN"); f.dateFormat = "yyyy年M月"
+        return f.string(from: month)
+    }
+
+    /// 这个月的格子：前面空几格，然后 1…月底。
+    private var cells: [Date?] {
+        guard let first = cal.date(from: cal.dateComponents([.year, .month], from: month)),
+              let range = cal.range(of: .day, in: .month, for: first) else { return [] }
+        let lead = (cal.component(.weekday, from: first) - cal.firstWeekday + 7) % 7
+        return Array(repeating: nil, count: lead) + range.compactMap { cal.date(byAdding: .day, value: $0 - 1, to: first) }
+    }
+
+    var body: some View {
+        VStack(spacing: 10) {
+            HStack {
+                Text(title).font(Theme.Font.headline)
+                Spacer()
+                stepButton("chevron.left", by: -1).help("上个月")
+                Button("今天") {
+                    withAnimation(.snappy(duration: 0.2)) { month = .now }
+                }
+                .buttonStyle(.plain).font(Theme.Font.caption).foregroundStyle(Theme.accent)
+                stepButton("chevron.right", by: 1).help("下个月")
+            }
+            let columns = Array(repeating: GridItem(.fixed(32), spacing: 2), count: 7)
+            LazyVGrid(columns: columns, spacing: 2) {
+                ForEach(["日", "一", "二", "三", "四", "五", "六"], id: \.self) {
+                    Text($0).font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary).frame(height: 20)
+                }
+                ForEach(Array(cells.enumerated()), id: \.offset) { _, d in
+                    if let d { dayCell(d) } else { Color.clear.frame(height: 32) }
+                }
+            }
+        }
+        .padding(14)
+        .frame(width: 7 * 32 + 6 * 2 + 28)
+        .onAppear { if let d = ShootSession.date(selection) { month = d } }
+    }
+
+    private func stepButton(_ symbol: String, by n: Int) -> some View {
+        Button {
+            withAnimation(.snappy(duration: 0.2)) { month = cal.date(byAdding: .month, value: n, to: month) ?? month }
+        } label: {
+            Image(systemName: symbol).font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+                .frame(width: 24, height: 24).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func dayCell(_ d: Date) -> some View {
+        let key = ShootSession.dayKey(d)
+        let on = key == selection
+        let today = cal.isDateInToday(d)
+        return Button {
+            selection = key
+            onPick()
+        } label: {
+            ZStack {
+                Circle().fill(on ? Theme.accent : .clear)
+                Text("\(cal.component(.day, from: d))")
+                    .font(.system(size: 13, weight: on || today ? .semibold : .regular).monospacedDigit())
+                    .foregroundStyle(on ? Color.white : today ? Theme.accent : Color.primary)
+                if marked.contains(key) {
+                    Circle().fill(on ? Color.white : Theme.accent).frame(width: 4, height: 4).offset(y: 10)
+                }
+            }
+            .frame(width: 32, height: 32)
+            .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(AppModel.dayTitle(key))
+        .accessibilityAddTraits(on ? .isSelected : [])
     }
 }
