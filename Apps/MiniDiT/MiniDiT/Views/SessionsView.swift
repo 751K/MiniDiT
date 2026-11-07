@@ -5,7 +5,7 @@ import SwiftUI
 // MARK: - 侧栏「会话」
 
 /// 侧栏里软件自己管理的会话：和日期在同一个列表里，行高、缩进、字号都和日期一样。
-/// 会话行不参与列表的选择（点会话不会动到日期）：点一下选为导入目标，双击或点悬停时出现的箭头查看已导入的文件。
+/// 会话行不参与列表的选择（点会话不会动到日期）：点一下选为导入目标（不设双击，单击才能立即生效），点悬停时出现的箭头或右键菜单查看已导入的文件。
 struct SessionSection: View {
     @Environment(AppModel.self) private var model
     @State private var showAll = false
@@ -78,7 +78,6 @@ struct SessionRow: View {
         }
         .contentShape(Rectangle())
         .onHover { hover = $0 }
-        .onTapGesture(count: 2) { model.currentSessionID = session.id; model.browsingSession = session.id }
         .onTapGesture { model.currentSessionID = session.id }
         .selectionDisabled()
         .listRowBackground(
@@ -86,7 +85,7 @@ struct SessionRow: View {
                 .fill(current ? Theme.accent.opacity(0.14) : .clear)
                 .padding(.horizontal, 10)
         )
-        .help(current ? "导入目标：导入的内容将归入“\(session.name)”。双击查看已导入的文件" : "点按以选为导入目标，双击查看已导入的文件")
+        .help(current ? "导入目标：导入的内容将归入“\(session.name)”" : "点按以选为导入目标")
         .contextMenu {
             if current {
                 Button("取消选为导入目标") { model.currentSessionID = nil }
