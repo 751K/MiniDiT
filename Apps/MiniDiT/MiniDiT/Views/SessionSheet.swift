@@ -285,17 +285,25 @@ struct SessionSheet: View {
     }
 }
 
-/// 新建会话：由用户主动发起，填日期和事件。日期默认取侧栏里选中的那天。
+/// 新建会话：由用户主动发起，选日期、填事件。日期从卡上的拍摄日里选，默认取侧栏里选中的那天。
 /// 会话由软件自己管理，建好后成为当前会话；导入时 C1 会话、LrC 收藏夹、文件夹都沿用这个名字。
 struct NewSessionSheet: View {
     @Environment(AppModel.self) private var model
     let prompt: AppModel.NewSessionPrompt
-    @State private var date = Date.now
+    /// yyyyMMdd：从卡上的拍摄日里选（再加上今天），不用系统的日期输入框和日历。
+    @State private var day = ShootSession.dayKey(.now)
     @State private var event = ""
     @State private var openInC1: Set<String> = []
     @FocusState private var eventFocused: Bool
 
-    private var day: String { ShootSession.dayKey(date) }
+    /// 能选的日期：卡上的拍摄日（新的在前），今天不在里面就放在最前。
+    private var dayChoices: [String] {
+        var keys = model.days.map(\.id).filter { $0 != "unknown" }
+        let today = ShootSession.dayKey(.now)
+        if !keys.contains(today) { keys.insert(today, at: 0) }
+        if !keys.contains(day) { keys.insert(day, at: 0) }
+        return keys
+    }
     private var cleanEvent: String? {
         let e = NameTemplate.sanitize(event)
         return e.isEmpty ? nil : e
@@ -324,9 +332,12 @@ struct NewSessionSheet: View {
             Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 12) {
                 GridRow {
                     Text("日期").gridColumnAlignment(.trailing)
-                    DatePicker("日期", selection: $date, displayedComponents: .date)
-                        .datePickerStyle(.field).labelsHidden().fixedSize()
-                        .environment(\.locale, Locale(identifier: "zh_CN"))  // 显示成 2026/11/6
+                    Picker("日期", selection: $day) {
+                        ForEach(dayChoices, id: \.self) { k in
+                            Text(AppModel.dayTitle(k) + (k == ShootSession.dayKey(.now) ? "（今天）" : "")).tag(k)
+                        }
+                    }
+                    .labelsHidden().fixedSize()
                 }
                 GridRow {
                     Text("事件")
@@ -375,7 +386,7 @@ struct NewSessionSheet: View {
         .padding(18)
         .frame(width: 420)
         .onAppear {
-            date = model.defaultSessionDay
+            day = ShootSession.dayKey(model.defaultSessionDay)
             if model.captureOneMode == .newSession { openInC1 = CaptureOneBridge.openDocumentNames() }
             eventFocused = true
         }
