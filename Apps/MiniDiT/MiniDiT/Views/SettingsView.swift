@@ -48,7 +48,7 @@ private struct ImportSettings: View {
         @Bindable var model = model
         Form {
             Section {
-                ForEach([CaptureOneMode.newSession, .c1Settings, .inPlace, .lightroom, .off]) { m in
+                ForEach(modes) { m in
                     ModeRow(title: Self.title(m), detail: Self.detail(m), on: model.captureOneMode == m) {
                         model.captureOneMode = m
                     }
@@ -81,15 +81,17 @@ private struct ImportSettings: View {
                     .accessibilityElement(children: .contain)
                     .accessibilityLabel("配对规则")
             }
-            Section {
-                Toggle("删除存储卡上已导入的照片", isOn: $model.deleteAfterImport)
-            } header: {
-                Text("导入完成后")
-            } footer: {
-                Text("仅适用于读卡器，且只删除校验通过的照片。")
-                    .font(.caption).foregroundStyle(.secondary)
+            if !model.isPro || model.deleteAfterImport {
+                Section {
+                    Toggle("删除存储卡上已导入的照片", isOn: $model.deleteAfterImport)
+                } header: {
+                    Text("导入完成后")
+                } footer: {
+                    Text("仅适用于读卡器，且只删除校验通过的照片。")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
-            NamingSection()
+            if model.isPro { NamingSection() }
             Section {
                 Picker("按时间分场次", selection: $model.sceneGap) {
                     ForEach(SceneGapMenu.options, id: \.1) { Text($0.0).tag($0.1) }
@@ -97,12 +99,18 @@ private struct ImportSettings: View {
             } header: {
                 Text("场次")
             } footer: {
-                Text("同一天内相邻照片的间隔超过所选时间，即分为两场。")
+                Text("同一天内相邻照片的间隔超过所选时间，即分为两场。" + (model.isPro ? "" : "\n" + UsageSection.proHint))
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
         .onAppear { model.refreshCaptureOne() }
+    }
+
+    /// 个人模式只列常用的三种；当前用的是另外两种时也列出来。
+    private var modes: [CaptureOneMode] {
+        let all: [CaptureOneMode] = [.newSession, .c1Settings, .inPlace, .lightroom, .off]
+        return model.isPro ? all : all.filter { [.newSession, .lightroom, .off].contains($0) || $0 == model.captureOneMode }
     }
 
     private var locationText: String {
@@ -144,13 +152,16 @@ private struct ConnectSettings: View {
     var body: some View {
         @Bindable var model = model
         Form {
+            UsageSection()
             Section {
                 Toggle("自动连接上次使用的相机", isOn: $model.autoConnect)
                 Toggle("登录时打开 MiniDiT", isOn: $model.launchAtLogin)
                 Toggle("关闭窗口后保留在菜单栏", isOn: $model.keepInMenuBar)
                 Toggle("连接过的相机开机时发送通知", isOn: $model.notifyCameraOnline)
-                Toggle("连接过的相机开机后自动导入新照片", isOn: $model.autoImportCamera)
-                    .disabled(!model.notifyCameraOnline)
+                if !model.isPro || model.autoImportCamera {
+                    Toggle("连接过的相机开机后自动导入新照片", isOn: $model.autoImportCamera)
+                        .disabled(!model.notifyCameraOnline)
+                }
                 if model.notificationsAllowed == false, model.notifyCameraOnline || model.cardInsertAction == .notify {
                     HStack {
                         Label("系统设置中已关闭 MiniDiT 的通知，将无法收到提醒。", systemImage: "exclamationmark.triangle.fill")
@@ -205,6 +216,46 @@ private struct ConnectSettings: View {
         if Calendar.current.isDateInYesterday(d) { return "昨天" }
         let f = DateFormatter(); f.locale = Locale(identifier: "zh_CN"); f.dateFormat = "M月d日"
         return f.string(from: d)
+    }
+}
+
+/// 设置 › 通用 最上面：使用方式、重新打开设置向导。
+private struct UsageSection: View {
+    @Environment(AppModel.self) private var model
+    @State private var pending: UsageMode?
+    @State private var wizard = false
+
+    static let proHint = "命名模板、卷号、色彩空间等更多选项，在“设置 › 通用”中切换到专业模式后显示。"
+
+    var body: some View {
+        Section {
+            Picker("使用方式", selection: Binding(get: { model.usageMode }, set: { if $0 != model.usageMode { pending = $0 } })) {
+                ForEach(UsageMode.allCases) { Text($0.title).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            Text(model.usageMode.detail).font(.caption).foregroundStyle(.secondary)
+            LabeledContent {
+                Button("打开…") { wizard = true }
+            } label: {
+                Text("设置向导")
+                Text("按步骤重新设置照片、视频和备份。")
+            }
+        } header: {
+            Text("使用方式")
+        }
+        .confirmationDialog("按“\(pending?.title ?? "")”模式重设默认值？", isPresented: Binding(get: { pending != nil }, set: { if !$0 { pending = nil } }),
+                            presenting: pending) { m in
+            Button("重设默认值") { model.usageMode = m; model.applyModeDefaults() }
+            Button("只更改显示的选项") { model.usageMode = m }
+            Button("取消", role: .cancel) {}
+        } message: { m in
+            Text(m == .pro
+                 ? "视频文件夹改为按卷号分子文件夹，并关闭自动导入和导入后删除存储卡上的照片。其他设置不变。"
+                 : "视频文件夹不再按卷号分子文件夹。其他设置不变。")
+        }
+        .sheet(isPresented: $wizard) {
+            SetupSheet(reopened: true) { wizard = false }
+        }
     }
 }
 
@@ -304,14 +355,18 @@ private struct VideoSettings: View {
                     Text("保存位置")
                     Text(model.videoDestination.path(percentEncoded: false)).lineLimit(1).truncationMode(.middle)
                 }
-                VStack(alignment: .leading, spacing: 3) {
-                    TextField("文件夹", text: $template, prompt: Text(NameTemplate.Kind.video.defaultValue))
-                    Text("示例：\(example)/C0001.MP4").font(.caption).foregroundStyle(.secondary)
+                if model.isPro {
+                    VStack(alignment: .leading, spacing: 3) {
+                        TextField("文件夹", text: $template, prompt: Text(NameTemplate.Kind.video.defaultValue))
+                        Text("示例：\(example)/C0001.MP4").font(.caption).foregroundStyle(.secondary)
+                    }
                 }
             } header: {
                 Text("存放")
             } footer: {
-                Text("视频不导入 Capture One 或 Lightroom Classic，按原文件名平铺存放，同名的 XML 元数据文件一并导入；同时连接多台相机时按相机分开存放。\n卷号：每次导入、每种机型一卷（A001、A002…，第二种机型从 B001 开始），交给 DaVinci Resolve 和 Final Cut Pro 时写入卷名；文件夹名中可用 {卷号}。")
+                Text(model.isPro
+                     ? "视频不导入 Capture One 或 Lightroom Classic，按原文件名平铺存放，同名的 XML 元数据文件一并导入；同时连接多台相机时按相机分开存放。\n卷号：每次导入、每种机型一卷（A001、A002…，第二种机型从 B001 开始），交给 DaVinci Resolve 和 Final Cut Pro 时写入卷名；文件夹名中可用 {卷号}。"
+                     : "按日期和事件建文件夹，片段保留原文件名，同名的 XML 元数据文件一并导入。")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section {
@@ -332,24 +387,28 @@ private struct VideoSettings: View {
                         Text("加入 DaVinci Resolve 当前项目")
                         Text("每个视频文件夹建一个媒体夹，代理自动链接。须在 Resolve 的“偏好设置 › 系统 › 常规”中把“外部脚本使用”设为“本地”。")
                     }
-                    Toggle(isOn: $model.resolveColorSpace) {
-                        Text("设置片段的输入色彩空间")
-                        Text("按拍摄时的伽马，为 S-Log3、S-Log2、HLG 片段设置输入色彩空间，不套用 LUT。项目须开启色彩管理（RCM 或 ACES）。")
+                    if model.isPro {
+                        Toggle(isOn: $model.resolveColorSpace) {
+                            Text("设置片段的输入色彩空间")
+                            Text("按拍摄时的伽马，为 S-Log3、S-Log2、HLG 片段设置输入色彩空间，不套用 LUT。项目须开启色彩管理（RCM 或 ACES）。")
+                        }
+                        .padding(.leading, 16)
+                        .disabled(!model.sendToResolve)
                     }
-                    .padding(.leading, 16)
-                    .disabled(!model.sendToResolve)
                 }
                 if fcp {
                     Toggle(isOn: $model.sendToFCP) {
                         Text("交给 Final Cut Pro")
                         Text("每个视频文件夹建一个事件，片段原地引用、不复制进资源库，代理一并链接。")
                     }
-                    Toggle(isOn: $model.fcpLogProcessing) {
-                        Text("设置片段的 Log 处理")
-                        Text("为 S-Log3 片段选用 Final Cut Pro 内置的 Sony S-Log3 Log 处理（S-Gamut3.Cine 或 S-Gamut3，按拍摄设置）。")
+                    if model.isPro {
+                        Toggle(isOn: $model.fcpLogProcessing) {
+                            Text("设置片段的 Log 处理")
+                            Text("为 S-Log3 片段选用 Final Cut Pro 内置的 Sony S-Log3 Log 处理（S-Gamut3.Cine 或 S-Gamut3，按拍摄设置）。")
+                        }
+                        .padding(.leading, 16)
+                        .disabled(!model.sendToFCP)
                     }
-                    .padding(.leading, 16)
-                    .disabled(!model.sendToFCP)
                 }
                 if !resolve && !fcp {
                     Text("未找到 DaVinci Resolve 或 Final Cut Pro。").foregroundStyle(.secondary)
@@ -384,9 +443,9 @@ private struct BackupSettings: View {
                 Toggle("导入时同时备份", isOn: Binding(get: { model.backupEnabled && model.backupFolder != nil },
                                                  set: { model.backupEnabled = $0 }))
                     .disabled(model.backupFolder == nil)
-                NameField(title: "备份文件夹", kind: .backup, text: $backup)
+                if model.isPro { NameField(title: "备份文件夹", kind: .backup, text: $backup) }
             } footer: {
-                Text("照片和视频都会备份，视频存入备份文件夹中的“视频”文件夹。导入窗口底部的“备份”按钮与此开关相同。可用标记：{YYYY} {MM} {DD} {M} {D} {事件} {场次}。")
+                Text("照片和视频都会备份，视频存入备份文件夹中的“视频”文件夹。导入窗口底部的“备份”按钮与此开关相同。" + (model.isPro ? "可用标记：{YYYY} {MM} {DD} {M} {D} {事件} {场次}。" : ""))
                     .font(.caption).foregroundStyle(.secondary)
             }
         }

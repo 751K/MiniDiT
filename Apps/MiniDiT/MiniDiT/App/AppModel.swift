@@ -376,9 +376,33 @@ final class AppModel {
     var canDeleteFromSource: Bool { (sourceKind == .card && connectedName != nil) || !extraSources.isEmpty }
     /// 这次导入会不会删卡上的文件。
     var willDeleteFromSource: Bool { deleteAfterImport && canDeleteFromSource && !autoRunning }
-    /// 第一次打开时选择导入方式。
-    var setupDone: Bool = UserDefaults.standard.bool(forKey: "setupDone") {
-        didSet { UserDefaults.standard.set(setupDone, forKey: "setupDone") }
+    /// 设置向导的版本：向导加了新步骤时加一，老用户升级后也会看到一次（已有的设置会填好）。
+    static let setupVersion = 2
+    /// 走完了当前版本的设置向导。
+    var setupDone: Bool = UserDefaults.standard.integer(forKey: "setupVersion") >= AppModel.setupVersion {
+        didSet { UserDefaults.standard.set(setupDone ? Self.setupVersion : 0, forKey: "setupVersion") }
+    }
+    /// 使用方式：决定默认值和设置里显示哪些选项，不锁功能。
+    var usageMode: UsageMode = UsageMode(rawValue: UserDefaults.standard.string(forKey: "usageMode") ?? "") ?? .personal {
+        didSet { UserDefaults.standard.set(usageMode.rawValue, forKey: "usageMode") }
+    }
+    var isPro: Bool { usageMode == .pro }
+
+    /// 按使用方式重设几项默认值（切换模式时用户同意了才调用）。
+    func applyModeDefaults() {
+        let key = NameTemplate.Kind.video.key
+        let current = UserDefaults.standard.string(forKey: key)?.trimmingCharacters(in: .whitespaces) ?? ""
+        switch usageMode {
+        case .pro:
+            if current.isEmpty || current == NameTemplate.Kind.video.defaultValue {
+                UserDefaults.standard.set(UsageMode.proVideoTemplate, forKey: key)
+            }
+            // 专业流程要人确认：不自动导入，不删卡。
+            autoImportCamera = false
+            deleteAfterImport = false
+        case .personal:
+            if current == UsageMode.proVideoTemplate { UserDefaults.standard.removeObject(forKey: key) }
+        }
     }
     /// 点「导入」时发现没有备份盘，先问一下。
     var backupMissingPrompt = false
@@ -566,6 +590,21 @@ extension AppModel.ResumeSession {
 }
 
 /// 按文件夹管理照片的软件：「只下载」导入完成后用它打开下载的文件夹。
+/// 使用方式：个人（一个人拍、一个人剪）/ 专业（小团队、DIT、交付后期）。
+enum UsageMode: String, CaseIterable, Identifiable {
+    case personal, pro
+    var id: String { rawValue }
+    var title: String { self == .personal ? "个人" : "专业" }
+    var detail: String {
+        switch self {
+        case .personal: "自己拍、自己修图剪辑。设置只保留常用选项，校验在后台完成。"
+        case .pro: "给团队或客户交付素材。显示命名模板、卷号、色彩空间等全部选项；不自动导入，不删除存储卡上的文件。"
+        }
+    }
+    /// 专业模式的视频文件夹：每卷一个子文件夹。
+    static let proVideoTemplate = "{M}.{D}-{事件}/{卷号}"
+}
+
 enum FolderApp: String, CaseIterable, Identifiable {
     case none, finder, bridge, dxo
     var id: String { rawValue }
