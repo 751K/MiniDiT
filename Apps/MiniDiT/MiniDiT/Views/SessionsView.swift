@@ -1,11 +1,11 @@
 import AppKit
 import QuickLookThumbnailing
+import SonyRemoteKit
 import SwiftUI
 
-// MARK: - 侧栏「会话」
+// MARK: - 侧栏「项目」
 
-/// 侧栏里软件自己管理的会话：和日期在同一个列表里，行高、缩进、字号都和日期一样。
-/// 会话行不参与列表的选择（点会话不会动到日期）：点一下选为导入目标（不设双击，单击才能立即生效），点悬停时出现的箭头或右键菜单查看已导入的文件。
+/// 侧栏里软件自己管理的项目。使用普通 VStack，避免 Native List 的系统行高和缩进。
 struct SessionSection: View {
     @Environment(AppModel.self) private var model
     @State private var showAll = false
@@ -13,107 +13,199 @@ struct SessionSection: View {
 
     var body: some View {
         let all = model.sortedSessions
-        Section {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("项目")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.primary)
+                Spacer()
+                Button { model.newSessionPrompt = .init(importAfter: false) } label: {
+                    Image(systemName: "plus").frame(width: 22, height: 20).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("新建项目")
+                .accessibilityLabel("新建项目")
+            }
+            .padding(.leading, 16)
+            .padding(.trailing, 16)
+            .padding(.top, 14)
+            .padding(.bottom, 10)
             if all.isEmpty {
                 Button { model.newSessionPrompt = .init(importAfter: false) } label: {
                     HStack(spacing: 8) {
                         Image(systemName: "plus").font(.system(size: 13)).frame(width: 18, height: 22)
-                        Text("新建会话")
+                        Text("新建项目")
                     }
                     .foregroundStyle(.secondary)
+                    .padding(.horizontal, 16).padding(.vertical, 6)
                 }
                 .buttonStyle(.plain)
-                .selectionDisabled()
             }
-            ForEach(showAll ? all : Array(all.prefix(limit))) { SessionRow(session: $0) }
+            ForEach(showAll ? all : Array(all.prefix(limit))) { session in
+                VStack(spacing: 4) {
+                    SessionRow(session: session)
+                    if session.hasBothMedia {
+                        SessionMediaRows(session: session)
+                    }
+                }
+                .padding(.bottom, 6)
+            }
             if all.count > limit {
                 Button(showAll ? "收起" : "显示全部 \(all.count) 个") { withAnimation(.snappy(duration: 0.2)) { showAll.toggle() } }
                     .buttonStyle(.plain).font(Theme.Font.caption).foregroundStyle(.secondary)
-                    .selectionDisabled()
-            }
-        } header: {
-            HStack {
-                Text("会话")
-                Spacer()
-                Button { model.newSessionPrompt = .init(importAfter: false) } label: {
-                    Image(systemName: "plus").frame(width: 20, height: 20).contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help("新建会话")
-                .accessibilityLabel("新建会话")
+                    .padding(.horizontal, 16).padding(.vertical, 6)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
-/// 一个会话：左边文件夹图标和日期行的勾选框同宽，右边数字和日期行的数字对齐。
-/// 导入目标：实心蓝色文件夹、加粗、浅蓝底（和日期行的选中底同样大小）。
+/// 项目与其内容分类共用一个选中高亮；选择分类时不重复高亮父行。
 struct SessionRow: View {
     @Environment(AppModel.self) private var model
     let session: ShootSession
     @State private var hover = false
+    @State private var dropTargeted = false
 
     var body: some View {
         let current = model.currentSessionID == session.id
+        let selected = current && (model.browsingSession != session.id || model.browsingSessionMedia == nil)
         HStack(spacing: 8) {
-            Image(systemName: current ? "folder.fill" : "folder")
-                .font(.system(size: 14))
-                .foregroundStyle(current ? Theme.accent : Color.secondary)
-                .frame(width: 18, height: 22)
-            Text(session.name).fontWeight(current ? .semibold : .regular).lineLimit(1).truncationMode(.middle)
+            Text(session.name)
+                .fontWeight(current ? .semibold : .regular)
+                .lineLimit(1)
+                .truncationMode(.middle)
             Spacer(minLength: 4)
             ZStack(alignment: .trailing) {
                 Text("\(session.files.count)").font(.system(size: 12).monospacedDigit()).foregroundStyle(.secondary)
                     .opacity(hover ? 0 : 1)
                 if hover {
-                    Button { model.browsingSession = session.id } label: {
+                    Button { model.browseSession(session.id) } label: {
                         Image(systemName: "chevron.right.circle.fill").font(.system(size: 14)).foregroundStyle(.secondary)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .help("查看已导入此会话的文件")
+                    .help("查看已导入此项目的文件")
                 }
             }
-            .frame(minWidth: 22, alignment: .trailing)
+            .frame(width: 22, alignment: .center)
         }
         .contentShape(Rectangle())
-        .onHover { hover = $0 }
-        .onTapGesture { model.currentSessionID = session.id }
-        .selectionDisabled()
-        .listRowBackground(
+        .padding(.leading, 16).padding(.trailing, 16).padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
             RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(current ? Theme.accent.opacity(0.14) : .clear)
+                .fill(selected ? Theme.accent.opacity(0.14) : .clear)
                 .padding(.horizontal, 10)
         )
+        .onHover { hover = $0 }
+        .onTapGesture { model.selectSession(session.id) }
+        .onDrop(of: [.miniDiTShotSelection], isTargeted: $dropTargeted) { providers in
+            guard let provider = providers.first(where: {
+                $0.hasItemConformingToTypeIdentifier(UTType.miniDiTShotSelection.identifier)
+            }) else { return false }
+            provider.loadDataRepresentation(forTypeIdentifier: UTType.miniDiTShotSelection.identifier) { data, _ in
+                guard let data,
+                      let text = String(data: data, encoding: .utf8) else { return }
+                let ids = Set(text.split(separator: ",").compactMap { UInt32($0) })
+                guard !ids.isEmpty else { return }
+                Task { @MainActor in model.importDropped(shots: ids, into: session) }
+            }
+            return true
+        }
+        .overlay {
+            if dropTargeted {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .stroke(Theme.accent, lineWidth: 2)
+                    .padding(.horizontal, 6)
+                    .allowsHitTesting(false)
+            }
+        }
         .help(current ? "导入目标：导入的内容将归入“\(session.name)”" : "点按以选为导入目标")
         .contextMenu {
             if current {
-                Button("取消选为导入目标") { model.currentSessionID = nil }
+                Text("当前导入目标")
             } else {
-                Button("选为导入目标") { model.currentSessionID = session.id }
+                Button("选为导入目标") { model.selectSession(session.id) }
             }
-            Button("查看已导入的文件") { model.browsingSession = session.id }
+            Button("查看已导入的文件") { model.browseSession(session.id) }
             Button("在访达中显示") { SessionBrowser.reveal(session) }
                 .disabled(SessionBrowser.folder(of: session) == nil)
             Divider()
             Button("从列表中移除") { model.removeSession(session.id) }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(current ? [.isButton, .isSelected] : .isButton)
-        .accessibilityAction { model.currentSessionID = session.id }
-        .accessibilityAction(named: "查看已导入的文件") { model.browsingSession = session.id }
+        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+        .accessibilityAction { model.selectSession(session.id) }
+        .accessibilityAction(named: "查看已导入的文件") { model.browseSession(session.id) }
         .accessibilityValue(current ? "导入目标" : "")
     }
 }
 
-// MARK: - 浏览会话
+private struct SessionMediaRows: View {
+    let session: ShootSession
 
-/// 右边：一个会话里已经导入到电脑上的照片和视频。相机和存储卡不在时也能看。
+    var body: some View {
+        VStack(spacing: 4) {
+            ForEach(ProjectMedia.allCases) { media in
+                SessionMediaRow(session: session, media: media)
+            }
+        }
+        .padding(.bottom, 2)
+    }
+}
+
+/// 项目内实际同时有照片和视频时，才显示这两个内容分类。
+private struct SessionMediaRow: View {
+    @Environment(AppModel.self) private var model
+    let session: ShootSession
+    let media: ProjectMedia
+    @State private var hover = false
+
+    private var selected: Bool {
+        model.currentSessionID == session.id && model.browsingSession == session.id && model.browsingSessionMedia == media
+    }
+
+    var body: some View {
+        Button {
+            model.browseSession(session.id, media: media)
+        } label: {
+            HStack(spacing: 8) {
+                Text(media.title).font(.system(size: 12))
+                Spacer(minLength: 4)
+                Text(session.fileCount(media).formatted())
+                    .font(.system(size: 11).monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .frame(width: 22, alignment: .center)
+            }
+            .padding(.leading, 36).padding(.trailing, 16).padding(.vertical, 3)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(selected ? Theme.accent.opacity(0.12) : hover ? Color.primary.opacity(0.05) : .clear)
+                    .frame(height: 24)
+                    .padding(.leading, 26)
+                    .padding(.trailing, 10)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hover = $0 }
+        .help("查看项目中的\(media.title)")
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+// MARK: - 浏览项目
+
+/// 右边：一个项目里已经导入到电脑上的照片和视频。相机和存储卡不在时也能看。
 struct SessionBrowser: View {
     @Environment(AppModel.self) private var model
     let session: ShootSession
+    var media: ProjectMedia? = nil
     /// 没连相机时从来源页进来：左上角有返回按钮。
     var onBack: (() -> Void)?
+    @State private var showImportResults = false
 
     static func folder(of s: ShootSession) -> URL? {
         AppModel.commonFolder(s.urls.filter { FileManager.default.fileExists(atPath: $0.path) })
@@ -125,62 +217,100 @@ struct SessionBrowser: View {
 
     private var subtitle: String {
         let date = ShootSession.date(session.day).map { $0.formatted(.dateTime.year().month().day().locale(Locale(identifier: "zh_CN"))) } ?? "无日期"
-        return "\(date) · \(session.files.count) 个文件"
+        let type = media.map { $0.title + " · " } ?? ""
+        return "起始 \(date) · \(type)\(filteredFiles.count) 个文件"
+    }
+
+    private var filteredFiles: [String] {
+        guard let media else { return session.files }
+        return session.files.filter { ProjectMedia.forPath($0) == media }
     }
 
     var body: some View {
-        @Bindable var model = model
-        VStack(spacing: 0) {
-            HStack(spacing: 10) {
-                if let onBack {
-                    Button { onBack() } label: { Image(systemName: "chevron.left") }
-                        .buttonStyle(.bordered)
-                        .help("返回")
-                        .accessibilityLabel("返回")
+        GeometryReader { geometry in
+            VStack(spacing: 0) {
+                header
+                if model.importJournal.repairTask != nil {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text(model.importJournal.repairProgress).lineLimit(1).truncationMode(.middle)
+                        Spacer()
+                        Button("取消补备份") { model.importJournal.repairTask?.cancel() }.buttonStyle(.bordered)
+                    }.padding(.horizontal, 16).padding(.bottom, 10)
                 }
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(session.name).font(Theme.Font.headline)
-                    Text(subtitle).font(Theme.Font.caption).foregroundStyle(.secondary)
-                }
-                .lineLimit(1)
-                Spacer(minLength: 8)
-                if model.currentSessionID != session.id {
-                    Button("选为导入目标") { model.currentSessionID = session.id }.buttonStyle(.bordered)
-                }
-                Button("在访达中显示") { Self.reveal(session) }
-                    .buttonStyle(.bordered)
-                    .disabled(Self.folder(of: session) == nil)
-                Slider(value: $model.thumbSize, in: 110...320)
-                    .frame(width: 76)
-                    .accessibilityLabel("缩略图大小")
-            }
-            .padding(.leading, onBack == nil ? 20 : 12).padding(.trailing, 16)
-            .frame(minHeight: 52)
-
-            if session.files.isEmpty {
-                VStack(spacing: 8) {
-                    Text("尚未导入任何文件").font(Theme.Font.headline)
-                    Text("在左侧选择日期并勾选后点按“导入”，内容将归入此会话。")
-                        .font(Theme.Font.caption).foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                ScrollView {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: model.thumbSize), spacing: 12)], spacing: 16) {
-                        ForEach(session.files, id: \.self) { LocalFileCell(url: URL(filePath: $0)) }
+                Divider()
+                if filteredFiles.isEmpty {
+                    VStack(spacing: 8) {
+                        Image(systemName: "folder")
+                            .font(.system(size: 32)).foregroundStyle(.secondary)
+                        Text(media == nil ? "尚未导入任何文件" : "尚未导入\(media!.title)")
+                            .font(Theme.Font.headline)
+                        Text(onBack == nil
+                             ? "选择拍摄日期和素材后点按“导入”，即可归入此项目。"
+                             : "返回来源页连接相机或存储卡，再将素材导入此项目。")
+                            .font(Theme.Font.caption).foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
                     }
-                    .padding(.horizontal, 20).padding(.vertical, 12)
+                    .padding(24)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ScrollView {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: model.thumbSize), spacing: 12)], spacing: 16) {
+                            ForEach(filteredFiles, id: \.self) { LocalFileCell(url: URL(filePath: $0)) }
+                        }
+                        .padding(.horizontal, 20).padding(.vertical, 12)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
+            .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
         }
-        .ignoresSafeArea(.container, edges: .top)
+        // 项目页既可独立显示，也可作为分栏详情；遵守所在窗口的标题栏安全区域。
         .background(Theme.surface)
+        .sheet(isPresented: $showImportResults) {
+            ProjectImportResults(project: session).environment(model)
+        }
+    }
+
+    private var header: some View {
+        @Bindable var model = model
+        return HStack(spacing: 10) {
+            if let onBack {
+                Button { onBack() } label: { Image(systemName: "chevron.left") }
+                    .buttonStyle(.bordered)
+                    .help("返回来源或素材浏览")
+                    .accessibilityLabel("返回")
+            }
+            VStack(alignment: .leading, spacing: 3) {
+                Text(session.name).font(Theme.Font.headline)
+                    .lineLimit(1).truncationMode(.middle)
+                Text(subtitle).font(Theme.Font.caption).foregroundStyle(.secondary)
+                    .lineLimit(1).truncationMode(.middle)
+            }
+            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+            if model.currentSessionID != session.id {
+                Button("选为导入目标") { model.selectSession(session.id) }.buttonStyle(.bordered)
+            }
+            Button("导入记录与备份") { showImportResults = true }.buttonStyle(.bordered)
+            Button("在访达中显示") { Self.reveal(session) }
+            .buttonStyle(.bordered)
+            .help("在访达中显示")
+            .accessibilityLabel("在访达中显示")
+            .disabled(Self.folder(of: session) == nil)
+            Slider(value: $model.thumbSize, in: 110...320)
+                .frame(width: 76)
+                .accessibilityLabel("缩略图大小")
+        }
+        .padding(.horizontal, 16).padding(.vertical, 10)
+        .frame(minHeight: 60)
     }
 }
 
 /// 一个已导入的文件：系统生成的缩略图 + 文件名。双击用默认软件打开。
 private struct LocalFileCell: View {
+    @Environment(AppModel.self) private var model
     let url: URL
+    @State private var exportLivePhoto = false
     @State private var image: NSImage?
     @State private var missing = false
 
@@ -217,6 +347,16 @@ private struct LocalFileCell: View {
         .contextMenu {
             Button("打开") { NSWorkspace.shared.open(url) }.disabled(missing)
             Button("在访达中显示") { NSWorkspace.shared.activateFileViewerSelecting([url]) }.disabled(missing)
+            if isVideo { Button("导出实况照片…") { exportLivePhoto = true }.disabled(missing) }
+        }
+        .sheet(isPresented: $exportLivePhoto) {
+            let info = ClipInfo.sidecar(for: url).flatMap(ClipInfo.read)
+            let record = model.importJournal.batches.lazy.flatMap(\.files).first { file in
+                file.assets.contains { $0.copies.contains { $0.role == .working && $0.path == url.path } }
+            }
+            LivePhotoExportSheet(source: url, name: url.deletingPathExtension().lastPathComponent, center: 1.5,
+                marks: info?.shotMarks ?? [], markFrameRate: ClipInfo.fpsValue(info?.formatFps ?? "") ?? 30,
+                capturedAt: record?.capturedAt, isProxy: record?.proxyOnly ?? url.path.contains("/Proxy/"))
         }
         .help(url.path(percentEncoded: false))
         .task(id: url) {

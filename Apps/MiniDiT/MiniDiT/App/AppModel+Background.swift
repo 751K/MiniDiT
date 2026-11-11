@@ -114,6 +114,14 @@ extension AppModel {
                 }
                 return
             }
+            guard currentSession != nil else {
+                grid.replace(with: Set(fresh))
+                log.add("自动导入：请先选择或新建项目")
+                Notifier.shared.post(id: "auto", title: "请选择导入项目",
+                                     body: "选择或新建项目后，才能导入新照片。", info: [:])
+                showMainWindow()
+                return
+            }
             autoCountdown = AutoCountdown(name: name, count: fresh.count, deadline: Date().addingTimeInterval(10))
             log.add("自动导入：“\(name)”有 \(fresh.count) 张新照片，10 秒后开始")
             Notifier.shared.post(id: "auto", title: "即将从“\(name)”导入 \(fresh.count) 张新照片",
@@ -141,35 +149,25 @@ extension AppModel {
             log.add("自动导入：未开始，\(why)")
             Notifier.shared.post(id: "auto", title: "未能自动导入“\(name)”", body: why + "。点按以打开 MiniDiT。", info: [:])
         }
+        if importJournal.repairTask != nil { stop("正在补备份，完成后可手动导入"); return }
         grid.clear()
         grid.set(fresh, selected: true)
-        if backupEnabled, !backupAvailable { stop(backupFolder == nil ? "尚未设置备份位置" : "备份磁盘未连接"); return }
+        guard let job = currentSessionJob() else {
+            stop("请先选择或新建项目")
+            showMainWindow()
+            return
+        }
+        if backupEnabled, !backupAvailable { stop(enabledBackupTargets.isEmpty ? "尚未启用备份位置" : "必需的备份位置不可用"); return }
         if let p = spaceShortage() { stop(p.isBackup ? "备份磁盘空间不足" : "存储空间不足"); return }
         autoRunning = true
-        switch captureOneMode {
-        case .lightroom:
-            guard LightroomBridge.status().canImport else { autoRunning = false; stop("Lightroom Classic 插件需要安装或更新"); return }
-            startImport(jobs: autoJobs(), grouping: sessionGrouping)
-        case .newSession:
-            startImport(jobs: autoJobs(), grouping: sessionGrouping)
-        default:
-            startImport(session: nil)
+        if captureOneMode == .lightroom, !LightroomBridge.status().canImport {
+            autoRunning = false
+            stop("Lightroom Classic 插件需要安装或更新")
+            return
         }
+        startImport(jobs: [job], grouping: .single)
         if progress == nil { autoRunning = false; stop("没有可导入的文件") }
         else { log.add("自动导入：开始导入“\(name)”的 \(fresh.count) 张") }
-    }
-
-    /// 自动导入的会话 / 收藏夹：按当前的分组方式和命名模板起名，不填事件名。
-    /// 同名的 C1 会话已经存在（比如当天第二次自动导入）就加进那个会话。
-    private func autoJobs() -> [ImportJob] {
-        let existing = captureOneMode == .newSession ? CaptureOneBridge.sessions(in: sessionsFolder) : []
-        return importGroups(sessionGrouping).map { g in
-            let n = Self.sessionName(for: g, event: nil)
-            if let s = existing.first(where: { $0.deletingLastPathComponent().lastPathComponent == n }) {
-                return ImportJob(key: g.id, files: g.files, session: .existing(s), event: nil, scene: g.scene)
-            }
-            return ImportJob(key: g.id, files: g.files, session: .new(n), event: nil, scene: g.scene)
-        }
     }
 
     /// 自动导入结束：发通知说结果。
@@ -181,7 +179,8 @@ extension AppModel {
                                  body: "已完成 \(i.done) / \(i.total) 个文件。重新连接后可继续导入。", info: [:])
         } else if let r = lastResult {
             var body = "已导入 \(r.files) 个文件"
-            if let b = r.backedUp { body += b == r.files ? "，均已备份" : "，备份 \(b) 个" }
+            if !r.backupTargets.isEmpty { body += "；" + r.backupTargets.map { "\($0.target.name)：\($0.verified)/\($0.total)" }.joined(separator: "；") }
+            else if let b = r.backedUp { body += b == r.files ? "，均已备份" : "，备份 \(b) 个" }
             if r.failed > 0 { body += "，\(r.failed) 个失败" }
             if let s = r.session { body += "。会话：\(s)" }
             Notifier.shared.post(id: "auto", title: r.failed > 0 ? "“\(name)”的自动导入有文件失败" : "“\(name)”自动导入完成",

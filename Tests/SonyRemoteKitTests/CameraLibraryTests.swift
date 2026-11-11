@@ -35,6 +35,7 @@ import FakeSonyCamera
         #expect(handles.count == 8)
         let first = try await lib.item(handles[0])
         #expect(first.filename == "DSC00012.JPG")
+        #expect(await lib.sourcePath(handles[0]) == "/DCIM/101MSDCF/DSC00012.JPG")
         #expect(first.kind == .jpeg)
         #expect(first.captureDate != nil)
         #expect(first.width == 7008)
@@ -69,10 +70,10 @@ import FakeSonyCamera
         let data = try Data(contentsOf: url)
         #expect(data.count == jpg.size)
         #expect(data.prefix(13) == Data("DSC00001-full".utf8))
-        // 5MB 按 3MiB 分块 = 2 次 GetPartialObject，进度单调递增并以 100% 结束。
-        #expect(card.partialReads == 2)
+        // 分块大小可配置；每次读取应有进度，且单调递增至完整大小。
+        #expect(card.partialReads > 0)
         let steps = progress.steps
-        #expect(steps.count == 2)
+        #expect(steps.count == card.partialReads)
         #expect(steps.last?.0 == jpg.size)
         #expect(zip(steps, steps.dropFirst()).allSatisfy { $0.0 < $1.0 })
         await lib.close()

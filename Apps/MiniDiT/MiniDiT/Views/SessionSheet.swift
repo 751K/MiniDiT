@@ -34,11 +34,12 @@ struct SessionSheet: View {
 
     var body: some View {
         @Bindable var model = model
+        let files = model.selectedFiles()
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
                 Text("导入 \(model.countText(model.grid.selected, noun: true))").font(Theme.Font.headline)
                 Spacer(minLength: 0)
-                Text("\(model.selectedFiles().count) 个文件 · \(FloatingBar.bytes(model.selectionBytes))")
+                Text("\(files.count) 个文件 · \(FloatingBar.bytes(model.selectionBytes(of: files)))")
                     .font(Theme.Font.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             if !isLightroom {
@@ -274,12 +275,19 @@ struct SessionSheet: View {
     }
 
     private func start() {
+        guard let project = model.currentSession else {
+            model.sessionRequest = nil
+            model.newSessionPrompt = .init(importAfter: true)
+            return
+        }
         if useExisting, let existing { model.startImport(session: .existing(existing)); return }
         let jobs = groups.map { g -> AppModel.ImportJob in
             if let r = request.resume[g.id] {
-                return .init(key: g.id, files: g.files, session: r.session, event: r.event, scene: g.scene)
+                return .init(key: g.id, files: g.files, session: r.session, event: r.event, scene: g.scene,
+                             folder: project.name, appSession: project.id)
             }
-            return .init(key: g.id, files: g.files, session: .new(sessionName(g)), event: event(g), scene: g.scene)
+            return .init(key: g.id, files: g.files, session: .new(sessionName(g)), event: event(g), scene: g.scene,
+                         folder: project.name, appSession: project.id)
         }
         model.startImport(jobs: jobs, grouping: model.sessionGrouping)
     }
@@ -296,6 +304,9 @@ struct NewSessionSheet: View {
     /// 菜单里「其他日期…」的标记。
     private static let other = "other"
     @State private var event = ""
+    // 仅在用户确认新建时应用；取消弹窗不修改保存位置。
+    @State private var photoRoot: URL?
+    @State private var videoRoot: URL?
     @State private var openInC1: Set<String> = []
     @FocusState private var eventFocused: Bool
 
@@ -315,26 +326,18 @@ struct NewSessionSheet: View {
     private var exists: Bool { model.sessions.contains { $0.name == name } }
     /// C1 里开着同名文档、磁盘上又没有这个会话：导入时建不了。
     private var blocked: Bool {
-        model.captureOneMode == .newSession && openInC1.contains(name)
-            && !model.existingC1Sessions.contains { $0.deletingLastPathComponent().lastPathComponent == name }
-    }
-
-    /// 导入时下游会建什么。
-    private var downstream: String {
-        switch model.captureOneMode {
-        case .newSession: "导入时在 Capture One 中新建同名会话"
-        case .lightroom: "导入时在 Lightroom Classic 中新建同名收藏夹"
-        default: "导入时新建同名文件夹"
-        }
+        model.importContent != .videos && model.captureOneMode == .newSession && openInC1.contains(name)
+            && !CaptureOneBridge.sessions(in: baseDirectory(video: false))
+                .contains { $0.deletingLastPathComponent().lastPathComponent == name }
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("新建会话").font(Theme.Font.headline)
+        VStack(alignment: .leading, spacing: 20) {
+            Text("新建项目").font(Theme.Font.headline)
 
             Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 12) {
                 GridRow {
-                    Text("日期").gridColumnAlignment(.trailing)
+                    formLabel("日期").gridColumnAlignment(.trailing)
                     Picker("日期", selection: Binding(get: { day }, set: { new in
                         if new == Self.other { showingCalendar = true } else { day = new }
                     })) {
@@ -350,7 +353,7 @@ struct NewSessionSheet: View {
                     }
                 }
                 GridRow {
-                    Text("事件")
+                    formLabel("事件")
                     TextField("事件", text: $event, prompt: Text("例如：公园"))
                         .textFieldStyle(.roundedBorder).controlSize(.large).labelsHidden()
                         .focused($eventFocused)
@@ -358,28 +361,45 @@ struct NewSessionSheet: View {
                 }
                 if !model.recentContents.isEmpty {
                     GridRow {
-                        Text("最近").foregroundStyle(.secondary)
-                        HStack(spacing: 6) {
-                            ForEach(model.recentContents.prefix(5), id: \.self) { c in
-                                Button(c) { event = c }.buttonStyle(.bordered).controlSize(.small)
-                            }
-                        }
+                        formLabel("最近").foregroundStyle(.secondary)
+                        recentEvents
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .gridCellUnsizedAxes(.horizontal)
                     }
                 }
             }
 
             Divider()
 
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Image(systemName: blocked ? "exclamationmark.triangle" : "folder")
-                    .foregroundStyle(blocked ? Theme.warning : Color.secondary)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(name).lineLimit(1).truncationMode(.middle)
-                    Text(blocked ? "Capture One 中已打开同名会话，请更换事件名"
-                         : exists ? "已有同名会话，将选中该会话" : downstream)
-                        .font(Theme.Font.caption).foregroundStyle(.secondary).lineLimit(1)
+            if blocked {
+                Text("Capture One 中已打开同名会话，请更换事件名")
+                    .font(Theme.Font.caption).foregroundStyle(Theme.warning)
+            } else if exists {
+                Text("已有同名项目，将选中该项目")
+                    .font(Theme.Font.caption).foregroundStyle(.secondary)
+            }
+
+            VStack(alignment: .leading, spacing: 12) {
+                Text("保存位置").font(Theme.Font.body.weight(.medium))
+                Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 12) {
+                    if model.importContent != .videos {
+                        GridRow {
+                            formLabel("照片").gridColumnAlignment(.trailing)
+                            destinationControl("照片", video: false)
+                        }
+                    }
+                    if model.importContent != .photos {
+                        GridRow {
+                            formLabel("视频").gridColumnAlignment(.trailing)
+                            destinationControl("视频", video: true)
+                        }
+                    }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                if previewsCaptureDate {
+                    Text("日期目录按所选日期预览，导入时使用素材的拍摄日期。")
+                        .font(Theme.Font.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             HStack(spacing: 6) {
@@ -393,8 +413,8 @@ struct NewSessionSheet: View {
                     .disabled(blocked)
             }
         }
-        .padding(18)
-        .frame(width: 420)
+        .padding(24)
+        .frame(width: 460)
         .onAppear {
             day = ShootSession.dayKey(model.defaultSessionDay)
             if model.captureOneMode == .newSession { openInC1 = CaptureOneBridge.openDocumentNames() }
@@ -402,10 +422,113 @@ struct NewSessionSheet: View {
         }
     }
 
+    /// 使用与实际导入相同的目录规则；尚未分配的卷号保留为占位符。
+    private func destination(video: Bool) -> URL {
+        if !video, model.captureOneMode == .newSession {
+            return baseDirectory(video: false).appending(path: name, directoryHint: .isDirectory)
+                .appending(path: "Capture", directoryHint: .isDirectory)
+        }
+        let item = CameraContentItem(id: 0, storageID: 0, filename: video ? "preview.MP4" : "preview.JPG",
+                                     format: 0, size: 0, captureDate: ShootSession.date(day),
+                                     captureDateRaw: day, width: 0, height: 0)
+        return model.importOrganization.folder(for: item,
+            root: baseDirectory(video: video),
+            sessionName: name, event: cleanEvent, roll: video ? "〈卷号〉" : nil)
+    }
+
+    private func formLabel(_ title: String) -> some View {
+        Text(title).font(Theme.Font.body).frame(width: 32, alignment: .trailing)
+    }
+
+    private var recentEvents: some View {
+        ViewThatFits(in: .horizontal) {
+            recentButtons(visible: 2)
+            recentButtons(visible: 1)
+            Menu("选择最近事件") {
+                ForEach(model.recentContents, id: \.self) { recent in
+                    Button(recent) { event = recent }
+                }
+            }
+            .fixedSize()
+        }
+        .controlSize(.small)
+    }
+
+    private func recentButtons(visible count: Int) -> some View {
+        HStack(spacing: 8) {
+            ForEach(model.recentContents.prefix(count), id: \.self) { recent in
+                Button(recent) { event = recent }
+                    .buttonStyle(.bordered).fixedSize()
+            }
+            if model.recentContents.count > count {
+                Menu("更多") {
+                    ForEach(Array(model.recentContents.dropFirst(count)), id: \.self) { recent in
+                        Button(recent) { event = recent }
+                    }
+                }
+                .fixedSize()
+                .accessibilityLabel("更多最近事件")
+            }
+        }
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private func destinationControl(_ title: String, video: Bool) -> some View {
+        let path = destination(video: video).path(percentEncoded: false)
+        let display = (path as NSString).abbreviatingWithTildeInPath
+        return Button { changeDestination(video: video) } label: {
+            HStack(spacing: 10) {
+                Text(display).lineLimit(1).truncationMode(.middle)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: "ellipsis").foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered).controlSize(.large)
+        .font(Theme.Font.body)
+        .help(path)
+        .accessibilityLabel("更改" + title + "保存位置")
+        .accessibilityValue(path)
+    }
+
+    private func baseDirectory(video: Bool) -> URL {
+        if video { return videoRoot ?? model.videoDestination }
+        return photoRoot ?? (model.captureOneMode == .newSession ? model.sessionsFolder : model.destination)
+    }
+
+    private func changeDestination(video: Bool) {
+        guard let folder = FolderPicker.choose(start: baseDirectory(video: video)) else { return }
+        if video { videoRoot = folder } else { photoRoot = folder }
+    }
+
+    private var previewsCaptureDate: Bool {
+        let layouts: [(Bool, ImportFolderLayout, String)] = [
+            (model.importContent != .videos && model.captureOneMode != .newSession,
+             model.photoFolderLayout, NameTemplate.current(.folder)),
+            (model.importContent != .photos, model.videoFolderLayout, NameTemplate.current(.video))
+        ]
+        return layouts.contains { enabled, layout, template in
+            enabled && (layout == .date || (layout == .custom &&
+                ["{YYYY}", "{MM}", "{DD}", "{M}", "{D}"].contains(where: template.contains)))
+        }
+    }
+
     private func create() {
+        guard !blocked else { return }
+        if model.importContent != .videos, let photoRoot {
+            if model.captureOneMode == .newSession { model.sessionsFolder = photoRoot }
+            else { model.destination = photoRoot }
+        }
+        if model.importContent != .photos, let videoRoot { model.videoDestination = videoRoot }
         model.createSession(day: day, event: cleanEvent)
         model.newSessionPrompt = nil
-        if prompt.importAfter, !model.grid.selected.isEmpty { model.importToCurrentSession() }
+        if prompt.importAfter, !model.grid.selected.isEmpty {
+            Task { @MainActor in
+                await Task.yield()
+                model.beginImport()
+            }
+        }
     }
 }
 

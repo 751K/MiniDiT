@@ -2,7 +2,7 @@ import AppKit
 import UniformTypeIdentifiers
 import SwiftUI
 
-/// 设置向导：使用方式 → 照片 → 视频 → 备份 → 完成。第一次打开时出现，也可从“设置 › 通用”再打开。
+/// 设置向导：工作流程 → 照片 → 视频 → 备份 → 完成。第一次打开时出现，也可从“设置 › 通用”再打开。
 /// 左边是步骤栏，右边是这一步的内容。每一步直接改设置（和设置窗口里是同一份），中途关掉也不会丢。
 struct SetupSheet: View {
     @Environment(AppModel.self) private var model
@@ -15,7 +15,7 @@ struct SetupSheet: View {
 
         var title: String {
             switch self {
-            case .mode: "使用方式"
+            case .mode: "工作流程"
             case .photos: "照片"
             case .video: "视频"
             case .backup: "备份"
@@ -33,6 +33,14 @@ struct SetupSheet: View {
         }
     }
 
+    private var steps: [Step] {
+        Step.allCases.filter { s in
+            (s != .photos || model.importContent != .videos) && (s != .video || model.importContent != .photos)
+        }
+    }
+    private var stepIndex: Int { steps.firstIndex(of: step) ?? 0 }
+
+    @State private var recommendedMode: UsageMode?
     @State private var step = Step.mode
     /// 走到过的最远一步：侧栏里这一步之前的都可以点回去。
     @State private var reached = Step.mode
@@ -87,16 +95,17 @@ struct SetupSheet: View {
             }
             .padding(.bottom, 24)
             VStack(alignment: .leading, spacing: 2) {
-                ForEach(Step.allCases, id: \.self) { s in
+                ForEach(steps, id: \.self) { s in
                     StepRow(step: s, current: s == step)
                         .onTapGesture { if s.rawValue <= reached.rawValue { go(s) } }
                         .opacity(s.rawValue <= reached.rawValue ? 1 : 0.4)
                 }
             }
             Spacer()
-            if reopened {
-                Button("关闭向导") { close() }.controlSize(.regular)
-            }
+            Button(reopened ? "关闭向导" : "稍后设置") {
+                model.setupDone = true
+                close()
+            }.controlSize(.regular)
         }
         .padding(20)
         .frame(width: 210, alignment: .leading)
@@ -115,11 +124,11 @@ struct SetupSheet: View {
 
     private var footer: some View {
         HStack(spacing: 10) {
-            Text("第 \(step.rawValue + 1) 步，共 \(Step.allCases.count) 步")
+            Text("第 \(stepIndex + 1) 步，共 \(steps.count) 步")
                 .font(.callout).foregroundStyle(.secondary).monospacedDigit()
             Spacer()
             if step != .mode {
-                Button("上一步") { go(Step(rawValue: step.rawValue - 1)!) }
+                Button("上一步") { go(steps[max(0, stepIndex - 1)]) }
             }
             if step == .done {
                 Button("开始使用") {
@@ -128,9 +137,9 @@ struct SetupSheet: View {
                 }
                 .keyboardShortcut(.defaultAction)
             } else {
-                Button("继续") { go(Step(rawValue: step.rawValue + 1)!) }
+                Button("继续") { go(steps[min(steps.count - 1, stepIndex + 1)]) }
                     .keyboardShortcut(.defaultAction)
-                    .disabled(step == .backup && model.backupEnabled && model.backupFolder == nil)
+                    .disabled(step == .backup && model.backupEnabled && model.enabledBackupTargets.isEmpty)
             }
         }
         .controlSize(.large)
@@ -139,16 +148,16 @@ struct SetupSheet: View {
 
     private var title: String {
         switch step {
-        case .mode: reopened ? "使用方式" : "欢迎使用 MiniDiT"
-        case .photos: "照片导入方式"
-        case .video: "视频存放"
+        case .mode: reopened ? "工作流程" : "欢迎使用 MiniDiT"
+        case .photos: "照片"
+        case .video: "视频"
         case .backup: "备份"
         case .done: "设置完成"
         }
     }
 
     private var subtitle: String? {
-        step == .mode ? "可随时在“设置”中更改。" : nil
+        step == .mode ? "先选择要导入的内容。流程推荐可选，保留当前设置也可以直接继续。" : nil
     }
 
     @ViewBuilder private var content: some View {
@@ -161,23 +170,42 @@ struct SetupSheet: View {
         }
     }
 
-    // MARK: 使用方式
+    // MARK: 工作流程
 
     private var modeStep: some View {
-        HStack(alignment: .top, spacing: 14) {
-            ModeTile(symbol: "person", title: "个人",
-                     points: ["照片直接导入 Capture One 或 Lightroom", "后台完成校验与备份", "仅显示常用设置"],
-                     selected: model.usageMode == .personal) { setMode(.personal) }
-            ModeTile(symbol: "person.3", title: "专业",
-                     points: ["视频按卷号分文件夹，写入卷名与色彩空间", "显示全部设置项", "关闭自动导入，不删除存储卡上的文件"],
-                     selected: model.usageMode == .pro) { setMode(.pro) }
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 14) {
+                ModeTile(symbol: "person", title: "个人创作",
+                         points: ["自己拍摄、整理和后期", "视频按日期、事件整理", "命名、备份与色彩管理均可设置"],
+                         selected: recommendedMode == .personal) { setMode(.personal) }
+                ModeTile(symbol: "person.3", title: "团队协作",
+                         points: ["多人拍摄，素材交给团队后期", "视频按卷号分文件夹，便于交接", "推荐手动导入，并保留原卡文件"],
+                         selected: recommendedMode == .team) { setMode(.team) }
+            }
+            if let recommendation = recommendedMode {
+                Text(recommendation == .team
+                     ? "仅在未自定义时建议按卷号整理视频，并关闭自动导入和导入后删除。不会启用尚未配置的备份。"
+                     : "仅恢复默认的视频整理建议，保留自定义规则；不会开启自动导入或删除。")
+                    .font(.caption).foregroundStyle(.secondary)
+                Button("应用这组推荐设置") {
+                    model.usageMode = recommendation
+                    model.applyModeDefaults()
+                    recommendedMode = nil
+                }
+            }
+            Panel {
+                PanelRow(icon: .symbol("photo.on.rectangle"), title: "导入内容") {
+                    @Bindable var model = model
+                    Picker("导入内容", selection: $model.importContent) {
+                        ForEach(ImportContent.allCases) { Text($0.title).tag($0) }
+                    }.labelsHidden().fixedSize()
+                }
+            }
         }
     }
 
     private func setMode(_ m: UsageMode) {
-        guard model.usageMode != m else { return }
-        model.usageMode = m
-        model.applyModeDefaults()
+        recommendedMode = m
     }
 
     // MARK: 照片
@@ -187,43 +215,54 @@ struct SetupSheet: View {
     @ViewBuilder private var photosStep: some View {
         let c1On = apps[.captureOne]?.isInstalled == true, lrOn = apps[.lightroom]?.isInstalled == true
         // 和“设置 › 照片”同一种列表：一组里每行一个开关，选中靠开关表示，不另加描边。
+        SectionTitle("存放位置")
         Panel {
-            if let c1 = apps[.captureOne], c1.isInstalled {
-                ChoiceCard(icon: .app(c1.url), title: "Capture One",
-                           selected: isC1) {
-                    if !isC1 { model.captureOneMode = .newSession }
+            if model.captureOneMode == .newSession {
+                FolderRow(title: "Capture One 会话根目录", url: model.sessionsFolder) { model.sessionsFolder = $0 }
+            } else {
+                FolderRow(title: "照片存放位置", url: model.destination) { model.destination = $0 }
+            }
+            if model.captureOneMode == .off {
+                @Bindable var model = model
+                PanelDivider()
+                PanelRow(icon: .symbol("arrow.up.forward.app"), title: "导入完成后打开") {
+                    Picker("导入完成后打开", selection: $model.openAfterImport) {
+                        ForEach(FolderApp.allCases.filter { $0.isAvailable || $0 == model.openAfterImport }) { Text($0.title).tag($0) }
+                    }
+                    .labelsHidden().fixedSize()
                 }
             }
-            if let lr = apps[.lightroom], lr.isInstalled {
-                if c1On { PanelDivider() }
-                ChoiceCard(icon: .app(lr.url), title: "Lightroom Classic",
-                           detail: "需安装 MiniDiT 插件。",
-                           selected: model.captureOneMode == .lightroom) {
-                    model.captureOneMode = .lightroom
-                }
-            }
-            if c1On || lrOn { PanelDivider() }
-            ChoiceCard(icon: .symbol("folder"), title: "仅存储至文件夹",
+        }
+        SectionTitle("整理方式")
+        if model.captureOneMode != .newSession {
+            Panel { MediaOrganizationOptions(video: false).padding(14) }
+        } else {
+            Text("照片直接存入同名 Capture One 会话的 Capture 文件夹。")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        SectionTitle("导入至")
+        Panel {
+            ChoiceCard(icon: CaptureOneMode.off.importIcon, title: "文件夹",
                        selected: model.captureOneMode == .off) {
                 model.captureOneMode = .off
             }
-        }
-        if model.captureOneMode != .c1Settings && model.captureOneMode != .inPlace {
-            Panel {
-                if model.captureOneMode == .newSession {
-                    FolderRow(title: "新会话的位置", url: model.sessionsFolder) { model.sessionsFolder = $0 }
-                } else {
-                    FolderRow(title: "照片存放位置", url: model.destination) { model.destination = $0 }
+            if c1On {
+                PanelDivider()
+                ChoiceCard(icon: CaptureOneMode.newSession.importIcon, title: "Capture One",
+                           selected: isC1) {
+                    if !isC1 { model.captureOneMode = .newSession }
                 }
-                if model.captureOneMode == .off {
-                    @Bindable var model = model
-                    PanelDivider()
-                    PanelRow(icon: .symbol("arrow.up.forward.app"), title: "导入完成后打开") {
-                        Picker("导入完成后打开", selection: $model.openAfterImport) {
-                            ForEach(FolderApp.allCases.filter { $0.isAvailable || $0 == model.openAfterImport }) { Text($0.title).tag($0) }
-                        }
-                        .labelsHidden().fixedSize()
-                    }
+                if isC1 {
+                    CaptureOneImportOptions()
+                        .padding(.leading, 60).padding(.trailing, 14).padding(.bottom, 11)
+                }
+            }
+            if lrOn {
+                PanelDivider()
+                ChoiceCard(icon: CaptureOneMode.lightroom.importIcon, title: "Lightroom Classic",
+                           detail: "需安装 MiniDiT 插件。",
+                           selected: model.captureOneMode == .lightroom) {
+                    model.captureOneMode = .lightroom
                 }
             }
         }
@@ -233,30 +272,42 @@ struct SetupSheet: View {
 
     @ViewBuilder private var videoStep: some View {
         @Bindable var model = model
+        let editors = [apps[.resolve], apps[.finalCut], apps[.premiere]].compactMap { $0 }.filter(\.isInstalled)
+        SectionTitle("存放位置")
         Panel {
             FolderRow(title: "视频存放位置", url: model.videoDestination) { model.videoDestination = $0 }
-            PanelDivider()
-            PanelRow(icon: .symbol("square.on.square"), title: "同时导入代理文件") {
-                Toggle("同时导入代理文件", isOn: $model.importProxies).labelsHidden().toggleStyle(.switch)
-            }
         }
-        let editors = [apps[.resolve], apps[.finalCut]].compactMap { $0 }.filter(\.isInstalled)
-        if !editors.isEmpty {
-            SectionTitle("导入完成后发送至剪辑软件")
-            Panel {
-                ForEach(Array(editors.enumerated()), id: \.element.kind) { i, app in
-                    if i > 0 { PanelDivider() }
-                    if app.kind == .resolve {
-                        PanelRow(icon: .app(app.url), title: "DaVinci Resolve",
-                                 detail: "需将“外部脚本使用”设为“本地”。") {
-                            Toggle("DaVinci Resolve", isOn: $model.sendToResolve).labelsHidden().toggleStyle(.switch)
-                        }
-                    } else {
-                        PanelRow(icon: .app(app.url), title: "Final Cut Pro") {
-                            Toggle("Final Cut Pro", isOn: $model.sendToFCP).labelsHidden().toggleStyle(.switch)
-                        }
+        SectionTitle("整理方式")
+        Panel { MediaOrganizationOptions(video: true).padding(14) }
+        SectionTitle("导入至")
+        Panel {
+            ChoiceCard(icon: CaptureOneMode.off.importIcon, title: "文件夹",
+                       selected: !model.sendToResolve && !model.sendToFCP && !model.sendToPremiere) {
+                model.sendToResolve = false
+                model.sendToFCP = false
+                model.sendToPremiere = false
+            }
+            ForEach(editors, id: \.kind) { app in
+                PanelDivider()
+                if app.kind == .resolve {
+                    PanelRow(icon: .app(app.url), title: "DaVinci Resolve") {
+                        ResolveImportToggle(title: "DaVinci Resolve").labelsHidden().toggleStyle(.switch)
+                    }
+                } else if app.kind == .premiere {
+                    PanelRow(icon: .app(app.url), title: "Adobe Premiere Pro") {
+                        PremiereImportToggle().labelsHidden().toggleStyle(.switch)
+                    }
+                } else {
+                    PanelRow(icon: .app(app.url), title: "Final Cut Pro") {
+                        Toggle("Final Cut Pro", isOn: $model.sendToFCP).labelsHidden().toggleStyle(.switch)
                     }
                 }
+            }
+        }
+        SectionTitle("代理")
+        Panel {
+            PanelRow(icon: .symbol("square.on.square"), title: "同时导入代理文件") {
+                Toggle("同时导入代理文件", isOn: $model.importProxies).labelsHidden().toggleStyle(.switch)
             }
         }
     }
@@ -268,18 +319,16 @@ struct SetupSheet: View {
         // 和“设置 › 备份”一样：一个开关，打开后选位置。
         Panel {
             PanelRow(icon: .symbol("externaldrive.badge.plus"), title: "导入时同时备份") {
-                Toggle("导入时同时备份", isOn: $model.backupEnabled).labelsHidden().toggleStyle(.switch)
+                BackupSettingsSwitch(title: "导入时同时备份", isOn: $model.backupEnabled)
             }
             if model.backupEnabled {
                 PanelDivider()
-                FolderRow(title: "备份位置", url: model.backupFolder, empty: "尚未选择") { model.backupFolder = $0 }
+                BackupTargetsEditor().padding(14)
             }
         }
-        if !model.isPro {
-            Panel {
-                PanelRow(icon: .symbol("sdcard"), title: "导入后删除存储卡上已校验的照片（仅限读卡器）") {
-                    Toggle("导入后删除存储卡上的照片", isOn: $model.deleteAfterImport).labelsHidden().toggleStyle(.switch)
-                }
+        Panel {
+            PanelRow(icon: .symbol("sdcard"), title: "导入后删除存储卡上已校验的照片（仅限读卡器）") {
+                BackupSettingsSwitch(title: "导入后删除存储卡上的照片", isOn: $model.deleteAfterImport)
             }
         }
     }
@@ -289,15 +338,21 @@ struct SetupSheet: View {
     @ViewBuilder private var doneStep: some View {
         Panel {
             SummaryRow(icon: .symbol(model.usageMode == .personal ? "person" : "person.3"),
-                       label: "使用方式", value: model.usageMode.title) { go(.mode) }
+                       label: "工作流程", value: model.usageMode.title) { go(.mode) }
             PanelDivider()
-            SummaryRow(icon: photoIcon, label: "照片", value: photoTitle, detail: photoDetail) { go(.photos) }
-            PanelDivider()
-            SummaryRow(icon: .symbol("film"), label: "视频", value: videoTitle, detail: short(model.videoDestination)) { go(.video) }
+            SummaryRow(icon: .symbol("photo.on.rectangle"), label: "导入内容", value: model.importContent.title) { go(.mode) }
+            if model.importContent != .videos {
+                PanelDivider()
+                SummaryRow(icon: photoIcon, label: "照片", value: photoTitle, detail: photoDetail) { go(.photos) }
+            }
+            if model.importContent != .photos {
+                PanelDivider()
+                SummaryRow(icon: .symbol("film"), label: "视频", value: videoTitle, detail: short(model.videoDestination)) { go(.video) }
+            }
             PanelDivider()
             SummaryRow(icon: backupOn ? .symbol("externaldrive.badge.checkmark") : .symbol("internaldrive"), label: "备份",
                        value: backupOn ? "同时备份" : "仅存储一份",
-                       detail: backupOn ? short(model.backupFolder!) : nil) { go(.backup) }
+                       detail: backupOn ? model.backupSummary : nil) { go(.backup) }
         }
         // 和上面的分组同一种行：图标、文字的位置都对齐。
         Panel {
@@ -308,23 +363,17 @@ struct SetupSheet: View {
         }
     }
 
-    private var backupOn: Bool { model.backupEnabled && model.backupFolder != nil }
+    private var backupOn: Bool { model.backupEnabled && !model.enabledBackupTargets.isEmpty }
 
-    private var photoIcon: CardIcon {
-        switch model.captureOneMode {
-        case .newSession, .c1Settings, .inPlace: .app(apps[.captureOne]?.url)
-        case .lightroom: .app(apps[.lightroom]?.url)
-        case .off: .symbol("folder")
-        }
-    }
+    private var photoIcon: CardIcon { model.captureOneMode.importIcon }
 
     private var photoTitle: String {
         switch model.captureOneMode {
         case .newSession: "Capture One · 新建会话"
         case .c1Settings: "Capture One · 按导入设置"
-        case .inPlace: "Capture One · 就地添加"
+        case .inPlace: "Capture One · 添加到目录"
         case .lightroom: "Lightroom Classic"
-        case .off: "仅存储至文件夹"
+        case .off: "文件夹"
         }
     }
 
@@ -340,6 +389,7 @@ struct SetupSheet: View {
         var to: [String] = []
         if model.sendToResolve, apps[.resolve]?.isInstalled == true { to.append("DaVinci Resolve") }
         if model.sendToFCP, apps[.finalCut]?.isInstalled == true { to.append("Final Cut Pro") }
+        if model.sendToPremiere, apps[.premiere]?.isInstalled == true { to.append("Adobe Premiere Pro") }
         return to.isEmpty ? "仅存储至文件夹" : "发送至 " + to.joined(separator: "、")
     }
 
@@ -355,8 +405,23 @@ struct SetupSheet: View {
 enum CardIcon {
     /// 主题色的线条符号。
     case symbol(String)
+    /// 保留原 Logo 轮廓的黑白版本。
+    case logo(SoftwareLogoKind)
+    /// 导入目标中的文件夹：黑白，光学尺寸与软件标志一致。
+    case importFolder
     /// 第三方软件用它自己的图标，认得出来。
     case app(URL?)
+}
+
+/// 软件目标沿用原 Logo 的黑白轮廓，普通操作仍使用系统符号。
+extension CaptureOneMode {
+    var importIcon: CardIcon {
+        switch self {
+        case .newSession, .c1Settings, .inPlace: .logo(.captureOne)
+        case .lightroom: .logo(.lightroomClassic)
+        case .off: .importFolder
+        }
+    }
 }
 
 struct CardIconView: View {
@@ -365,6 +430,16 @@ struct CardIconView: View {
 
     var body: some View {
         switch icon {
+        case .logo(let kind):
+            SoftwareLogo(kind: kind, size: size)
+        case .importFolder:
+            Image(systemName: "folder")
+                .resizable()
+                .scaledToFit()
+                .frame(width: size * 0.9, height: size * 0.9)
+                .foregroundStyle(.primary)
+                .frame(width: size, height: size)
+                .accessibilityHidden(true)
         case .symbol(let s):
             Image(systemName: s).font(.system(size: size * 0.6, weight: .regular))
                 .foregroundStyle(Theme.accent)
@@ -398,7 +473,7 @@ private struct StepRow: View {
     }
 }
 
-/// 使用方式的一块：图标、名称、一句话、三条要点。
+/// 工作流程的一块：图标、名称、一句话、三条要点。
 private struct ModeTile: View {
     let symbol: String
     let title: String

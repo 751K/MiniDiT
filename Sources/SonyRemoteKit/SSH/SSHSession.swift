@@ -136,7 +136,14 @@ public final class SSHSession: @unchecked Sendable {
         timeout: TimeInterval = 10,
         validateHostKey: @Sendable (SSHHostKeyInfo) async -> Bool
     ) async throws {
-        let key = try await onSetupQueue { try self.tcpAndHandshake(algorithms: algorithms, timeout: timeout) }
+        let key: SSHHostKeyInfo
+        do {
+            key = try await onSetupQueue { try self.tcpAndHandshake(algorithms: algorithms, timeout: timeout) }
+        } catch {
+            // 握手失败时 sock / session 可能已经建好；不 teardown 的话 fd 和 SSH 会话会一直留着。
+            await onSetupQueue { self.teardown(reason: "handshake failed") }
+            throw error
+        }
         hostKey = key
         guard await validateHostKey(key) else {
             await onSetupQueue { self.teardown(reason: "host key rejected") }

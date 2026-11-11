@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import SQLite3
 
 /// 用 AppleScript 让 Capture One 导入文件（Capture One 16 起支持 `import` 命令）。
 /// 导入到 C1 当前打开的文档（目录或会话），按这个文档的导入设置执行。
@@ -46,117 +47,205 @@ enum CaptureOneBridge {
         }
     }
 
-    /// 新建会话，返回会话的 Capture 文件夹。C1 会立刻打开这个会话。
-    /// 生成的结构：<folder>/<name>/{<name>.cosessiondb, Capture, Selects, Output, Trash}
-    static func createSession(name: String, in folder: URL) async throws -> URL {
-        try await ensureRunning()
-        // C1 里已经开着同名的文档时，脚本里按名字找到的会是那个旧文档，照片会存进别的会话。
-        if openDocumentNames().contains(name) {
-            throw Failure.script("Capture One 中已打开同名会话“\(name)”")
+    struct SessionTarget: Hashable {
+        let database: URL
+        let captureDir: URL
+        var name: String { database.deletingPathExtension().lastPathComponent }
+
+        init(database: URL) {
+            self.database = database.standardizedFileURL
+            let root = database.deletingLastPathComponent()
+            captureDir = CaptureOneBridge.storedCaptureFolder(database) ?? root.appending(path: "Capture", directoryHint: .isDirectory)
         }
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let src = """
-        tell application "Capture One"
-            set d to make new document with properties {name:\(quote(name)), path:\(quote(folder.path)), kind:session}
-            try
-                set current collection of d to (first collection of d whose name is "Capture")
-            end try
-            return POSIX path of (captures of d as alias)
-        end tell
+    }
+
+    /// Read a session's chosen Capture location without opening it in C1.
+    nonisolated private static func storedCaptureFolder(_ database: URL) -> URL? {
+        guard FileManager.default.fileExists(atPath: database.path) else { return nil }
+        var db: OpaquePointer?
+        let status = sqlite3_open_v2(database.path, &db, SQLITE_OPEN_READONLY, nil)
+        defer { sqlite3_close(db) }
+        guard status == SQLITE_OK else { return nil }
+        var statement: OpaquePointer?
+        let sql = """
+        SELECT p.ZISRELATIVE, p.ZMACROOT, p.ZRELATIVEPATH
+        FROM ZCOLLECTION c
+        LEFT JOIN ZCOLLECTION capture ON c.ZCAPTURECOLLECTION = capture.Z_PK
+        JOIN ZPATHLOCATION p ON COALESCE(capture.ZFOLDERLOCATION, c.ZCAPTUREDESTINATIONLOCATION) = p.Z_PK
+        WHERE c.ZNAME = 'root' LIMIT 1
         """
-        guard let path = try run(src).stringValue else { throw Failure.script("Capture One 未返回会话的 Capture 文件夹") }
-        let returned = URL(filePath: path, directoryHint: .isDirectory)
-        // 只认新会话自己的 Capture 文件夹：C1 返回了别处时，用按会话结构算出来的位置。
-        let expected = folder.appending(path: name, directoryHint: .isDirectory).appending(path: "Capture", directoryHint: .isDirectory)
-        if returned.standardizedFileURL.path != expected.standardizedFileURL.path {
-            guard FileManager.default.fileExists(atPath: expected.path) else {
-                throw Failure.script("Capture One 返回的 Capture 文件夹不属于新会话（\(returned.path)）")
-            }
-            return expected
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return nil }
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_step(statement) == SQLITE_ROW else { return nil }
+        let path = sqlite3_column_text(statement, 2).map { String(cString: $0) } ?? ""
+        if sqlite3_column_int(statement, 0) != 0 {
+            guard !path.isEmpty else { return nil }
+            return database.deletingLastPathComponent().appending(path: path, directoryHint: .isDirectory).standardizedFileURL
         }
-        return returned
+        let root = sqlite3_column_text(statement, 1).map { String(cString: $0) } ?? ""
+        if path.hasPrefix("/") { return URL(filePath: path, directoryHint: .isDirectory) }
+        guard root.hasPrefix("/") else { return nil }
+        return URL(filePath: root, directoryHint: .isDirectory).appending(path: path, directoryHint: .isDirectory).standardizedFileURL
     }
 
-    /// 让 C1 重新读一遍会话的 Capture 文件夹：切到别的收藏夹再切回来。
-    /// 照片是直接写进 Capture 文件夹的；C1 正忙（比如它自己弹出的导入窗口开着）时，可能不会察觉新文件。
-    static func refreshCapture(session name: String) {
-        guard isRunning else { return }
-        _ = try? run("""
-        tell application "Capture One"
-            tell document \(quote(name + ".cosessiondb"))
-                set c to (first collection whose name is "Capture")
-                set current collection to (first collection whose name is "Selects")
-                delay 0.3
-                set current collection to c
+    /// C1 requires an empty location for creation. Build the blank session next to the
+    /// completed project, then move its database into place without moving any photos.
+    static func openCompletedSession(_ target: SessionTarget) async throws {
+        try Task.checkCancellation()
+        try await ensureRunning()
+        try Task.checkCancellation()
+        let fm = FileManager.default
+        if !fm.fileExists(atPath: target.database.path) {
+            if openDocumentNames().contains(target.name) {
+                throw Failure.script("Capture One 中已打开同名会话“\(target.name)”")
+            }
+            let project = target.database.deletingLastPathComponent()
+            let staging = project.deletingLastPathComponent()
+                .appending(path: ".minidit-c1-\(UUID().uuidString)", directoryHint: .isDirectory)
+            try fm.createDirectory(at: staging, withIntermediateDirectories: true)
+            defer { try? fm.removeItem(at: staging) }
+            _ = try run("""
+            tell application "Capture One"
+                set d to make new document with properties {name:\(quote(target.name)), path:\(quote(staging.path)), kind:session}
+                close d
             end tell
-        end tell
-        """)
+            """)
+            let generated = staging.appending(path: target.name, directoryHint: .isDirectory)
+            for folder in try fm.contentsOfDirectory(at: generated, includingPropertiesForKeys: nil)
+                where folder.lastPathComponent != target.database.lastPathComponent {
+                let destination = project.appending(path: folder.lastPathComponent)
+                if !fm.fileExists(atPath: destination.path) { try fm.moveItem(at: folder, to: destination) }
+            }
+            try fm.moveItem(at: generated.appending(path: target.database.lastPathComponent), to: target.database)
+        }
+        try await openSession(target)
     }
 
-    struct LookResult { var applied = 0; var notFound: [String] = []; var noProfile: Set<String> = [] }
+    struct LookResult {
+        var applied = 0
+        var notFound = Set<String>()
+        var noProfile = Set<String>()
+        var failures: [String] = []
+        var scriptError: String?
+        var refreshError: String?
+    }
 
-    /// 按创意外观给会话里的照片设 ICC 配置文件和曲线：「Sony A7 M5 ProStandard」→「Sony A7 M5 Look-FL」，曲线改为 Linear Response。
-    /// 配置文件名的前半段取这张图当前的配置文件（C1 按机型给的名字），所以不同机身各用各的 Look 文件。
-    /// 没装这个 Look 的（C1 报「Unrecognized color profile name」）保持原样，曲线也不改。
-    static func applyLooks(session name: String, _ pairs: [(variant: String, look: String)]) -> LookResult {
-        var r = LookResult()
-        guard isRunning, !pairs.isEmpty else { return r }
-        let list = pairs.map { "{\(quote($0.variant)), \(quote($0.look))}" }.joined(separator: ", ")
+    /// Match the actual RAW, not a same-named JPG/HIF. Confirm both settings before reporting success.
+    static func applyLooks(session name: String, collection: String, _ pairs: [(file: URL, look: String)]) -> LookResult {
+        var result = LookResult()
+        guard !pairs.isEmpty else { return result }
+        guard isRunning else { result.scriptError = "Capture One 未运行"; return result }
+        let list = pairs.map { pair in
+            let stem = pair.file.deletingPathExtension().lastPathComponent
+            return "{\(quote(stem)), \(quote(pair.file.path)), \(quote(pair.look))}"
+        }.joined(separator: ", ")
         let src = """
         tell application "Capture One"
-            tell document \(quote(name + ".cosessiondb"))
-                set c to (first collection whose name is "Capture")
+            set d to document \(quote(name + ".cosessiondb"))
+            tell d
+                set c to (first collection whose name is \(quote(collection)))
                 set out to {}
                 repeat with p in {\(list)}
                     set n to item 1 of p
-                    set code to item 2 of p
+                    set targetPath to item 2 of p
+                    set resolvedTarget to my canonicalLookPath(targetPath)
+                    set lookCode to item 3 of p
                     try
-                        set v to (first variant of c whose name is n)
-                        set cp to color profile of adjustments of v
-                        set AppleScript's text item delimiters to " Look-"
-                        if (count of text items of cp) > 1 then
-                            set base to text item 1 of cp
+                        set v to missing value
+                        repeat with candidate in (every variant of c whose name is n)
+                            set candidatePath to path of parent image of candidate
+                            if candidatePath is targetPath or my canonicalLookPath(candidatePath) is resolvedTarget then
+                                set v to contents of candidate
+                                exit repeat
+                            end if
+                        end repeat
+                        if v is missing value then
+                            set end of out to ("missing:" & targetPath)
                         else
-                            set AppleScript's text item delimiters to " "
-                            set parts to text items of cp
-                            set base to (items 1 thru -2 of parts) as text
+                            set cp to color profile of adjustments of v
+                            set oldCurve to film curve of adjustments of v
+                            set AppleScript's text item delimiters to " Look-"
+                            if (count of text items of cp) > 1 then
+                                set base to text item 1 of cp
+                            else
+                                set AppleScript's text item delimiters to " "
+                                set parts to text items of cp
+                                set base to (items 1 thru -2 of parts) as text
+                            end if
+                            set AppleScript's text item delimiters to ""
+                            set profileName to (base & " Look-" & lookCode)
+                            set changedProfile to false
+                            try
+                                set color profile of adjustments of v to profileName
+                                set changedProfile to true
+                                set film curve of adjustments of v to "Linear Response"
+                                if (color profile of adjustments of v is not profileName) or (film curve of adjustments of v is not "Linear Response") then
+                                    error "Capture One 未确认 ICC 配置文件和曲线"
+                                end if
+                                set end of out to "ok"
+                            on error msg
+                                if changedProfile then
+                                    try
+                                        set color profile of adjustments of v to cp
+                                        set film curve of adjustments of v to oldCurve
+                                    on error restoreError
+                                        set msg to (msg & "；恢复原设置失败：" & restoreError)
+                                    end try
+                                end if
+                                if not changedProfile and msg contains "Unrecognized color profile" then
+                                    set end of out to ("noprofile:" & profileName)
+                                else
+                                    set end of out to ("failed:" & n & "：" & msg)
+                                end if
+                            end try
                         end if
+                    on error msg
                         set AppleScript's text item delimiters to ""
-                        try
-                            set color profile of adjustments of v to (base & " Look-" & code)
-                            set film curve of adjustments of v to "Linear Response"
-                            set end of out to "ok"
-                        on error
-                            set end of out to ("noprofile:" & base & " Look-" & code)
-                        end try
-                    on error
-                        set AppleScript's text item delimiters to ""
-                        set end of out to ("missing:" & n)
+                        set end of out to ("failed:" & n & "：" & msg)
                     end try
                 end repeat
-                return out
             end tell
+            if out contains "ok" then
+                try
+                    refresh d
+                on error msg
+                    set end of out to ("refresh:" & msg)
+                end try
+            end if
+            return out
         end tell
+
+        on canonicalLookPath(p)
+            try
+                return POSIX path of ((POSIX file p) as alias)
+            on error
+                return p
+            end try
+        end canonicalLookPath
         """
-        guard let res = try? run(src) else { r.notFound = pairs.map(\.variant); return r }
-        for i in stride(from: 1, through: res.numberOfItems, by: 1) {
-            guard let s = res.atIndex(i)?.stringValue else { continue }
-            if s == "ok" { r.applied += 1 }
-            else if s.hasPrefix("missing:") { r.notFound.append(String(s.dropFirst(8))) }
-            else if s.hasPrefix("noprofile:") { r.noProfile.insert(String(s.dropFirst(10))) }
+        let response: NSAppleEventDescriptor
+        do { response = try run(src) }
+        catch { result.scriptError = error.localizedDescription; return result }
+        for i in stride(from: 1, through: response.numberOfItems, by: 1) {
+            guard let status = response.atIndex(i)?.stringValue else { continue }
+            if status == "ok" { result.applied += 1 }
+            else if status.hasPrefix("missing:") { result.notFound.insert(String(status.dropFirst(8))) }
+            else if status.hasPrefix("noprofile:") { result.noProfile.insert(String(status.dropFirst(10))) }
+            else if status.hasPrefix("failed:") { result.failures.append(String(status.dropFirst(7))) }
+            else if status.hasPrefix("refresh:") { result.refreshError = String(status.dropFirst(8)) }
         }
-        return r
+        return result
     }
 
     /// C1 里打开着的文档名（不带扩展名）。C1 没在运行时为空。
     /// 按相机里打的星级给会话里的照片设星级（同名的 RAW 和 HIF 变体都设）。返回设上的变体名；还没出现的不在里面。
-    static func applyRatings(session name: String, _ pairs: [(variant: String, rating: Int)]) -> Set<String> {
+    static func applyRatings(session name: String, collection: String, _ pairs: [(variant: String, rating: Int)]) -> Set<String> {
         guard isRunning, !pairs.isEmpty else { return [] }
         let list = pairs.map { "{\(quote($0.variant)), \(max(0, min($0.rating, 5)))}" }.joined(separator: ", ")
         let src = """
         tell application "Capture One"
             tell document \(quote(name + ".cosessiondb"))
-                set c to (first collection whose name is "Capture")
+                set c to (first collection whose name is \(quote(collection)))
                 set out to {}
                 repeat with p in {\(list)}
                     set n to item 1 of p
@@ -188,29 +277,30 @@ enum CaptureOneBridge {
         return Set(names.map { ($0 as NSString).deletingPathExtension })
     }
 
-    /// 打开已有的会话，返回它的 Capture 文件夹。
-    static func openSession(_ sessionFile: URL) async throws -> URL {
-        try await ensureRunning()
+    /// Open the exact session after its files have been saved and request a scan.
+    private static func openSession(_ target: SessionTarget) async throws {
+        let sessionFile = target.database
+        let folder = sessionFile.deletingLastPathComponent().resolvingSymlinksInPath()
         let src = """
         tell application "Capture One"
             open \(quote(sessionFile.path))
-            delay 1
+            set expectedFolder to (POSIX file \(quote(folder.path)) as alias)
             repeat 20 times
                 try
                     set d to current document
-                    if (name of d) is \(quote(sessionFile.lastPathComponent)) then exit repeat
+                    if (name of d) is \(quote(sessionFile.lastPathComponent)) and (folder of d as alias) is expectedFolder then
+                        set c to first collection of d whose name is \(quote(target.captureDir.lastPathComponent))
+                        set current collection of d to c
+                        set synchronizing of c to true
+                        return true
+                    end if
                 end try
                 delay 0.5
             end repeat
-            set d to current document
-            try
-                set current collection of d to (first collection of d whose name is "Capture")
-            end try
-            return POSIX path of (captures of d as alias)
+            return false
         end tell
         """
-        guard let path = try run(src).stringValue else { throw Failure.script("无法打开会话") }
-        return URL(filePath: path, directoryHint: .isDirectory)
+        guard try run(src).booleanValue else { throw Failure.script("无法打开或读取 Capture One 会话“\(sessionFile.deletingPathExtension().lastPathComponent)”") }
     }
 
     /// 某个文件夹下的 C1 会话（文件夹里有同名 .cosessiondb），新的在前。

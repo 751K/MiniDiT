@@ -1,4 +1,5 @@
 import AppKit
+import Dispatch
 import Foundation
 import MiniDiTCore
 import SonyRemoteKit
@@ -11,10 +12,14 @@ extension AppModel {
         captureOneDocument = CaptureOneBridge.currentDocument()
     }
 
-    /// 点「导入」：没有备份盘、空间不够先提醒；新建会话模式先问会话名，其他模式直接开始。
+    /// 普通导入必须有用户选择的项目；先确定项目，再检查备份、空间和后期软件。
     /// 界面上点按钮时用默认参数；提醒里点「继续」时跳过已经确认过的检查。
-    func beginImport(checkBackup: Bool = true, checkSpace: Bool = true, resume: [String: ResumeSession] = [:]) {
-        guard progress == nil, !grid.selected.isEmpty else { return }
+    func beginImport(checkBackup: Bool = true, checkSpace: Bool = true) {
+        guard importJournal.repairTask == nil, progress == nil, phase == .ready, !isRefreshingSources, !grid.selected.isEmpty else { return }
+        guard currentSession != nil else {
+            newSessionPrompt = .init(importAfter: true)
+            return
+        }
         if checkBackup {
             noBackupThisTime = false
             if backupEnabled, !backupAvailable {
@@ -27,43 +32,39 @@ extension AppModel {
             spaceProblem = p
             return
         }
-        if captureOneMode == .lightroom {
+        let hasPhotos = selectedFiles().contains { $0.kind != .video }
+        if hasPhotos, captureOneMode == .lightroom {
             let st = LightroomBridge.status()
             guard st.canImport else { lightroomPrompt = st; return }
         }
-        if captureOneMode == .newSession { refreshCaptureOne() }
-        if !resume.isEmpty, captureOneMode.namesGroups {
-            // 中断后继续、还有分组没建会话 / 收藏夹：沿用原来的询问。
-            sessionRequest = SessionRequest(existing: captureOneMode == .newSession ? Array(existingC1Sessions.prefix(15)) : [],
-                                            resume: resume)
-        } else if currentSession != nil {
-            importToCurrentSession()
-        } else {
-            // 导入的目标是会话：还没选就先新建一个（日期 + 事件），建好就导入。
-            newSessionPrompt = NewSessionPrompt(importAfter: true)
-        }
+        if hasPhotos, captureOneMode == .newSession { refreshCaptureOne() }
+        importToCurrentSession()
     }
 
-    /// 两块盘够不够放这次要导的文件。本地已经有的（上次导过、还在）不算。
+    /// Aggregate storage requirements per mounted volume, including every required target.
     func spaceShortage() -> SpaceProblem? {
-        let files = selectedFiles()
-        let history = ImportHistory.shared
+        let files = selectedFiles(), history = ImportHistory.shared
         let missing = files.filter { history.localFile($0, camera: camera(of: $0.id)) == nil }
-        let photoNeed = missing.filter { $0.kind != .video }.reduce(0) { $0 + $1.size }
-        let videoNeed = missing.filter { $0.kind == .video }.reduce(0) { $0 + $1.size }
+        let photoNeed = missing.filter { $0.kind != .video }.reduce(UInt64(0)) { $0 + $1.sizeEstimate }
+        let videoNeed = missing.filter { $0.kind == .video }.reduce(UInt64(0)) { $0 + $1.sizeEstimate }
         let primary = captureOneMode == .newSession ? sessionsFolder : destination
-        // 照片和视频可能在不同的盘上；在同一块盘上就合起来算。
-        let sameDisk = Self.volume(of: primary) == Self.volume(of: videoDestination)
-        for (folder, need) in sameDisk ? [(primary, photoNeed + videoNeed)] : [(primary, photoNeed), (videoDestination, videoNeed)] {
-            if need > 0, let free = Self.freeSpace(at: folder), free < need + Self.spaceMargin(need) {
-                return SpaceProblem(isBackup: false, folder: folder, needed: need, available: free)
+        var used: [String: UInt64] = [:]
+        var requests: [(URL, UInt64, Bool)] = [(primary, photoNeed, false), (videoDestination, videoNeed, false)]
+        if backupEnabled, !noBackupThisTime {
+            for target in enabledBackupTargets where target.required && target.availability == .available {
+                let need = files.filter { item in
+                    !history.backupFiles(item, camera: camera(of: item.id)).contains { $0.path.hasPrefix(target.path + "/") }
+                }.reduce(UInt64(0)) { $0 + $1.sizeEstimate }
+                requests.append((target.root, need, true))
             }
         }
-        if backupEnabled, backupAvailable, !noBackupThisTime, let backup = backupFolder {
-            let need = files.filter { history.backupFile($0, camera: camera(of: $0.id)) == nil }.reduce(0) { $0 + $1.size }
-            if need > 0, let free = Self.freeSpace(at: backup), free < need + Self.spaceMargin(need) {
-                return SpaceProblem(isBackup: true, folder: backup, needed: need, available: free)
+        for (folder, need, backup) in requests where need > 0 {
+            let key = Self.volume(of: folder)?.path ?? folder.path
+            let combined = (used[key] ?? 0) + need
+            if let free = Self.freeSpace(at: folder), free < combined + Self.spaceMargin(combined) {
+                return SpaceProblem(isBackup: backup, folder: folder, needed: combined, available: free)
             }
+            used[key] = combined
         }
         return nil
     }
@@ -126,45 +127,137 @@ extension AppModel {
 
     // MARK: 导入
 
-    /// 不分会话的导入（下载到文件夹，或加入一个已有会话）。
+    /// 改变照片软件接收方式时，仍保留用户选中的项目归属。
     func startImport(session: SessionChoice?) {
-        startImport(jobs: [ImportJob(key: "all", files: Array(selectedFiles().reversed()), session: session)],
-                    grouping: .single)
+        guard var job = currentSessionJob() else {
+            newSessionPrompt = .init(importAfter: true)
+            return
+        }
+        job.session = session
+        startImport(jobs: [job], grouping: .single)
     }
 
-    func startImport(jobs: [ImportJob], grouping: SessionGrouping) {
+    func startImport(jobs: [ImportJob], grouping: SessionGrouping,
+                     captureOneFiles: [CaptureOneBridge.SessionTarget: [URL]] = [:]) {
+        guard importJournal.repairTask == nil, !openSources.isEmpty, phase == .ready, progress == nil, !isRefreshingSources,
+              !jobs.isEmpty, !retryingCaptureOne else { return }
+        // 所有普通导入入口（含自动导入和续传）都必须携带有效项目；拖出由 FileExport 独立处理。
+        let projects = Set(sessions.map(\.id))
+        guard jobs.allSatisfy({ job in job.appSession.map { projects.contains($0) } == true }) else {
+            errorMessage = "请先选择或新建项目，再开始导入。"
+            return
+        }
         sessionRequest = nil
         interrupted = nil
         lastResult = nil
+        pendingCaptureOneSessions = [:]
         lostDuringImport = false
-        guard !openSources.isEmpty, progress == nil else { return }
-        let jobs = jobs.filter { !$0.files.isEmpty }
+        prepareSourceIdentities()
+        let plan = jobs.first?.plan ?? importPlan
+        let organization = plan.organization
+        let jobs = jobs.map { original in
+            var job = original
+            job.files = job.files.filter { plan.content.accepts($0.kind) }
+            job.plan = plan
+            return job
+        }.filter { !$0.files.isEmpty }
         let picked = jobs.flatMap(\.files)  // 旧的先导
         guard !picked.isEmpty else { return }
+        deliveryID = UUID()
+        let deliveryToken = deliveryID
+        deliveryMessages = [:]
+        deliveryFailures = []
+        lightroomWatch?.cancel()
+        lightroomStatus = nil
+        let hasWiFiSource = picked.contains { !(route($0.id)?.library is LocalCardLibrary) }
         let pickedShots = grid.selected
-        let root = destination
-        let mode = captureOneMode
+        let root = plan.photoRoot
+        let mode = plan.captureOneMode
         // 几个来源一起导：每个来源一个子文件夹（「Capture/α7 V/DSC00001.ARW」），文件名不改。
         let folders = sourceFolders()
         @MainActor func sub(_ dir: URL, _ item: CameraContentItem) -> URL {
             guard let name = sourceFolder(for: item, in: folders) else { return dir }
             return dir.appending(path: name, directoryHint: .isDirectory)
         }
-        let backupRoot = backupEnabled && backupAvailable && !noBackupThisTime ? backupFolder : nil
+        let backupRoot = plan.backupTargets.first?.root ?? plan.backupRoot
         noBackupThisTime = false
-        let wantsBackup = backupEnabled
+        let wantsBackup = plan.backupRequested || backupRoot != nil
+        let requestedBackupRoot = backupRoot ?? (wantsBackup ? plan.configuredBackupRoot : nil)
+        let journal = importJournal
+        let journalFiles = jobs.flatMap { job in
+            job.files.map { item in
+                var record = ImportedFileRecord(id: "\(job.key)|\(item.id)", projectID: job.appSession,
+                                                filename: item.filename, source: importDeviceName(source(of: item.id)))
+                record.sourceIdentity = sourceIdentitySnapshot(source(of: item.id), slot: item.storageID >> 16)
+                record.mediaKind = item.kind == .video ? "video" : "photo"
+                record.capturedAt = item.captureDate
+                record.captureDateRaw = item.captureDateRaw.isEmpty ? nil : item.captureDateRaw
+                record.expectedBytes = item.sizeKnown ? item.size : nil
+                record.proxyOnly = importsProxyOnly(item)
+                return record
+            }
+        }
+        var journalBatch = ImportBatchRecord(id: deliveryToken, files: journalFiles, backupRequested: wantsBackup,
+                                            backupRoot: requestedBackupRoot?.path)
+        journalBatch.backupVolumeID = requestedBackupRoot.flatMap { BackupRepair.volumeID(at: $0) }
+        journalBatch.workingRoots = Array(Set([root.path, plan.videoRoot.path, plan.captureRoot.path])).sorted()
+        if !plan.backupTargets.isEmpty { journalBatch.backupTargets = plan.backupTargets }
+        guard journal.begin(journalBatch) else { errorMessage = journal.persistenceError; return }
         let deleteRequested = willDeleteFromSource
-        let weight: UInt64 = backupRoot == nil ? 1 : 2
+        let weight: UInt64 = 1 // Primary reads; target copies are added as assets are checkpointed.
         progress = ImportProgress(total: picked.count, bytesTotal: picked.reduce(0) { $0 + transferSize($1) } * weight)
+        updateBackupProgress(deliveryToken)
         lastSummary = nil
         log.add("开始导入 \(picked.count) 个文件到 \(root.path)，Capture One：\(mode.title)，"
                 + (backupRoot.map { "备份到 \($0.path)" } ?? "没有备份")
                 + (jobs.count > 1 ? "，分成 \(jobs.count) 个会话" : ""))
-        let sessionsFolder = self.sessionsFolder
+        let sessionsFolder = plan.captureRoot
         // 视频单独一套：「视频保存位置/{M}.{D}-{事件}/」，不进 C1 会话、不交给 LrC。
-        let videoRoot = videoDestination
+        let videoRoot = plan.videoRoot
         let proxies = importProxies
         importTask = Task {
+            var addresses: [String: String] = [:]
+            var identities: [String: ImportSourceIdentity] = [:]
+            var videoEvents: [FCPXMLWriter.Event] = []
+            for job in jobs {
+                for item in job.files {
+                    guard let route = route(item.id) else { continue }
+                    let path = await route.library.sourcePath(route.local)
+                    let source = source(of: item.id)
+                    let address: String
+                    var identity = sourceIdentitySnapshot(source, slot: item.storageID >> 16)
+                    if let card = route.library as? LocalCardLibrary {
+                        fileCameraKeys[item.id] = nil
+                        address = path ?? "来源路径未提供"
+                        if item.kind == .video {
+                            identity.cameraModel = await card.clipInfo(route.local)?.model
+                        } else if let metadata = await card.exif(route.local) {
+                            identity.cameraModel = metadata.camera
+                            if let model = metadata.camera, let serial = metadata.serial,
+                               let body = ImportSourceIdentity.bodyKey(model: model, serial: serial) {
+                                identity.cameraID = body; identity.cameraSerial = serial
+                                fileCameraKeys[item.id] = body
+                            }
+                        }
+                    } else {
+                        let host = source == Self.primarySource ? connectedHost : extra(source)?.camera?.host
+                        address = [host.map { "Wi-Fi \($0)" } ?? "相机", "卡 \(item.storageID >> 16)", path ?? item.filename].joined(separator: " · ")
+                    }
+                    addresses["\(job.key)|\(item.id)"] = address
+                    identities["\(job.key)|\(item.id)"] = identity
+                }
+            }
+            guard journal.update(deliveryToken, { b in
+                for i in b.files.indices {
+                    b.files[i].sourceAddress = addresses[b.files[i].id]
+                    b.files[i].sourceIdentity = identities[b.files[i].id] ?? b.files[i].sourceIdentity
+                }
+            }) else {
+                errorMessage = journal.persistenceError
+                progress = nil
+                importTask = nil
+                return
+            }
             // 只导代理的视频：还没读到代理大小的先问一下，总进度才按代理算。
             if picked.contains(where: { importsProxyOnly($0) && proxySizes[$0.id] == nil }) {
                 for item in picked where importsProxyOnly(item) && proxySizes[item.id] == nil {
@@ -180,7 +273,7 @@ extension AppModel {
             var consecutiveFailures = 0
             var mhlBackup: [MHLWriter.Entry] = []
             var reports: [URL] = []
-            var sessionNames: [String] = []
+            var captureOneFiles = captureOneFiles
             var opened: [String: ResumeSession] = [:]
             var stop = false
             var lightroomJobs: [String] = []
@@ -188,72 +281,136 @@ extension AppModel {
             var wokeLightroom = false
             // 卷号：这次导入的视频按机型各开一卷（之前分过卷的片段沿用原来的）。
             var videoItems: [(item: CameraContentItem, model: String)] = []
+            var reportClipInfo = clipInfos
             for item in picked where item.kind == .video {
                 var model = clipInfos[item.id]?.model ?? ""
-                if model.isEmpty, let r = route(item.id) { model = await r.library.clipInfo(r.local)?.model ?? "" }
+                if model.isEmpty, let r = route(item.id), let info = await r.library.clipInfo(r.local) {
+                    reportClipInfo[item.id] = info
+                    model = info.model
+                }
                 videoItems.append((item, model.isEmpty ? (camera(of: item.id) ?? "未知") : model))
             }
             let rolls = RollStore.shared.assign(videoItems)
+            let reportItems = Dictionary(uniqueKeysWithValues: picked.map { ($0.id, $0) })
+            guard journal.update(deliveryToken, { batch in
+                for i in batch.files.indices {
+                    guard let raw = batch.files[i].id.split(separator: "|").last, let id = UInt32(raw),
+                          let item = reportItems[id], item.kind == .video else { continue }
+                    batch.files[i].roll = rolls[item.id]
+                    if let info = reportClipInfo[item.id] {
+                        batch.files[i].startTimecode = info.timecode.isEmpty ? nil : info.timecode
+                        batch.files[i].endTimecode = info.endTimecode
+                        batch.files[i].timecodeRate = info.timecodeRate.isEmpty ? info.formatFps : info.timecodeRate
+                        batch.files[i].resolution = info.width > 0 && info.height > 0 ? "\(info.width)×\(info.height)" : nil
+                        batch.files[i].frameRate = info.formatFps.isEmpty ? nil : info.formatFps
+                        batch.files[i].codec = info.codec.isEmpty ? nil : info.codec
+                        batch.files[i].durationSeconds = info.duration
+                    }
+                }
+            }) else {
+                errorMessage = journal.persistenceError; progress = nil; importTask = nil
+                return
+            }
             for r in Set(rolls.values).sorted() {
                 log.add("卷号 \(r)：\(rolls.filter { $0.value == r }.count) 个片段")
             }
 
             for job in jobs {
                 if Task.isCancelled || stop { break }
-                // 新建 / 打开会话，文件直接下载到它的 Capture 文件夹（C1 会自动显示，不用再导入）。
-                var captureDir: URL?
-                var sessionName = ""
+                // Plan the final folder on disk. Capture One opens only at handoff.
+                var target: CaptureOneBridge.SessionTarget?
                 var event = job.event
-                if mode == .newSession, let session = job.session {
-                    status = "正在准备 Capture One 会话…"
-                    do {
-                        switch session {
-                        case .new(let name):
-                            sessionName = name
-                            rememberEvent(job.event)
-                            captureDir = try await CaptureOneBridge.createSession(name: name, in: sessionsFolder)
-                        case .existing(let file):
-                            sessionName = file.deletingPathExtension().lastPathComponent
-                            event = event ?? Self.eventName(of: sessionName)
-                            captureDir = try await CaptureOneBridge.openSession(file)
-                        case .resolved(let dir, let name):
-                            sessionName = name
-                            captureDir = dir
-                        }
-                        log.add("会话「\(sessionName)」，Capture 文件夹：\(captureDir!.path)")
-                    } catch {
-                        // C1 用不了时仍然建同样的文件夹结构，文件不会丢。
-                        let dir = sessionsFolder.appending(path: sessionName.isEmpty ? "未命名" : sessionName, directoryHint: .isDirectory)
-                            .appending(path: "Capture", directoryHint: .isDirectory)
-                        captureDir = dir
-                        log.add("新建会话失败：\(error.localizedDescription)，改存到 \(dir.path)")
-                        errorMessage = "Capture One 新建会话失败：\(error.localizedDescription)\n照片将先存储至 \(dir.path)。"
+                if mode == .newSession, job.files.contains(where: { $0.kind != .video }), let session = job.session {
+                    switch session {
+                    case .new(let name):
+                        rememberEvent(job.event)
+                        let database = sessionsFolder.appending(path: name, directoryHint: .isDirectory).appending(path: name + ".cosessiondb")
+                        target = .init(database: database)
+                    case .existing(let file):
+                        target = .init(database: file)
+                        event = event ?? Self.eventName(of: file.deletingPathExtension().lastPathComponent)
+                    case .resolved(let existing):
+                        target = existing
                     }
-                    status = ""
-                    refreshCaptureOne()
+                    if let target {
+                        opened[job.key] = ResumeSession(captureOneTarget: target, name: target.name, event: event)
+                        log.add("会话「\(target.name)」，Capture 文件夹：\(target.captureDir.path)")
+                    }
                 }
-                if let captureDir {
-                    opened[job.key] = ResumeSession(captureDir: captureDir, name: sessionName, event: event)
-                    sessionNames.append(sessionName)
-                }
-                // 每个文件交给它自己的来源去下载 / 复制。
-                @MainActor func importer(for item: CameraContentItem) -> FileImporter? {
-                    guard let lib = route(item.id)?.library else { return nil }
-                    return FileImporter(library: lib, root: root, camera: camera(of: item.id), backupRoot: backupRoot,
-                                        event: event, scene: job.scene, sourceFolder: sourceFolder(for: item, in: folders),
-                                        backupSubfolder: item.kind == .video ? "视频" : nil,
-                                        checkSource: deleteRequested)
-                }
-                // 视频的文件夹（不含按来源分的那层），MHL 写在这里。
+                let captureDir = target?.captureDir
+                let layout = job.plan?.organization ?? organization
+                let groupName: String? = job.folder ?? {
+                    switch job.session {
+                    case .new(let name): name
+                    case .resolved(let target): target.name
+                    case .existing(let url): url.deletingPathExtension().lastPathComponent
+                    case nil: nil
+                    }
+                }()
+                // 照片、视频分别套用整理规则，会话只记录它们属于同一次拍摄。
                 @MainActor func videoFolder(_ item: CameraContentItem) -> URL {
-                    if let f = job.folder { return videoRoot.appending(path: f, directoryHint: .isDirectory) }
-                    return FileImporter.videoFolder(for: item, root: videoRoot, event: event, scene: job.scene, roll: rolls[item.id])
+                    layout.folder(for: item, root: videoRoot, sessionName: groupName,
+                                  event: event, scene: job.scene, roll: rolls[item.id])
                 }
                 @MainActor func destDir(_ item: CameraContentItem) -> URL {
                     if item.kind == .video { return sub(videoFolder(item), item) }
-                    let photos = job.folder.map { root.appending(path: $0, directoryHint: .isDirectory) }
-                        ?? FileImporter.folder(for: item, root: root, event: event, scene: job.scene)
+                    let photos = layout.folder(for: item, root: root, sessionName: groupName,
+                                               event: event, scene: job.scene)
                     return sub(captureDir ?? photos, item)
+                }
+                // 每个文件交给自己的来源；默认备份镜像实际目录，并按照片、视频分开。
+                @MainActor func importer(for item: CameraContentItem) -> FileImporter? {
+                    guard let lib = route(item.id)?.library else { return nil }
+                    let backupDirectory = backupRoot.flatMap { backup in
+                        layout.mirrorBackup ? ImportOrganization.mirroredBackup(root: backup, primaryFolder: destDir(item),
+                            primaryRoot: item.kind == .video ? videoRoot : (captureDir == nil ? root : sessionsFolder),
+                            video: item.kind == .video) : nil
+                    }
+                    return FileImporter(library: lib, root: root, camera: camera(of: item.id), backupRoot: nil,
+                                        event: event, scene: job.scene, sourceFolder: sourceFolder(for: item, in: folders),
+                                        backupSubfolder: item.kind == .video ? "视频" : nil,
+                                        backupDirectory: backupDirectory, checkSource: deleteRequested)
+                }
+                @MainActor func assetRecord(url: URL, hash: UInt64, backup: URL?, main: URL,
+                                            item: CameraContentItem, kind: ImportedAssetRecord.Kind,
+                                            sourceCompared: Bool = false) -> ImportedAssetRecord {
+                    let backupBase = requestedBackupRoot ?? URL(filePath: "/__minidit_backup__")
+                    var planned: URL
+                    if layout.mirrorBackup {
+                        planned = ImportOrganization.mirroredBackup(root: backupBase, primaryFolder: destDir(item),
+                            primaryRoot: item.kind == .video ? videoRoot : (captureDir == nil ? root : sessionsFolder), video: item.kind == .video)
+                    } else {
+                        let relative = NameTemplate.render(layout.backupTemplate, allowsFolders: false, day: Self.dayKey(item), event: event, scene: job.scene)
+                        planned = backupBase.appending(path: relative, directoryHint: .isDirectory)
+                        if item.kind == .video { planned.append(path: "视频") }
+                        if let name = sourceFolder(for: item, in: folders) { planned.append(path: name) }
+                    }
+                    let mainDirectory = main.deletingLastPathComponent().path + "/"
+                    let relativeAsset = url.path.hasPrefix(mainDirectory) ? String(url.path.dropFirst(mainDirectory.count)) : url.lastPathComponent
+                    let target = backup ?? planned.appending(path: relativeAsset)
+                    let prefix = backupBase.standardizedFileURL.path + "/"
+                    let relative = target.path.hasPrefix(prefix) ? String(target.path.dropFirst(prefix.count))
+                        : "\(deliveryToken.uuidString)/\(item.id)/\(relativeAsset)"
+                    var copies = [ImportedCopyRecord(role: .working, path: url.path, verifiedAt: Date(),
+                                                     evidence: sourceCompared ? .sourceComparison : .localReadback)]
+                    if let backup { copies.append(.init(role: .backup, path: backup.path, verifiedAt: Date(), evidence: .localReadback)) }
+                    return .init(kind: kind, size: FileImporter.fileSize(url) ?? 0, xxh64: XXH64.hex(hash),
+                                 backupRelativePath: relative, copies: copies)
+                }
+                @MainActor func checkpoint(_ item: CameraContentItem, assets: [ImportedAssetRecord], proxyOnly: Bool = false,
+                                           message: String? = nil) {
+                    if !journal.update(deliveryToken, { batch in
+                        if let i = batch.files.firstIndex(where: { $0.id == "\(job.key)|\(item.id)" }) {
+                            batch.files[i].state = .saved
+                            if batch.files[i].importedAt == nil { batch.files[i].importedAt = Date() }
+                            batch.files[i].assets = assets
+                            batch.files[i].proxyOnly = proxyOnly
+                            batch.files[i].message = message
+                        }
+                    }) {
+                        errorMessage = journal.persistenceError
+                        importTask?.cancel()
+                    }
                 }
                 // 导入到 LrC：收藏夹名就是这一组的名字；RAW 先导，同名的 JPG/HIF 叠到它下面。
                 var collection: String?
@@ -261,7 +418,7 @@ extension AppModel {
                     collection = name
                     lightroomCollections.append(name)
                     rememberEvent(job.event)
-                    opened[job.key] = ResumeSession(captureDir: nil, name: name, event: event)
+                    opened[job.key] = ResumeSession(captureOneTarget: nil, name: name, event: event)
                 }
                 // RAW + JPG/HIF 成对时要叠在一起，插件得先有 RAW 才能叠。下载顺序不一定是 RAW 在前，
                 // 所以 RAW 还没导完的 JPG/HIF 先留着，等 RAW 交出去后紧跟着交。
@@ -279,6 +436,7 @@ extension AppModel {
                         firstInCollection = false
                         if !wokeLightroom { LightroomBridge.wake(); wokeLightroom = true }
                     } catch {
+                        updateDelivery("Lightroom Classic", message: "部分文件未能发送：" + error.localizedDescription, failed: true, id: deliveryToken)
                         log.add("交给 Lightroom Classic 失败 \(photos.map(\.url.lastPathComponent).joined(separator: "、"))：\(error.localizedDescription)")
                     }
                 }
@@ -288,25 +446,29 @@ extension AppModel {
                 // 交给 Final Cut Pro 的片段，按视频文件夹分（一个文件夹一个事件）。
                 var fcpClips: [URL: [FCPXMLWriter.Clip]] = [:]
                 for item in job.files {
-                    if Task.isCancelled { break }
+                    if Task.isCancelled || journal.persistenceError != nil { break }
                     progress?.current = "导入 \(item.filename)"
                     progress?.resumingFrom = nil
                     let dir = destDir(item)
                     let base = progress?.bytesDone ?? 0
+                    let throttle = ProgressThrottle()
                     guard let importer = importer(for: item) else {
                         // 来源已经关掉 / 拔掉了。
                         progress?.failed.append(item.filename)
+                        _ = journal.update(deliveryToken) { b in if let i = b.files.firstIndex(where: { $0.id == "\(job.key)|\(item.id)" }) { b.files[i].state = .failed; b.files[i].message = "来源已关闭" } }
                         log.add("导入失败 \(item.filename)：来源已关闭")
                         continue
                     }
                     // Wi-Fi「视频只导代理」：只下代理和 XML，原片留在卡上，不记进导入记录（还算没导）。
                     if importsProxyOnly(item) {
                         do {
+                            var issues: [String] = []
                             guard let r = try await importer.importProxyOnly(localItem(item), into: dir, progress: { d in
+                                guard throttle.allow() else { return }
                                 Task { @MainActor in
                                     if let cur = self.progress?.bytesDone, base + d > cur { self.progress?.bytesDone = base + d }
                                 }
-                            }, stage: { self.progress?.current = $0 }) else {
+                            }, stage: { self.progress?.current = $0 }, issue: { issues.append($0) }) else {
                                 log.add("只导代理：\(item.filename) 在相机上没有代理，跳过")
                                 progress?.failed.append(item.filename + "（无代理）")
                                 continue
@@ -319,6 +481,13 @@ extension AppModel {
                                                                                       action: c.alreadyThere ? .verified : .original))
                                 if let b = c.backup { mhlBackup.append(.init(url: b, xxh64: c.xxh64, action: .original)) }
                             }
+                            let proxyAssets = ([r.proxy] + (r.xml.map { [$0] } ?? [])).map { c in
+                                assetRecord(url: c.url, hash: c.xxh64, backup: c.backup,
+                                            main: r.proxy.url.deletingLastPathComponent().deletingLastPathComponent().appending(path: item.filename),
+                                            item: item, kind: c.url.pathExtension.lowercased() == "xml" ? .metadata : .proxy)
+                            }
+                            checkpoint(item, assets: proxyAssets, proxyOnly: true, message: issues.isEmpty ? nil : issues.joined(separator: "；"))
+                            await backupImportedFile(batchID: deliveryToken, fileID: "\(job.key)|\(item.id)", run: plan.runBackups)
                             ProxyOnlyStore.shared.record(item, camera: camera(of: item.id), proxy: r.proxy.url)
                             proxyOnlyDone += 1
                             log.add("只导代理：\(item.filename) → \(r.proxy.url.path)")
@@ -326,6 +495,9 @@ extension AppModel {
                         } catch is CancellationError {
                             break
                         } catch {
+                            _ = journal.update(deliveryToken) { b in
+                                if let i = b.files.firstIndex(where: { $0.id == "\(job.key)|\(item.id)" }) { b.files[i].state = .failed; b.files[i].message = error.localizedDescription }
+                            }
                             if error is PTPIPTransportError { progress?.failed.append(item.filename); lostDuringImport = true; stop = true; break }
                             log.add("只导代理失败 \(item.filename)：\(error.localizedDescription)")
                             progress?.failed.append(item.filename)
@@ -334,17 +506,41 @@ extension AppModel {
                     }
                     do {
                         let r = try await importer.importItem(localItem(item), into: dir, progress: { d in
+                            guard throttle.allow() else { return }
                             Task { @MainActor in
                                 if let cur = self.progress?.bytesDone, base + d > cur { self.progress?.bytesDone = base + d }
                             }
                         }, stage: { self.progress?.current = $0 }, skipped: { self.progress?.credit($0) },
-                           resumed: { self.progress?.resumingFrom = $0; self.progress?.resumedFiles += 1 })
-                        progress?.bytesDone = base + importer.weight(of: item)
+                           resumed: { self.progress?.resumingFrom = $0; self.progress?.resumedFiles += 1 },
+                           primarySaved: { url, hash, matchesSource in
+                            checkpoint(item, assets: [assetRecord(url: url, hash: hash, backup: nil, main: url,
+                                item: item, kind: .original, sourceCompared: matchesSource)],
+                                message: item.kind == .video ? "附属文件整理尚未完成" : nil)
+                            ImportHistory.shared.record([.init(item: item, url: url, xxh64: hash, backup: nil)], camera: camera(of: item.id))
+                            if let project = job.appSession { recordSessionFiles([url], in: project) }
+                           })
+                        let actual = importer.weight(of: item, at: r.outcome.url)
+                        let estimate = transferSize(item) * weight
+                        // 先读、再赋值：`progress?.x = ... progress?.x ...` 会让左侧的独占访问
+                        // 和右侧的 getter 冲突（Swift exclusivity，SIGABRT）。
+                        if actual > estimate {
+                            let total = progress?.bytesTotal ?? 0
+                            progress?.bytesTotal = total + (actual - estimate)
+                        }
+                        let doneNow = progress?.bytesDone ?? 0
+                        progress?.bytesDone = max(doneNow, base + actual)
                         let isVideo = item.kind == .video
                         switch r.outcome {
                         case .alreadyThere: progress?.skipped += 1
                         case .reused(let u): progress?.reused += 1; if !isVideo { saved.append(u) }
                         case .downloaded(let u): progress?.done += 1; if !isVideo { saved.append(u) }
+                        }
+                        if let target, !isVideo {
+                            if case .alreadyThere = r.outcome {
+                                if captureOneFiles[target] == nil { captureOneFiles[target] = [] }
+                            } else {
+                                captureOneFiles[target, default: []].append(r.outcome.url)
+                            }
                         }
                         var backupURL: URL?
                         switch r.backup {
@@ -352,7 +548,7 @@ extension AppModel {
                         case .done(let u): progress?.backedUp += 1; backupURL = u
                         case .failed: progress?.backupFailed.append(item.filename)
                         }
-                        if deleteRequested, r.matchesSource, item.kind != .video, !wantsBackup || backupURL != nil {
+                        if deleteRequested, r.matchesSource, item.kind != .video {
                             deletable.append(item.id)
                         }
                         done.append(.init(item: item, url: r.outcome.url, xxh64: r.xxh64, backup: backupURL))
@@ -361,18 +557,35 @@ extension AppModel {
                         let entry = MHLWriter.Entry(url: r.outcome.url, xxh64: r.xxh64, action: there ? .verified : .original)
                         if isVideo { mhlVideo[videoFolder(item), default: []].append(entry) } else { mhlPrimary.append(entry) }
                         if let backupURL { mhlBackup.append(.init(url: backupURL, xxh64: r.xxh64, action: .original)) }
+                        var journalAssets = [assetRecord(url: r.outcome.url, hash: r.xxh64, backup: backupURL,
+                                                         main: r.outcome.url, item: item, kind: .original, sourceCompared: r.matchesSource)]
+                        var journalIssues: [String] = []
+                        if case .failed(let error) = r.backup { journalIssues.append("备份未完成：" + error) }
+                        checkpoint(item, assets: journalAssets, message: isVideo ? "附属文件整理尚未完成" : journalIssues.first)
                         if isVideo {
                             // XML 和代理跟着片段走，一样校验、备份、写进 MHL。
                             var proxy: URL?
                             for c in await importer.importSidecars(of: localItem(item), clip: r.outcome.url, backupClip: backupURL,
-                                                                   proxies: proxies, stage: { self.progress?.current = $0 }) {
+                                                                   proxies: proxies, stage: { self.progress?.current = $0 }, issue: { journalIssues.append($0) }) {
                                 mhlVideo[videoFolder(item), default: []].append(.init(url: c.url, xxh64: c.xxh64,
                                                                                       action: c.alreadyThere ? .verified : .original))
                                 if let b = c.backup { mhlBackup.append(.init(url: b, xxh64: c.xxh64, action: .original)) }
+                                journalAssets.append(assetRecord(url: c.url, hash: c.xxh64, backup: c.backup,
+                                    main: r.outcome.url, item: item, kind: c.url.pathExtension.lowercased() == "xml" ? .metadata : .proxy))
                                 if c.url.deletingLastPathComponent().lastPathComponent == "Proxy" { proxy = c.url }
                             }
                             // 已经在电脑上的（之前导过）不再交给 FCP，免得事件里出现重复的片段。
                             if !there { fcpClips[videoFolder(item), default: []].append(.init(url: r.outcome.url, proxy: proxy, roll: rolls[item.id])) }
+                        }
+                        if Task.isCancelled, isVideo { journalIssues.append("附属文件整理已中断，部分文件可能尚未保存。") }
+                        checkpoint(item, assets: journalAssets, message: journalIssues.isEmpty ? nil : journalIssues.joined(separator: "；"))
+                        await backupImportedFile(batchID: deliveryToken, fileID: "\(job.key)|\(item.id)", run: plan.runBackups)
+                        if let file = journal.batches.first(where: { $0.id == deliveryToken })?.files.first(where: { $0.id == "\(job.key)|\(item.id)" }),
+                           let original = file.assets.first(where: { $0.kind == .original }),
+                           let index = done.lastIndex(where: { $0.item.id == item.id }) {
+                            let copies = original.copies.filter { $0.role == .backup && $0.verifiedAt != nil }
+                            done[index].backup = copies.first.map { URL(filePath: $0.path) }
+                            done[index].backups = copies.map { URL(filePath: $0.path) }
                         }
                         if mode == .lightroom, !isVideo {
                             let url = r.outcome.url
@@ -392,7 +605,10 @@ extension AppModel {
                     } catch is CancellationError {
                         break
                     } catch {
-                        if error is PTPIPTransportError { progress?.failed.append(item.filename); lostDuringImport = true; stop = true; break }
+                        _ = journal.update(deliveryToken) { b in
+                                if let i = b.files.firstIndex(where: { $0.id == "\(job.key)|\(item.id)" }) { b.files[i].state = .failed; b.files[i].message = error.localizedDescription }
+                            }
+                            if error is PTPIPTransportError { progress?.failed.append(item.filename); lostDuringImport = true; stop = true; break }
                         log.add("导入失败 \(item.filename)：\(error.localizedDescription)")
                         progress?.failed.append(item.filename)
                         // 连着几个文件都失败，多半是相机在关机 / 断开（关机前会先对所有请求回「不支持」），
@@ -415,48 +631,17 @@ extension AppModel {
                     do { reports.append(try MHLWriter.append(root: folder, entries: entries)) }
                     catch { log.add("写视频校验清单失败：\(error.localizedDescription)") }
                 }
-                // 交给 Final Cut Pro / DaVinci Resolve：事件（媒体夹）名用视频文件夹相对保存位置的路径（「11.04-公园」「11.04-公园 · a7 V」）。
-                if sendToFCP || sendToResolve, !fcpClips.isEmpty {
+                if plan.sendToFCP || plan.sendToResolve || plan.sendToPremiere, !fcpClips.isEmpty {
                     let base = videoRoot.standardizedFileURL.pathComponents
-                    let events = fcpClips.sorted { $0.key.path < $1.key.path }.map { folder, clips in
+                    videoEvents += fcpClips.sorted { $0.key.path < $1.key.path }.map { folder, clips in
                         let parts = folder.standardizedFileURL.pathComponents
                         let rel = parts.starts(with: base) ? Array(parts.dropFirst(base.count)) : [folder.lastPathComponent]
-                        return FCPXMLWriter.Event(name: rel.isEmpty ? folder.lastPathComponent : rel.joined(separator: " · "), clips: clips)
+                        return FCPXMLWriter.Event(name: rel.isEmpty ? folder.lastPathComponent : rel.joined(separator: " · "), clips: clips,
+                            uid: FCPXMLWriter.stableUID((job.appSession?.uuidString ?? "") + "|" + folder.path))
                     }
-                    if sendToFCP {
-                        do {
-                            if let u = try FCPXMLWriter.send(events, logProcessing: fcpLogProcessing) { log.add("交给 Final Cut Pro：\(fcpClips.values.joined().count) 个片段，\(u.path)") }
-                            else { log.add("未找到 Final Cut Pro，未交给 FCP") }
-                        } catch { log.add("写 FCPXML 失败：\(error.localizedDescription)") }
-                    }
-                    if sendToResolve {
-                        // 不挡着导入收尾：Resolve 可能要先启动。
-                        Task {
-                            do {
-                                let r = try await ResolveBridge.send(events, setColorSpace: self.resolveColorSpace)
-                                self.log.add("加入 DaVinci Resolve 项目“\(r.project)”：导入 \(r.imported) 个片段，链接代理 \(r.proxies) 个"
-                                             + (r.colored > 0 ? "，设置输入色彩空间 \(r.colored) 个" : "")
-                                             + (r.skipped > 0 ? "，\(r.skipped) 个已在媒体夹中" : ""))
-                                if r.unmanaged > 0 {
-                                    self.log.add("DaVinci Resolve 项目“\(r.project)”未开启色彩管理，\(r.unmanaged) 个 Log / HLG 片段未设置输入色彩空间")
-                                    Notifier.shared.post(id: "resolve", title: "已加入 DaVinci Resolve，未设置色彩空间",
-                                                         body: "项目“\(r.project)”未开启色彩管理，\(r.unmanaged) 个 Log / HLG 片段需在 Resolve 中手动设置。", info: [:])
-                                }
-                            } catch {
-                                self.log.add("加入 DaVinci Resolve 失败：\(error.localizedDescription)")
-                                Notifier.shared.post(id: "resolve", title: "未能加入 DaVinci Resolve", body: error.localizedDescription, info: [:])
-                            }
-                        }
-                    }
-                }
-                // 导入报告：ASC MHL 清单。会话模式写在 Capture 文件夹里（C1 自己的 CaptureOne/ 子文件夹不算），其他模式写在保存位置根目录。
-                if !mhlPrimary.isEmpty {
-                    do {
-                        reports.append(try MHLWriter.append(root: captureDir ?? root, entries: mhlPrimary,
-                                                            ignore: captureDir != nil ? ["CaptureOne", "CaptureOne/"] : []))
-                    } catch { log.add("写校验清单失败：\(error.localizedDescription)") }
                 }
             }
+
             // 导入记录按机身分开记（读卡器的没有机身 ID）。
             for (cam, entries) in Dictionary(grouping: done, by: { camera(of: $0.item.id) }) {
                 ImportHistory.shared.record(entries, camera: cam)
@@ -467,21 +652,40 @@ extension AppModel {
                 let ids = Set(job.files.map(\.id))
                 recordSessionFiles(done.filter { ids.contains($0.item.id) }.map(\.url), in: sid)
             }
-            if let backupRoot, !mhlBackup.isEmpty {
-                do { reports.append(try MHLWriter.append(root: backupRoot, entries: mhlBackup)) }
-                catch { log.add("写备份盘校验清单失败：\(error.localizedDescription)") }
+            if let batch = journal.batches.first(where: { $0.id == deliveryToken }) {
+                for target in batch.targets {
+                    let entries = batch.files.flatMap(\.assets).compactMap { asset -> MHLWriter.Entry? in
+                        guard let hash = asset.xxh64.flatMap({ UInt64($0, radix: 16) }),
+                              let copy = asset.copies.last(where: { $0.role == .backup && $0.targetID == target.id && $0.verifiedAt != nil }) else { return nil }
+                        return .init(url: URL(filePath: copy.path), xxh64: hash, action: .verified)
+                    }
+                    guard !entries.isEmpty else { continue }
+                    do {
+                        guard target.availability == .available else { throw BackupRepair.Failure.targetUnavailable }
+                        reports.append(try MHLWriter.append(root: target.root, entries: entries))
+                    } catch {
+                        progress?.backupFailed.append(target.name + "（校验清单）")
+                        log.add("写备份清单失败 \(target.name)：\(error.localizedDescription)")
+                        _ = journal.update(deliveryToken) { b in
+                            if b.backupReportErrors == nil { b.backupReportErrors = [:] }
+                            b.backupReportErrors?[target.id.uuidString] = error.localizedDescription
+                        }
+                    }
+                }
             }
             for r in reports { log.add("校验清单：\(r.path)") }
             // 没导完的文件里，已经传了一部分、留着续传的有多少。
             let finishedIDs = Set(done.map(\.item.id))
             var savedBytes: UInt64 = 0
             for job in jobs {
-                var dir = opened[job.key]?.captureDir
-                if dir == nil, case .resolved(let d, _) = job.session { dir = d }
+                var dir = opened[job.key]?.captureOneTarget?.captureDir
+                if dir == nil, case .resolved(let target) = job.session { dir = target.captureDir }
                 for f in job.files where !finishedIDs.contains(f.id) {
-                    let folder = f.kind == .video ? FileImporter.videoFolder(for: f, root: videoRoot, event: job.event, scene: job.scene,
-                                                                             roll: RollStore.shared.roll(of: f))
-                        : dir ?? FileImporter.folder(for: f, root: root, event: job.event, scene: job.scene)
+                    let layout = job.plan?.organization ?? organization
+                    let planned = layout.folder(for: f, root: f.kind == .video ? videoRoot : root,
+                                                sessionName: job.folder, event: job.event, scene: job.scene,
+                                                roll: RollStore.shared.roll(of: f))
+                    let folder = f.kind == .video ? planned : dir ?? planned
                     savedBytes += FileImporter.savedPartBytes(f, in: sub(folder, f))
                 }
             }
@@ -493,6 +697,15 @@ extension AppModel {
                 // 只删读卡器来源上的；Wi-Fi 相机不能删。
                 var n = 0
                 for h in deletable {
+                    if Task.isCancelled { break }
+                    if wantsBackup {
+                        guard plan.runBackups,
+                              let batch = journal.batches.first(where: { $0.id == deliveryToken }), !batch.targets.isEmpty,
+                              let file = batch.files.first(where: { $0.id.hasSuffix("|\(h)") }) else { continue }
+                        let required = batch.targets.filter(\.required)
+                        let needed = required.isEmpty ? batch.targets : required
+                        guard file.assets.allSatisfy({ asset in needed.allSatisfy { asset.hasBackup(at: $0) && asset.error(for: $0) == nil } }) else { continue }
+                    }
                     guard let r = route(h), let card = r.library as? LocalCardLibrary else { continue }
                     if (try? card.root.resourceValues(forKeys: [.volumeIsReadOnlyKey]).volumeIsReadOnly) ?? false {
                         cardReadOnly = true
@@ -507,6 +720,7 @@ extension AppModel {
                 deleted = n
                 cardFiles = picked.filter { route($0.id)?.library is LocalCardLibrary }.count
             }
+            updateBackupProgress(deliveryToken, final: true)
             let wasLost = lostDuringImport || (progress.map { !$0.failed.isEmpty } ?? false) && offline
             var summary = done.isEmpty && proxyOnlyDone > 0 ? "导入 \(proxyOnlyDone) 个片段的代理"
                 : "导入 \(done.count) 个文件" + (proxyOnlyDone > 0 ? "、\(proxyOnlyDone) 个片段的代理" : "")
@@ -514,21 +728,26 @@ extension AppModel {
             if let p = progress, p.skipped > 0 { summary += "，\(p.skipped) 个已存在于目标文件夹" }
             if let p = progress, !p.failed.isEmpty { summary += "，\(p.failed.count) 个失败" }
             if let deleted { summary += "，已从存储卡删除 \(deleted) 个" }
-            if let p = progress, backupRoot != nil {
-                summary += "，备份 \(p.backedUp) 个" + (p.backupFailed.isEmpty ? "" : "（\(p.backupFailed.count) 个备份失败）")
+            if !importBackupProgress.isEmpty {
+                summary += "，" + importBackupProgress.map { "\($0.target.name)：\($0.verified)/\($0.total) 个文件已校验" }.joined(separator: "；")
             } else {
                 summary += "，未备份"
             }
             if Task.isCancelled { summary += "（已取消）" }
             lastBatch = saved
+            let sessionNames = Set(captureOneFiles.keys.map(\.name)).sorted()
             let sessionText = sessionNames.isEmpty ? nil : sessionNames.joined(separator: "”“")
             let lightroomText = lightroomCollections.isEmpty ? nil : lightroomCollections.joined(separator: "”“")
             var openedText: String?
+            var c1Failed = false
             if mode == .newSession {
-                if let sessionText { summary += "，已存入会话“\(sessionText)”" }
-                if !saved.isEmpty { for n in Set(sessionNames) { CaptureOneBridge.refreshCapture(session: n) } }
-                if applyCreativeLook, !saved.isEmpty, let t = await applyLooks(saved, sessions: Array(Set(sessionNames))) { summary += t }
-                if !saved.isEmpty, let t = await applyRatings(saved, sessions: Array(Set(sessionNames))) { summary += t }
+                if let sessionText { summary += "，已存入会话“\(sessionText)”的 Capture 文件夹" }
+                if !Task.isCancelled, !wasLost, !captureOneFiles.isEmpty {
+                    let handoff = await finishCaptureOneSessions(captureOneFiles)
+                    summary += handoff.message
+                    pendingCaptureOneSessions = handoff.failed
+                    c1Failed = !handoff.failed.isEmpty
+                }
             } else if mode == .lightroom {
                 if !lightroomJobs.isEmpty {
                     summary += "，已交由 Lightroom Classic 导入" + (lightroomText.map { "（收藏夹“\($0)”）" } ?? "")
@@ -540,12 +759,17 @@ extension AppModel {
                 openedText = openFolder(folder, in: openAfterImport)
                 if let openedText { summary += openedText }
             }
-            var c1Failed = false
             if mode != .newSession && mode != .off && mode != .lightroom && !saved.isEmpty { c1Failed = summary.contains("Capture One 导入失败") }
             lastSummary = summary
             if wasLost {
                 interrupted = Interrupted(done: done.count, total: picked.count, sessions: mode.namesGroups ? opened : [:],
-                                          grouping: grouping, savedBytes: savedBytes)
+                                          grouping: grouping, savedBytes: savedBytes,
+                                          jobs: jobs.compactMap { original in
+                                              var job = original
+                                              job.files.removeAll { finishedIDs.contains($0.id) }
+                                              if let resumed = opened[job.key] { job.session = resumed.session }
+                                              return job.files.isEmpty ? nil : job
+                                          }, captureOneFiles: captureOneFiles)
             } else {
                 lastResult = ImportResult(files: done.count, reused: progress?.reused ?? 0, failed: progress?.failed.count ?? 0,
                                           session: mode == .newSession ? sessionText : nil,
@@ -556,16 +780,44 @@ extension AppModel {
                                           deleteFailed: deleteFailed, cardReadOnly: cardReadOnly,
                                           resumed: progress?.resumedFiles ?? 0, savedBytes: savedBytes, reports: reports,
                                           lightroom: mode == .lightroom ? lightroomText : nil, opened: openedText,
-                                          proxyOnly: proxyOnlyDone)
+                                          proxyOnly: proxyOnlyDone, hasWiFiSource: hasWiFiSource)
             }
             log.add("导入结束：\(summary)")
             // 全部文件都导好的拍摄取消选中。
             let doneIDs = Set(done.map(\.item.id))
             grid.remove(pickedShots.filter { id in shots[id].map { importFiles(of: $0).allSatisfy(doneIDs.contains) } ?? false })
+            var videoDeliveries: [VideoDelivery] = []
+            do { videoDeliveries = try await makeVideoDeliveries(events: videoEvents, batchID: deliveryToken, plan: plan) }
+            catch { log.add("保存后期发送计划失败：" + error.localizedDescription); errorMessage = error.localizedDescription }
+            if Task.isCancelled {
+                videoDeliveries = videoDeliveries.map { var record = $0; record.state = .failed; record.message = "导入已取消，未向后期软件发送；可使用已保存的文件重试。"; return record }
+            }
+            let finalized = journal.update(deliveryToken) { batch in
+                batch.videoDeliveries = videoDeliveries.isEmpty ? nil : videoDeliveries
+                for record in videoDeliveries { batch.delivery[record.software.name] = record.message }
+                batch.finishedAt = Date()
+                batch.state = wasLost || journal.persistenceError != nil ? .interrupted : Task.isCancelled ? .cancelled : .completed
+                batch.reports = reports.map(\.path)
+                if mode == .newSession, !captureOneFiles.isEmpty {
+                    if c1Failed { batch.delivery["Capture One"] = "部分会话未能打开。照片已保存至本地。" }
+                    else if wasLost || Task.isCancelled { batch.delivery["Capture One"] = "照片已保存至本地，等待整批下载完成。" }
+                    else { batch.delivery["Capture One"] = "下载完成后已打开会话。" }
+                } else if mode != .off && mode != .lightroom && !saved.isEmpty {
+                    batch.delivery["Capture One"] = c1Failed ? "软件接收失败。文件已保存在本地。" : "文件已发送，请在 Capture One 中确认接收。"
+                }
+                for i in batch.files.indices where batch.files[i].state == .pending {
+                    batch.files[i].state = .failed
+                    batch.files[i].message = batch.files[i].message ?? (wasLost ? "来源连接中断，文件未保存" : Task.isCancelled ? "导入已取消，文件未保存" : "文件未完成导入")
+                }
+            }
+            if let error = journal.persistenceError { errorMessage = error }
+            updateBackupProgress(deliveryToken)
+            if lastResult != nil { lastResult?.backupTargets = importBackupProgress }
             progress = nil
             refreshCopies()
             rebuild()
             importTask = nil
+            if finalized { queueVideoDeliveries(batchID: deliveryToken) }
             if autoRunning { autoImportFinished() }
             // 删了卡上的文件：重新列一遍卡。
             if let deleted, deleted > 0 { await loadAll(restoring: selectedKeys(), days: shownDays) }
@@ -615,25 +867,20 @@ extension AppModel {
         return t.isEmpty ? nil : t
     }
 
-    /// 中断后继续：导到原来的会话，不再问名字。有的分组上次还没来得及建会话时，再问一次（已建好的那些不用再填）。
+    /// 续传沿用原任务的项目和路径，不使用此时侧栏里选中的其他项目。
     func continueImport() {
         guard !sourcesOffline, let i = interrupted else { return }
-        guard captureOneMode.namesGroups else { startImport(session: nil); return }
-        let groups = importGroups(i.grouping)
-        if !groups.isEmpty, groups.allSatisfy({ i.sessions[$0.id] != nil }) {
-            startImport(jobs: groups.map { g in
-                let r = i.sessions[g.id]!
-                return ImportJob(key: g.id, files: g.files, session: r.session, event: r.event, scene: g.scene)
-            }, grouping: i.grouping)
-        } else {
-            sessionGrouping = i.grouping
-            beginImport(resume: i.sessions)
+        guard !i.jobs.isEmpty else {
+            errorMessage = "此导入缺少项目记录，请选择项目后重新导入。"
+            return
         }
+        startImport(jobs: i.jobs, grouping: i.grouping, captureOneFiles: i.captureOneFiles)
     }
 
     /// 导入完以后看 LrC 插件的回执，更新「已添加 n/N」。LrC 没开时它会被打开，可能要等一会儿。
     func watchLightroom(_ names: [String]) {
         lightroomWatch?.cancel()
+        let deliveryToken = deliveryID
         let total = names.count
         lightroomStatus = "等待 Lightroom Classic 添加 \(total) 个文件…"
         lightroomWatch = Task {
@@ -669,6 +916,7 @@ extension AppModel {
                 log.add("Lightroom Classic 添加失败：" + sum.failures.joined(separator: "；"))
             }
             lightroomStatus = s
+            updateDelivery("Lightroom Classic", message: s, failed: sum.failed > 0, id: deliveryToken)
             log.add(s)
         }
     }
@@ -678,11 +926,48 @@ extension AppModel {
     func dismissInterrupted() { interrupted = nil }
 
     func retryCaptureOne() {
+        guard !retryingCaptureOne, progress == nil else { return }
+        retryingCaptureOne = true
         Task {
-            let r = await sendToCaptureOne(lastBatch, inPlace: captureOneMode == .inPlace)
-            lastSummary = "重新导入 \(lastBatch.count) 个文件" + r
-            lastResult?.c1Failed = r.contains("失败")
+            defer { retryingCaptureOne = false }
+            if !pendingCaptureOneSessions.isEmpty {
+                let handoff = await finishCaptureOneSessions(pendingCaptureOneSessions)
+                pendingCaptureOneSessions = handoff.failed
+                lastSummary = "Capture One" + handoff.message
+                lastResult?.c1Failed = !handoff.failed.isEmpty
+                updateDelivery("Capture One", message: lastSummary ?? "", failed: !handoff.failed.isEmpty, id: deliveryID)
+            } else {
+                let r = await sendToCaptureOne(lastBatch, inPlace: captureOneMode == .inPlace)
+                lastSummary = "重新导入 \(lastBatch.count) 个文件" + r
+                lastResult?.c1Failed = r.contains("失败")
+            }
         }
+    }
+
+    private func finishCaptureOneSessions(_ files: [CaptureOneBridge.SessionTarget: [URL]]) async
+        -> (message: String, failed: [CaptureOneBridge.SessionTarget: [URL]]) {
+        var message = ""
+        var failed: [CaptureOneBridge.SessionTarget: [URL]] = [:]
+        for target in files.keys.sorted(by: { $0.database.path < $1.database.path }) {
+            let photos = files[target, default: []]
+            progress?.current = "正在打开 Capture One 会话…"
+            do {
+                try await CaptureOneBridge.openCompletedSession(target)
+                message += "，已打开 Capture One 会话“\(target.name)”"
+                if applyCreativeLook, !photos.isEmpty {
+                    progress?.current = "正在套用 Capture One 创意外观…"
+                    if let look = await applyLooks(photos, target: target) { message += look }
+                }
+                if let ratings = await applyRatings(photos, target: target) { message += ratings }
+            } catch {
+                failed[target] = photos
+                message += "，Capture One 会话“\(target.name)”未打开"
+                log.add("打开 Capture One 会话失败：\(error.localizedDescription)")
+                if !Task.isCancelled { errorMessage = "照片已保存至 \(target.captureDir.path)。\n\(error.localizedDescription)" }
+            }
+        }
+        refreshCaptureOne()
+        return (message, failed)
     }
 
     private func sendToCaptureOne(_ urls: [URL], inPlace: Bool) async -> String {
@@ -711,24 +996,22 @@ extension AppModel {
 
 extension AppModel {
     /// 按相机里打的星级给 C1 会话里的照片设星级（从下载好的文件开头读）。C1 还没建好变体的隔一会儿再试。
-    func applyRatings(_ saved: [URL], sessions: [String]) async -> String? {
+    func applyRatings(_ saved: [URL], target: CaptureOneBridge.SessionTarget) async -> String? {
         var applied = 0
-        for name in sessions {
-            var pairs: [String: Int] = [:]
-            for u in saved where u.path.contains("/\(name)/Capture/") {
-                guard let r = PhotoRating.read(fileAt: u), r > 0 else { continue }
-                let n = u.deletingPathExtension().lastPathComponent
-                pairs[n] = max(pairs[n] ?? 0, r)
-            }
-            var todo = pairs.map { (variant: $0.key, rating: $0.value) }
-            for attempt in 0..<6 where !todo.isEmpty {
-                if attempt > 0 { try? await Task.sleep(for: .seconds(1.5)) }
-                let done = CaptureOneBridge.applyRatings(session: name, todo)
-                applied += done.count
-                todo = todo.filter { !done.contains($0.variant) }
-            }
-            if !todo.isEmpty { log.add("星级：\(todo.count) 张在 C1 里没找到") }
+        var pairs: [String: Int] = [:]
+        for u in saved {
+            guard let r = PhotoRating.read(fileAt: u), r > 0 else { continue }
+            let n = u.deletingPathExtension().lastPathComponent
+            pairs[n] = max(pairs[n] ?? 0, r)
         }
+        var todo = pairs.map { (variant: $0.key, rating: $0.value) }
+        for attempt in 0..<6 where !todo.isEmpty {
+            if attempt > 0 { try? await Task.sleep(for: .seconds(1.5)) }
+            let done = CaptureOneBridge.applyRatings(session: target.name, collection: target.captureDir.lastPathComponent, todo)
+            applied += done.count
+            todo = todo.filter { !done.contains($0.variant) }
+        }
+        if !todo.isEmpty { log.add("星级：\(todo.count) 张在 C1 里没找到") }
         guard applied > 0 else { return nil }
         log.add("星级：已按相机里的星级设置 \(applied) 张")
         return "，已设置星级 \(applied) 张"
@@ -736,30 +1019,56 @@ extension AppModel {
 
     /// 按创意外观设 C1 的 ICC 配置文件和曲线（只看 RAW：HIF / JPG 已经带着相机的外观）。
     /// C1 刚收到文件时可能还没建好变体，找不到的隔一会儿再试几次。返回加在导入结果后面的说明。
-    func applyLooks(_ saved: [URL], sessions: [String]) async -> String? {
-        let raws = saved.filter { ["ARW", "SR2", "SRF"].contains($0.pathExtension.uppercased()) }
+    func applyLooks(_ saved: [URL], target: CaptureOneBridge.SessionTarget) async -> String? {
+        let raws = Set(saved.filter { ["ARW", "SR2", "SRF"].contains($0.pathExtension.uppercased()) })
         guard !raws.isEmpty else { return nil }
         var applied = 0, unknown = 0, missingProfiles = Set<String>(), notFound = 0
-        for name in sessions {
-            let mine = raws.filter { $0.path.contains("/\(name)/Capture/") }
-            var pairs: [(variant: String, look: String)] = []
-            for u in mine {
-                if let c = CreativeLook.code(ofRaw: u) { pairs.append((u.deletingPathExtension().lastPathComponent, c)) }
-                else { unknown += 1; log.add("创意外观：\(u.lastPathComponent) 读到「\(CreativeLook.raw(u) ?? "无")」，不认识，保持原样") }
-            }
-            for attempt in 0..<6 where !pairs.isEmpty {
-                if attempt > 0 { try? await Task.sleep(for: .seconds(1.5)) }
-                let r = CaptureOneBridge.applyLooks(session: name, pairs)
-                applied += r.applied
-                missingProfiles.formUnion(r.noProfile)
-                pairs = pairs.filter { r.notFound.contains($0.variant) }
-            }
-            notFound += pairs.count
+        let mine = raws.sorted { $0.path < $1.path }
+        var pairs: [(file: URL, look: String)] = []
+        for u in mine {
+            if let c = CreativeLook.code(ofRaw: u) { pairs.append((u, c)) }
+            else { unknown += 1; log.add("创意外观：\(u.lastPathComponent) 读到「\(CreativeLook.raw(u) ?? "无")」，不认识，保持原样") }
         }
-        log.add("创意外观：已设 \(applied) 张" + (missingProfiles.isEmpty ? "" : "，未安装 \(missingProfiles.sorted().joined(separator: "、"))")
+        for attempt in 0..<6 where !pairs.isEmpty {
+            if attempt > 0 {
+                do { try await Task.sleep(for: .seconds(1.5)) } catch { break }
+            }
+            let r = CaptureOneBridge.applyLooks(session: target.name, collection: target.captureDir.lastPathComponent, pairs)
+            if let error = r.scriptError {
+                log.add("创意外观：\(error)")
+                pairs.removeAll()
+                break
+            }
+            applied += r.applied
+            missingProfiles.formUnion(r.noProfile)
+            for failure in r.failures { log.add("创意外观：\(failure)") }
+            if let error = r.refreshError { log.add("创意外观：已套用，Capture One 界面刷新失败：\(error)") }
+            pairs = pairs.filter { r.notFound.contains($0.file.path) }
+        }
+        notFound += pairs.count
+        log.add("创意外观：已确认 \(applied) 张" + (missingProfiles.isEmpty ? "" : "，未安装 \(missingProfiles.sorted().joined(separator: "、"))")
                 + (unknown > 0 ? "，\(unknown) 张不认识" : "") + (notFound > 0 ? "，\(notFound) 张在 C1 里没找到" : ""))
-        var s = "，已按创意外观设置 \(applied) 张"
-        if !missingProfiles.isEmpty { s += "（未安装：\(missingProfiles.sorted().joined(separator: "、"))）" }
-        return applied > 0 || !missingProfiles.isEmpty ? s : nil
+        let unapplied = max(0, raws.count - applied)
+        var summary = applied > 0 ? "，Capture One 已套用创意外观 \(applied) 张" : ""
+        if unapplied > 0 { summary += "，\(unapplied) 张 RAW 未套用创意外观" }
+        if !missingProfiles.isEmpty { summary += "（缺少：\(missingProfiles.sorted().joined(separator: "、"))）" }
+        return summary
+    }
+}
+
+/// 导入进度回调从后台线程每 8 MB 来一次。界面最多每 100 ms 更新一次，
+/// 避免每个数据块都起一个 MainActor Task、触发一次整条进度栏重绘。
+/// 每个文件结束时仍会精确写一次最终值。
+private final class ProgressThrottle: @unchecked Sendable {
+    private let lock = NSLock()
+    private var last: UInt64 = 0
+
+    func allow() -> Bool {
+        let now = DispatchTime.now().uptimeNanoseconds
+        return lock.withLock {
+            guard now &- last >= 100_000_000 else { return false }
+            last = now
+            return true
+        }
     }
 }

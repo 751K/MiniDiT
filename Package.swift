@@ -8,6 +8,7 @@ let package = Package(
         .library(name: "SonyRemoteKit", targets: ["SonyRemoteKit"]),
         .library(name: "MiniDiTCore", targets: ["MiniDiTCore"]),
         .executable(name: "fake-sony-camera", targets: ["fake-sony-camera"]),
+        .executable(name: "minidit", targets: ["minidit"]),
     ],
     targets: [
         // 协议层：PTP/IP 传输 + 索尼 SDIO 命令，iOS 与 macOS 通用。
@@ -22,6 +23,7 @@ let package = Package(
         .testTarget(name: "SonyRemoteKitTests", dependencies: ["SonyRemoteKit", "FakeSonyCamera"]),
         // MiniDiT 里和界面无关的逻辑：拍摄分组、选择、导入记录匹配。
         .target(name: "MiniDiTCore", dependencies: ["SonyRemoteKit"]),
+        .executableTarget(name: "minidit", dependencies: ["MiniDiTCore"]),
         .testTarget(name: "MiniDiTCoreTests", dependencies: ["MiniDiTCore"]),
     ]
 )

@@ -37,7 +37,7 @@ enum MHLWriter {
             let modified = (attrs?[.modificationDate] as? Date) ?? date
             hashes += """
                 <hash>
-                  <path size="\(size)" lastmodificationdate="\(iso(modified))">\(escape(rel))</path>
+                  <path size="\(size)" lastmodificationdate="\(iso(modified))">\(XMLText.escape(rel))</path>
                   <xxh64 action="\(e.action.rawValue)" hashdate="\(now)">\(XXH64.hex(e.xxh64))</xxh64>
                 </hash>
 
@@ -50,13 +50,13 @@ enum MHLWriter {
         <hashlist version="2.0" xmlns="urn:ASC:MHL:v2.0">
           <creatorinfo>
             <creationdate>\(now)</creationdate>
-            <hostname>\(escape(ProcessInfo.processInfo.hostName))</hostname>
-            <tool version="\(escape(version))">MiniDiT</tool>
+            <hostname>\(XMLText.escape(ProcessInfo.processInfo.hostName))</hostname>
+            <tool version="\(XMLText.escape(version))">MiniDiT</tool>
           </creatorinfo>
           <processinfo>
             <process>transfer</process>
             <ignore>
-        \(patterns.map { "      <pattern>\(escape($0))</pattern>" }.joined(separator: "\n"))
+        \(patterns.map { "      <pattern>\(XMLText.escape($0))</pattern>" }.joined(separator: "\n"))
             </ignore>
           </processinfo>
           <hashes>
@@ -87,7 +87,7 @@ enum MHLWriter {
 
     private static func writeChain(_ items: [ChainItem], to url: URL) throws {
         let body = items.map {
-            "  <hashlist sequencenr=\"\($0.seq)\">\n    <path>\(escape($0.path))</path>\n    <c4>\($0.c4)</c4>\n  </hashlist>"
+            "  <hashlist sequencenr=\"\($0.seq)\">\n    <path>\(XMLText.escape($0.path))</path>\n    <c4>\($0.c4)</c4>\n  </hashlist>"
         }.joined(separator: "\n")
         let xml = """
         <?xml version="1.0" encoding="UTF-8"?>
@@ -141,10 +141,5 @@ enum MHLWriter {
 
     private static func fileSafe(_ s: String) -> String {
         s.map { "/:\\".contains($0) ? "_" : $0 }.reduce("") { $0 + String($1) }
-    }
-
-    private static func escape(_ s: String) -> String {
-        s.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;")
-            .replacingOccurrences(of: ">", with: "&gt;").replacingOccurrences(of: "\"", with: "&quot;")
     }
 }

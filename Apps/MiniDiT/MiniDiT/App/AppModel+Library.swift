@@ -7,16 +7,21 @@ extension AppModel {
 
     // MARK: 读取存储卡
 
-    func loadAll(restoring keep: Set<String>? = nil, days keepDays: Set<String> = []) async {
+    func loadAll(restoring keep: Set<String>? = nil, days keepDays: Set<String> = [], quietly: Bool = false) async {
         let sources = openSources
         guard !sources.isEmpty else { return }
-        phase = .loading
-        thumbnails = [:]; clipInfos = [:]; ratings = [:]; proxySizes = [:]; thumbOrder = []; pendingThumbs = []   // 句柄会变，旧缩略图不能再用
+        prepareSourceIdentities()
+        if !quietly { phase = .loading }
+        libraryGeneration += 1
+        let generation = libraryGeneration
+        let previous = Dictionary(items.values.map { (stableKey($0) + "|\($0.size)", $0.id) }, uniquingKeysWith: { a, _ in a })
+        let oldFocus = grid.focus
+        metadataTask?.cancel(); metadataTask = nil; metadataLoading = false
         do {
             // 几个来源的句柄会重复：界面上统一重新编号（全局句柄），origins 记着它在哪个来源、原来是几号。
             var all: [UInt32: CameraContentItem] = [:]
             var map: [UInt32: Origin] = [:]
-            var next: UInt32 = 1
+            var next = nextGlobalHandle
             var grouped: [Shot] = []
             for (sid, lib) in sources {
                 let folders = try await lib.folders()
@@ -28,9 +33,12 @@ extension AppModel {
                     for (i, h) in hs.enumerated() {
                         if i % 200 == 0 && i > 0 { status = "正在读取\(f.name)：\(i)/\(hs.count)" }
                         guard let item = try? await lib.item(h), item.kind != .other else { continue }
-                        let g = next; next += 1
+                        guard generation == libraryGeneration, !Task.isCancelled else { return }
+                        let key = "\(sourceIdentity(sid))|\(item.storageID >> 16)|\(item.filename)|\(item.captureDateRaw)|\(item.size)"
+                        let g: UInt32
+                        if let old = previous[key] { g = old } else { g = next; next += 1 }
                         all[g] = item.withID(g)
-                        map[g] = Origin(source: sid, local: h)
+                        map[g] = Origin(source: sid, local: h, connectionID: connectionID(for: sid))
                         ord.append(g)
                         localHandles.append(h)
                     }
@@ -43,6 +51,23 @@ extension AppModel {
                 ord.sort { (all[$0]?.captureDateRaw ?? "") > (all[$1]?.captureDateRaw ?? "") }
                 grouped += ShotBuilder.group(ord.compactMap { all[$0] })
             }
+            while quietly && NSEvent.pressedMouseButtons != 0 {
+                try? await Task.sleep(for: .milliseconds(100))
+                guard generation == libraryGeneration, !Task.isCancelled else { return }
+            }
+            guard generation == libraryGeneration, !Task.isCancelled else { return }
+            let preservedKeys = quietly ? selectedKeys() : keep
+            let preservedDays = quietly ? shownDays : keepDays
+            nextGlobalHandle = next
+            let surviving = Set(all.keys)
+            thumbnails = thumbnails.filter { surviving.contains($0.key) }
+            clipInfos = clipInfos.filter { surviving.contains($0.key) }
+            ratings = ratings.filter { surviving.contains($0.key) }
+            fileCameraKeys = fileCameraKeys.filter { surviving.contains($0.key) }
+            proxySizes = proxySizes.filter { surviving.contains($0.key) }
+            metadataRead.formIntersection(surviving)
+            pendingThumbs.removeAll { !surviving.contains($0) }
+            thumbOrder.removeAll { !surviving.contains($0) }
             items = all
             origins = map
             // 几个来源的拍摄按时间合在一起排（新的在前）。
@@ -60,24 +85,28 @@ extension AppModel {
             slots = sources.count > 1 ? [] : Array(Set(all.values.map { $0.storageID >> 16 })).sorted()
             if sources.count > 1, slotFilter != nil { slotFilter = nil }
             if let f = sourceFilter, !sources.contains(where: { $0.id == f }) { sourceFilter = nil }
-            grid = GridSelection()
+            if !quietly { grid = GridSelection() }
             refreshCopies()
             rebuild()
-            if let keep {
+            if let keep = preservedKeys {
                 // 重连后：按文件身份找回原来的选择和查看的日期。
                 let ids = allShots.filter { s in s.handles.contains { items[$0].map { keep.contains(stableKey($0)) } ?? false } }.map(\.id)
-                grid.set(ids, selected: true)
-                let valid = keepDays.intersection(viewIDs)
+                grid.replace(with: Set(ids).intersection(Set(days.flatMap(\.shots))))
+                let valid = preservedDays.intersection(viewIDs)
                 if !valid.isEmpty { shownDays = valid }
             } else {
                 selectDefault()
             }
+            if let oldFocus { grid.setFocus(oldFocus) }
             phase = .ready
+            loadFilterMetadata()
             lastListed = Date()
             log.add("读卡完成：\(all.count) 个文件，\(allShots.count) 次拍摄，\(days.count) 天" + (sources.count > 1 ? "，\(sources.count) 个来源" : ""))
         } catch {
+            guard generation == libraryGeneration, !Task.isCancelled else { return }
             log.add("读取存储卡失败：\(error.localizedDescription)")
-            errorMessage = "读取存储卡失败：\(error.localizedDescription)"
+            if quietly { refreshMessage = "自动刷新未完成，可点重新读取再试" }
+            else { errorMessage = "读取存储卡失败：\(error.localizedDescription)" }
             phase = .ready
         }
         status = ""
@@ -111,6 +140,7 @@ extension AppModel {
 
     /// 文件类型 / 卡槽筛选（不含「只看未导入」）。
     private func kindAccepted(_ item: CameraContentItem) -> Bool {
+        guard importContent.accepts(item.kind) else { return false }
         if let sourceFilter, source(of: item.id) != sourceFilter { return false }
         // 这台相机设了只导某个卡槽。
         if let only = onlySlot(source(of: item.id)), item.storageID >> 16 != only { return false }
@@ -125,11 +155,15 @@ extension AppModel {
 
     /// 一次拍摄里，按当前筛选和配对规则实际要导入的文件。
     func importFiles(of shot: Shot) -> [UInt32] {
+        // 缩略图、侧栏和 tooltip 会反复问同一个 shot；一次 rebuild 里只算一遍。
+        if let cached = importFilesCache[shot.id] { return cached }
         // 先按筛选（卡槽、类型）去掉，再去重：选了「卡 2」时就用卡 2 上的那份；都显示时用卡 1 上的那份。
-        ShotBuilder.files(of: shot, policy: pairPolicy, kindOf: { items[$0]?.kind },
-                          identity: { items[$0].map { "\($0.filename)|\($0.size)" } },
-                          include: { items[$0].map(kindAccepted) ?? false },
-                          preference: { items[$0].map { $0.storageID >> 16 } ?? 0 })
+        let files = ShotBuilder.files(of: shot, policy: pairPolicy, kindOf: { items[$0]?.kind },
+                                      identity: { items[$0].map { "\($0.filename)|\($0.size)" } },
+                                      include: { items[$0].map(kindAccepted) ?? false },
+                                      preference: { items[$0].map { $0.storageID >> 16 } ?? 0 })
+        importFilesCache[shot.id] = files
+        return files
     }
 
     /// 缩略图角标：只列筛选和配对规则留下的文件类型（只看 RAW 时显示「RAW」，不是「RAW+HIF」）。
@@ -142,28 +176,43 @@ extension AppModel {
 
     /// 这次拍摄要导入的文件都导过了。
     func isImported(shot id: UInt32) -> Bool {
+        if let cached = importedCache[id] { return cached }
         guard let s = shots[id] else { return false }
         let files = importFiles(of: s)
-        return !files.isEmpty && files.allSatisfy(isFileImported)
+        let imported = !files.isEmpty && files.allSatisfy(isFileImported)
+        importedCache[id] = imported
+        return imported
     }
 
     func rebuild() {
+        importFilesCache = [:]
+        importedCache = [:]
         var groups: [String: [UInt32]] = [:]
         var keys: [String] = []
         var importedCounts: [String: Int] = [:]
+        var newPhotoCounts: [String: Int] = [:]
+        var newVideoCounts: [String: Int] = [:]
+        var videoCounts: [String: Int] = [:]
+        var importedShots: Set<UInt32> = []
         for s in allShots {
-            guard !importFiles(of: s).isEmpty, let first = items[s.primary] else { continue }
+            guard !importFiles(of: s).isEmpty, let first = items[s.primary], acceptsFilter(s) else { continue }
             let imported = isImported(shot: s.id)
+            if imported { importedShots.insert(s.id) }
             if onlyNew && imported { continue }
             let k = Self.dayKey(first)
             if groups[k] == nil { keys.append(k) }
             groups[k, default: []].append(s.id)
+            if s.isVideo { videoCounts[k, default: 0] += 1 }
             if imported { importedCounts[k, default: 0] += 1 }
+            else if s.isVideo { newVideoCounts[k, default: 0] += 1 }
+            else { newPhotoCounts[k, default: 0] += 1 }
         }
         keys.sort { a, b in a == "unknown" ? false : b == "unknown" ? true : a > b }
         days = keys.map { k in
             ShootingDay(id: k, title: Self.dayTitle(k), shots: groups[k]!, importedCount: importedCounts[k] ?? 0,
-                        scenes: scenes(of: groups[k]!, day: k))
+                        newPhotos: newPhotoCounts[k] ?? 0, newVideos: newVideoCounts[k] ?? 0,
+                        videos: videoCounts[k] ?? 0,
+                        scenes: scenes(of: groups[k]!, day: k, imported: importedShots))
         }
         // 被筛掉的内容不再算选中（否则会导入看不见的东西）。
         let visible = Set(days.flatMap(\.shots))
@@ -175,7 +224,7 @@ extension AppModel {
     }
 
     /// 把一天的拍摄（新的在前）按时间间隔切成几场。没有拍摄时间的拍摄跟着前一张走。
-    private func scenes(of shots: [UInt32], day: String) -> [ShootingScene] {
+    private func scenes(of shots: [UInt32], day: String, imported: Set<UInt32>) -> [ShootingScene] {
         let gap = TimeInterval(sceneGap * 60)
         var runs: [[UInt32]] = []
         var last: Date?
@@ -191,8 +240,12 @@ extension AppModel {
             let times = ids.compactMap { self.shots[$0].flatMap { items[$0.primary] }.flatMap(Self.clockTime) }
             let range = times.isEmpty ? "" : times.first == times.last ? times[0] : "\(times.last!)–\(times.first!)"
             let number = runs.count - i
+            let fresh = ids.filter { !imported.contains($0) }
+            let videos = ids.filter { self.shots[$0]?.isVideo == true }.count
+            let newVideos = fresh.filter { self.shots[$0]?.isVideo == true }.count
             return ShootingScene(id: "\(day)-\(number)", number: number, timeRange: range, shots: ids,
-                                 importedCount: ids.filter { isImported(shot: $0) }.count)
+                                 importedCount: ids.count - fresh.count,
+                                 newPhotos: fresh.count - newVideos, newVideos: newVideos, videos: videos)
         }
     }
 
@@ -251,6 +304,9 @@ extension AppModel {
             part.scenes = picked
             part.shots = picked.flatMap(\.shots)
             part.importedCount = picked.reduce(0) { $0 + $1.importedCount }
+            part.newPhotos = picked.reduce(0) { $0 + $1.newPhotos }
+            part.newVideos = picked.reduce(0) { $0 + $1.newVideos }
+            part.videos = picked.reduce(0) { $0 + $1.videos }
             part.partial = true
             return part
         }
@@ -266,15 +322,29 @@ extension AppModel {
     // MARK: 备份状态
 
     /// 检查每个导入过的文件，第一份和备份盘上的那份还在不在（大小一致）。
+    /// 磁盘检查放到后台：几千个文件、网络卷或休眠的外置盘时，主线程会卡住。
     func refreshCopies() {
         let history = ImportHistory.shared
-        var map: [UInt32: Int] = [:]
-        for (h, item) in items where history.contains(item, camera: camera(of: h)) {
-            let local = history.localFile(item, camera: camera(of: h)) != nil
-            let backup = history.backupFile(item, camera: camera(of: h)) != nil
-            map[h] = (local ? 1 : 0) + (backup ? 1 : 0)
+        var probes: [(handle: UInt32, item: CameraContentItem, paths: [URL])] = []
+        for (h, item) in items {
+            guard let record = history.record(for: item, camera: camera(of: h)) else { continue }
+            let paths = Set([record.path, record.backupPath].compactMap { $0 } + (record.backupPaths ?? []))
+            probes.append((h, item, paths.map { URL(filePath: $0) }))
         }
-        fileCopies = map
+        copiesGeneration += 1
+        let generation = copiesGeneration
+        let model = self
+        Task.detached(priority: .utility) {
+            var map: [UInt32: Int] = [:]
+            map.reserveCapacity(probes.count)
+            for p in probes {
+                map[p.handle] = p.paths.filter { ImportHistory.matches($0, p.item) }.count
+            }
+            await MainActor.run {
+                guard model.copiesGeneration == generation else { return }
+                model.fileCopies = map
+            }
+        }
     }
 
     /// 一次拍摄有几份：取它要导入的文件里最少的那个（RAW 有两份、JPG 只有一份，就算一份）。
@@ -354,16 +424,19 @@ extension AppModel {
         if p == 0 { return clip }
         return photo + "、" + clip
     }
-    var selectionBytes: UInt64 { selectedFiles().reduce(0) { $0 + transferSize($1) } }
+    /// 这批文件要传的字节数。调用方先取一次 `selectedFiles()`，别在同一个 body 里反复取。
+    func selectionBytes(of files: [CameraContentItem]) -> UInt64 {
+        files.reduce(0) { $0 + transferSize($1) }
+    }
 
     /// 这个文件这次会只导代理（Wi-Fi 相机上的视频，打开了「视频只导代理」）。
     func importsProxyOnly(_ item: CameraContentItem) -> Bool {
         proxyOnlyWiFi && item.kind == .video && !(route(item.id)?.library is LocalCardLibrary)
     }
 
-    /// 这次要传的字节数：只导代理的视频按代理大小算（还没读到时按原片算）。
+    /// 这次要传的字节数：只导代理的视频按代理大小算（还没读到时按原片估算）。
     func transferSize(_ item: CameraContentItem) -> UInt64 {
-        importsProxyOnly(item) ? proxySizes[item.id] ?? item.size : item.size
+        importsProxyOnly(item) ? proxySizes[item.id] ?? item.sizeEstimate : item.sizeEstimate
     }
 
     /// 选中的里面有 Wi-Fi 相机上的视频（「视频只导代理」只对它们有用）。
@@ -386,17 +459,6 @@ extension AppModel {
 
     // MARK: 缩略图
 
-    /// 重新读所有来源的列表（相机里新拍的照片、卡上新加的文件才会出现），保留选择和查看的日期。
-    func refreshSources() {
-        guard progress == nil, phase == .ready, !openSources.isEmpty else { return }
-        Task {
-            let keep = selectedKeys(), keepDays = shownDays
-            for (_, lib) in openSources { await lib.refresh() }
-            await loadAll(restoring: keep, days: keepDays)
-            log.add("已重新读取列表")
-        }
-    }
-
     /// 这次拍摄的星级：RAW 和 JPG/HIF 里取打过的那个（两者都有时取大的）。
     func rating(of shot: Shot) -> Int? {
         let vs = shot.handles.compactMap { ratings[$0] }
@@ -406,7 +468,11 @@ extension AppModel {
     func requestThumbnail(_ h: UInt32) {
         guard thumbnails[h] == nil, !pendingThumbs.contains(h) else { return }
         pendingThumbs.append(h)
-        if !thumbLoaderRunning { Task { await runThumbLoader() } }
+        // 先同步置位再 spawn。Task 要到下一轮才运行，同一轮渲染里的多个 onAppear
+        // 否则都会看到 false，各自启动一个加载器，把相机命令队列打满。
+        guard !thumbLoaderRunning else { return }
+        thumbLoaderRunning = true
+        Task { await runThumbLoader() }
     }
 
     func cancelThumbnail(_ h: UInt32) { pendingThumbs.removeAll { $0 == h } }
@@ -415,13 +481,18 @@ extension AppModel {
         thumbLoaderRunning = true
         defer { thumbLoaderRunning = false }
         while !openSources.isEmpty, let h = pendingThumbs.popLast() {
-            // 下载时让出通道，优先传文件。
-            if progress != nil { try? await Task.sleep(for: .milliseconds(300)) }
+            while progress != nil || isRefreshingSources {
+                try? await Task.sleep(for: .milliseconds(300))
+                if Task.isCancelled { return }
+            }
+            let generation = libraryGeneration
             guard let r = route(h) else { continue }
             if items[h]?.kind == .video, clipInfos[h] == nil, let info = await r.library.clipInfo(r.local) {
+                guard generation == libraryGeneration else { continue }
                 clipInfos[h] = info
             }
             if items[h]?.kind != .video, ratings[h] == nil, let v = await r.library.rating(r.local) {
+                guard generation == libraryGeneration else { continue }
                 ratings[h] = v
             }
             if items[h]?.kind == .video, proxySizes[h] == nil, !(r.library is LocalCardLibrary),
@@ -429,6 +500,7 @@ extension AppModel {
                 proxySizes[h] = p.size
             }
             guard let data = try? await r.library.thumbnail(r.local), let img = NSImage(data: data) else { continue }
+            guard generation == libraryGeneration, items[h] != nil else { continue }
             thumbnails[h] = img
             thumbOrder.append(h)
             if thumbOrder.count > 1500 {
@@ -447,13 +519,18 @@ extension AppModel {
     }
 
     private func showPreview(_ id: UInt32) {
+        previewLivePhotoShot = nil
+        previewRequest = UUID()
+        videoPlayback.stop()
         previewShot = id
-        previewLoaded = false
+        previewVideoURL = nil; previewVideoMessage = nil; previewVideoProgress = nil; previewIsProxy = false
+        previewLoaded = shots[id]?.isVideo == true
         previewExif = nil
         previewImage = shots[id].flatMap { thumbnails[$0.primary] }
         previewTask?.cancel()
         guard let s = shots[id], let r = route(s.primary) else { return }
         previewTask = Task {
+            if s.isVideo { await prepareVideoPreview(id); return }
             let fromFile = await r.library.exif(r.local)
             if previewShot == id, let fromFile { previewExif = fromFile }
             guard let data = try? await r.library.preview(r.local), !Task.isCancelled, let img = NSImage(data: data) else { return }
@@ -482,7 +559,11 @@ extension AppModel {
     }
 
     func closePreview() {
+        previewLivePhotoShot = nil
+        previewRequest = UUID()
         previewTask?.cancel()
+        videoPlayback.stop()
+        previewVideoURL = nil; previewVideoMessage = nil; previewVideoProgress = nil
         previewShot = nil
         previewImage = nil
         previewExif = nil

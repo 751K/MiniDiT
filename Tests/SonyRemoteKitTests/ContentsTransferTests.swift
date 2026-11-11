@@ -36,8 +36,8 @@ import FakeSonyCamera
         defer { try? FileManager.default.removeItem(at: url) }
         try await lib.download(item, to: url) { _, _ in }
         #expect(try Data(contentsOf: url).count == item.size)
-        // 7MB 按 3MiB 分块用 0x9211 读 3 次。
-        #expect(card.partialReads == 3)
+        // 必须使用可读大文件的分块接口；不依赖用户设置的块大小。
+        #expect(card.partialReads > 0)
         #expect(fake.operations.contains(SonyOperation.getPartialLargeObject))
 
         await lib.close()

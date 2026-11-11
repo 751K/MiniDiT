@@ -12,6 +12,12 @@ struct ShootingDay: Identifiable, Hashable {
     var shots: [UInt32]
     var importedCount: Int
     var newCount: Int { shots.count - importedCount }
+    /// 没导入过的照片 / 片段数。侧栏 tooltip 直接用，免得每次渲染都扫一遍。
+    var newPhotos = 0
+    var newVideos = 0
+    /// 内容里的片段总数；照片数 = shots.count - videos。
+    var videos = 0
+    var photos: Int { shots.count - videos }
     /// 按时间间隔分出的场次（新的在前）；没有分组或只有一场时只有一个。
     var scenes: [ShootingScene] = []
     /// 只显示了这一天的部分场次（侧栏点的是场次，不是日期）。
@@ -28,6 +34,10 @@ struct ShootingScene: Identifiable, Hashable {
     var shots: [UInt32]
     var importedCount: Int
     var newCount: Int { shots.count - importedCount }
+    var newPhotos = 0
+    var newVideos = 0
+    var videos = 0
+    var photos: Int { shots.count - videos }
 }
 
 enum CaptureOneMode: String, CaseIterable, Identifiable {
@@ -107,6 +117,8 @@ final class AppModel {
     var connectTask: Task<Void, Never>?
     var watchTask: Task<Void, Never>?
     let log = AppLog.shared
+    @ObservationIgnored var agentServer: AgentSocketServer?
+    @ObservationIgnored var agentPlans: [String: AgentPreparedImport] = [:]
 
     var knownCameras: [KnownCamera] = KnownCamera.load()
     /// 插着的存储卡（读卡器 / 相机 USB 大容量存储）。
@@ -122,6 +134,11 @@ final class AppModel {
     var cardCameraNames: [Int: String] = [:]
     /// 存储卡上照片的机身（「型号#序列号」，从 EXIF 读），用来找这台相机的档案。
     var cardCameraKeys: [Int: String] = [:]
+    var fileCameraKeys: [UInt32: String] = [:]
+    var primaryConnectionID = UUID()
+    var sourceIdentities: SourceIdentityStore
+    var sessionCameraProfiles: [Int: CameraProfile] = [:]
+    var confirmingCard: Int?
     /// 要改名的来源（菜单或右键里点了「重命名…」，侧栏弹出输入框）。
     var renamingSource: Int?
     /// 侧栏里点了「输入地址同时连接相机…」。
@@ -138,6 +155,7 @@ final class AppModel {
     // MARK: 内容
 
     var items: [UInt32: CameraContentItem] = [:]
+    @ObservationIgnored var nextGlobalHandle: UInt32 = 1
     var allShots: [Shot] = []                 // 新的在前
     var shots: [UInt32: Shot] = [:]
     var shotOfFile: [UInt32: UInt32] = [:]
@@ -147,7 +165,17 @@ final class AppModel {
     var sourceFilter: Int? = nil { didSet { rebuild() } }
     var showPhotos = true { didSet { rebuild() } }
     var showRaw = true { didSet { rebuild() } }
-    var showVideo = UserDefaults.standard.bool(forKey: "showVideo") {
+    /// 导入范围与照片、视频的整理方式分别保存。
+    var importContent: ImportContent = ImportContent(rawValue: UserDefaults.standard.string(forKey: "importContent") ?? "")
+        ?? ((UserDefaults.standard.object(forKey: "showVideo") as? Bool) == false ? .photos : .all) {
+        didSet {
+            UserDefaults.standard.set(importContent.rawValue, forKey: "importContent")
+            if importContent != .photos { showVideo = true }
+            if importContent != .videos, !showRaw && !showPhotos { showRaw = true; showPhotos = true }
+            rebuild()
+        }
+    }
+    var showVideo = UserDefaults.standard.object(forKey: "showVideo") as? Bool ?? true {
         didSet { UserDefaults.standard.set(showVideo, forKey: "showVideo"); rebuild() }
     }
     /// 视频片段的拍摄信息（读卡器来源，读 M01.XML），随缩略图一起读。
@@ -156,6 +184,18 @@ final class AppModel {
     var ratings: [UInt32: Int] = [:]
     /// 上次读完列表的时间：窗口回到前台时，隔得久了就重新读一次。
     var lastListed: Date?
+    var autoRefresh = UserDefaults.standard.object(forKey: "autoRefresh") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(autoRefresh, forKey: "autoRefresh") }
+    }
+    var isRefreshingSources = false
+    var refreshMessage: String?
+    @ObservationIgnored var refreshTask: Task<Void, Never>?
+    @ObservationIgnored var refreshRequest = UUID()
+    @ObservationIgnored var libraryGeneration = 0
+    var mediaFilter = MediaFilter() { didSet { rebuild(); loadFilterMetadata() } }
+    var metadataLoading = false
+    @ObservationIgnored var metadataTask: Task<Void, Never>?
+    @ObservationIgnored var metadataRead: Set<UInt32> = []
     /// Wi-Fi 相机上视频片段的代理大小（只导代理时算选中大小用），随缩略图一起读。
     var proxySizes: [UInt32: UInt64] = [:]
     var onlyNew = UserDefaults.standard.object(forKey: "onlyNew") as? Bool ?? true {
@@ -174,6 +214,11 @@ final class AppModel {
     var thumbnails: [UInt32: NSImage] = [:]
     /// 每个文件在电脑上有几份（0 / 1 / 2），读卡和导入完以后检查一遍磁盘，结果存在这里。
     var fileCopies: [UInt32: Int] = [:]
+    /// 后台核对 fileCopies 的轮次：旧轮次算完时如果已经有新轮次，就不要覆盖。
+    @ObservationIgnored var copiesGeneration = 0
+    /// rebuild 时清空的派生缓存：每个 shot 要导入哪些文件、是否已经导入。
+    @ObservationIgnored var importFilesCache: [UInt32: [UInt32]] = [:]
+    @ObservationIgnored var importedCache: [UInt32: Bool] = [:]
     var thumbOrder: [UInt32] = []
     var pendingThumbs: [UInt32] = []
     var thumbLoaderRunning = false
@@ -184,6 +229,8 @@ final class AppModel {
     // MARK: 预览
 
     var previewShot: UInt32?
+    /// A context-menu request waits for this video's local preview/cache before opening the editor.
+    var previewLivePhotoShot: UInt32?
     var previewImage: NSImage?
     var previewLoaded = false
     /// 预览中这张的拍摄参数。
@@ -191,6 +238,12 @@ final class AppModel {
     /// Wi-Fi 相机的预览图里有没有 EXIF，只记一次日志。
     var exifNoted = false
     var previewTask: Task<Void, Never>?
+    @ObservationIgnored var previewRequest = UUID()
+    var previewVideoURL: URL?
+    var previewVideoMessage: String?
+    var previewVideoProgress: Double?
+    var previewIsProxy = false
+    @ObservationIgnored let videoPlayback = VideoPlayback()
 
     // MARK: 导入
 
@@ -273,14 +326,16 @@ final class AppModel {
         var savedBytes: UInt64 = 0
         /// 这次写的 MHL 校验清单。
         var reports: [URL] = []
-        /// 结果里有需要注意的（只有一份、备份失败、没删成功）。
-        var needsAttention: Bool { backedUp == nil || backupFailed > 0 || cardReadOnly || deleteFailed > 0 }
+        /// 结果中实际发生的异常；用户主动选择只存一份不视为失败。
+        var needsAttention: Bool { failed > 0 || cancelled || c1Failed || backupFailed > 0 || cardReadOnly || deleteFailed > 0 }
         /// 交给 Lightroom Classic 的收藏夹名（「A」「B」）。
         var lightroom: String? = nil
         /// 「只下载」导入后打开了文件夹：「，已在访达中打开」之类。
         var opened: String? = nil
         /// 只导了代理的视频片段数。
         var proxyOnly = 0
+        var hasWiFiSource = false
+        var backupTargets: [BackupTargetProgress] = []
     }
     /// 导入中断（相机掉线）：没导完的仍然选中，重连后可以继续。
     struct Interrupted {
@@ -291,6 +346,8 @@ final class AppModel {
         var grouping: SessionGrouping = .single
         /// 没传完、已经保存下来的字节数，继续时从这里接着传。
         var savedBytes: UInt64 = 0
+        var jobs: [ImportJob] = []
+        var captureOneFiles: [CaptureOneBridge.SessionTarget: [URL]] = [:]
     }
 
     var progress: ImportProgress?
@@ -298,11 +355,29 @@ final class AppModel {
     var interrupted: Interrupted?
     var lastSummary: String?
     var lastBatch: [URL] = []
+    var pendingCaptureOneSessions: [CaptureOneBridge.SessionTarget: [URL]] = [:]
+    var retryingCaptureOne = false
     var importTask: Task<Void, Never>?
 
     var destination: URL {
         get { UserDefaults.standard.url(forKey: "destination") ?? Self.defaultDestination }
         set { UserDefaults.standard.set(newValue, forKey: "destination"); destinationVersion += 1 }
+    }
+    var photoFolderLayout: ImportFolderLayout = ImportFolderLayout(rawValue: UserDefaults.standard.string(forKey: "photoFolderLayout") ?? "") ?? .session {
+        didSet { UserDefaults.standard.set(photoFolderLayout.rawValue, forKey: "photoFolderLayout") }
+    }
+    var videoFolderLayout: ImportFolderLayout = ImportFolderLayout(rawValue: UserDefaults.standard.string(forKey: "videoFolderLayout") ?? "") ?? .session {
+        didSet { UserDefaults.standard.set(videoFolderLayout.rawValue, forKey: "videoFolderLayout") }
+    }
+    var splitVideoByRoll: Bool = UserDefaults.standard.object(forKey: "splitVideoByRoll") as? Bool
+        ?? (UserDefaults.standard.string(forKey: NameTemplate.Kind.video.key) == UsageMode.teamVideoTemplate) {
+        didSet { UserDefaults.standard.set(splitVideoByRoll, forKey: "splitVideoByRoll") }
+    }
+    /// 旧版自定义备份规则继续可用；默认备份沿用各类素材的实际目录。
+    var backupFollowsOrganization: Bool = UserDefaults.standard.object(forKey: "backupFollowsOrganization") as? Bool
+        ?? ((UserDefaults.standard.string(forKey: NameTemplate.Kind.backup.key) ?? "").trimmingCharacters(in: .whitespaces).isEmpty
+            || UserDefaults.standard.string(forKey: NameTemplate.Kind.backup.key) == NameTemplate.Kind.backup.defaultValue) {
+        didSet { UserDefaults.standard.set(backupFollowsOrganization, forKey: "backupFollowsOrganization") }
     }
     var destinationVersion = 0
     static var defaultDestination: URL {
@@ -336,6 +411,10 @@ final class AppModel {
         didSet { UserDefaults.standard.set(sendToResolve, forKey: "sendToResolve") }
     }
 
+    var sendToPremiere: Bool = UserDefaults.standard.bool(forKey: "sendToPremiere") {
+        didSet { UserDefaults.standard.set(sendToPremiere, forKey: "sendToPremiere") }
+    }
+
     /// 交给 FCP 时给 S-Log3 片段打开 FCP 内置的 Log 处理。
     var fcpLogProcessing: Bool = UserDefaults.standard.object(forKey: "fcpLogProcessing") as? Bool ?? true {
         didSet { UserDefaults.standard.set(fcpLogProcessing, forKey: "fcpLogProcessing") }
@@ -346,21 +425,37 @@ final class AppModel {
         didSet { UserDefaults.standard.set(resolveColorSpace, forKey: "resolveColorSpace") }
     }
 
-    /// 第二份放在哪（备份盘上的文件夹）。没设置时为 nil。
-    var backupFolder: URL? {
-        get { _ = destinationVersion; return UserDefaults.standard.url(forKey: "backupFolder") }
-        set { UserDefaults.standard.set(newValue, forKey: "backupFolder"); destinationVersion += 1 }
+    var backupTargets: [BackupDestination] = AppModel.loadBackupTargets() {
+        didSet {
+            if let data = try? JSONEncoder().encode(backupTargets) { UserDefaults.standard.set(data, forKey: "backupDestinations") }
+            UserDefaults.standard.set(backupTargets.first?.root, forKey: "backupFolder")
+            destinationVersion += 1
+        }
     }
-    /// 备份盘现在能不能用（设置了，而且盘接着）。
+    var importBackupProgress: [BackupTargetProgress] = []
+    var backupDiskIdentities: [String: PhysicalDiskIdentity] = [:]
+    var backupDiskIdentityKey: String?
+
+    @ObservationIgnored var activeBackupBatchID: UUID?
+    @ObservationIgnored var backupAssetIDs: Set<UUID> = []
+    @ObservationIgnored var verifiedBackupAssets: [UUID: Set<UUID>] = [:]
+    @ObservationIgnored var failedBackupAssets: [UUID: Set<UUID>] = [:]
+    /// The primary-target alias remains for callers that configure one location.
+    var backupFolder: URL? {
+        get { backupTargets.first?.root }
+        set {
+            guard let newValue else { backupTargets = []; return }
+            if let first = backupTargets.first { replaceBackupTarget(first.id, root: newValue) }
+            else { addBackupTarget(newValue) }
+        }
+    }
     var backupAvailable: Bool {
         _ = volumeVersion
-        guard let u = backupFolder else { return false }
-        var isDir: ObjCBool = false
-        return FileManager.default.fileExists(atPath: u.path, isDirectory: &isDir) && isDir.boolValue
+        return !enabledBackupTargets.isEmpty && missingRequiredBackupTargets.isEmpty
     }
     /// 磁盘插拔时加一，让依赖「备份盘在不在」的界面刷新。
     var volumeVersion = 0
-    /// 是否另存一份到备份盘。
+    /// 是否在导入时写入所选备份目标。
     var backupEnabled: Bool = UserDefaults.standard.object(forKey: "backupEnabled") as? Bool ?? true {
         didSet { UserDefaults.standard.set(backupEnabled, forKey: "backupEnabled") }
     }
@@ -379,31 +474,34 @@ final class AppModel {
     /// 设置向导的版本：向导加了新步骤时加一，老用户升级后也会看到一次（已有的设置会填好）。
     static let setupVersion = 2
     /// 走完了当前版本的设置向导。
-    var setupDone: Bool = UserDefaults.standard.integer(forKey: "setupVersion") >= AppModel.setupVersion {
+    var setupDone: Bool = UserDefaults.standard.integer(forKey: "setupVersion") > 0 {
         didSet { UserDefaults.standard.set(setupDone ? Self.setupVersion : 0, forKey: "setupVersion") }
     }
     /// 从“设置 › 通用”重新打开设置向导（在主窗口里显示）。
     var showingSetup = false
-    /// 使用方式：决定默认值和设置里显示哪些选项，不锁功能。
+    /// 工作流程只提供推荐默认值；功能是否可用与流程无关。
     var usageMode: UsageMode = UsageMode(rawValue: UserDefaults.standard.string(forKey: "usageMode") ?? "") ?? .personal {
         didSet { UserDefaults.standard.set(usageMode.rawValue, forKey: "usageMode") }
     }
-    var isPro: Bool { usageMode == .pro }
 
-    /// 按使用方式重设几项默认值（切换模式时用户同意了才调用）。
+    /// 应用所选工作流程的建议；保留自定义命名，不在加载设置时自动调用。
     func applyModeDefaults() {
         let key = NameTemplate.Kind.video.key
         let current = UserDefaults.standard.string(forKey: key)?.trimmingCharacters(in: .whitespaces) ?? ""
         switch usageMode {
-        case .pro:
+        case .team:
             if current.isEmpty || current == NameTemplate.Kind.video.defaultValue {
-                UserDefaults.standard.set(UsageMode.proVideoTemplate, forKey: key)
+                UserDefaults.standard.set(UsageMode.teamVideoTemplate, forKey: key)
+                if videoFolderLayout == .session { splitVideoByRoll = true }
             }
-            // 专业流程要人确认：不自动导入，不删卡。
+            // 交接前由团队确认，不自动导入或删除原卡文件。
             autoImportCamera = false
             deleteAfterImport = false
         case .personal:
-            if current == UsageMode.proVideoTemplate { UserDefaults.standard.removeObject(forKey: key) }
+            if current == UsageMode.teamVideoTemplate {
+                UserDefaults.standard.removeObject(forKey: key)
+                if videoFolderLayout == .session { splitVideoByRoll = false }
+            }
         }
     }
     /// 点「导入」时发现没有备份盘，先问一下。
@@ -413,7 +511,7 @@ final class AppModel {
     /// 这一次不备份（备份盘空间不够时用户选了「仅存储一份」）。
     var noBackupThisTime = false
 
-    var captureOneMode: CaptureOneMode = CaptureOneMode(rawValue: UserDefaults.standard.string(forKey: "c1Mode") ?? "") ?? .newSession {
+    var captureOneMode: CaptureOneMode = CaptureOneMode(rawValue: UserDefaults.standard.string(forKey: "c1Mode") ?? "") ?? .off {
         didSet { UserDefaults.standard.set(captureOneMode.rawValue, forKey: "c1Mode") }
     }
     /// 「只下载」时，导入完成后用哪个软件打开下载的文件夹。
@@ -422,7 +520,8 @@ final class AppModel {
     }
 
     var pairPolicy: PairPolicy = PairPolicy(rawValue: UserDefaults.standard.string(forKey: "pairPolicy") ?? "") ?? .both {
-        didSet { UserDefaults.standard.set(pairPolicy.rawValue, forKey: "pairPolicy") }
+        // 配对规则会改变每个 shot 要导入哪些文件，缓存必须跟着重建。
+        didSet { UserDefaults.standard.set(pairPolicy.rawValue, forKey: "pairPolicy"); rebuild() }
     }
     var captureOneDocument: CaptureOneBridge.DocumentInfo?
 
@@ -441,7 +540,7 @@ final class AppModel {
     }
 
     /// 导入前要用户填会话名。
-    enum SessionChoice { case new(String), existing(URL), resolved(captureDir: URL, name: String) }
+    enum SessionChoice { case new(String), existing(URL), resolved(CaptureOneBridge.SessionTarget) }
     struct SessionRequest: Identifiable {
         let id = UUID()
         let existing: [URL]
@@ -452,24 +551,44 @@ final class AppModel {
 
     /// 软件自己管理的会话（侧栏「会话」）：一次拍摄任务（日期 + 事件）。和 Capture One 的会话无关，
     /// 导入时 C1 会话、LrC 收藏夹、下载文件夹都沿用它的名字。
+    var sessionRecordURL: URL?
+    var importJournal: ImportJournalStore
     var sessions: [ShootSession] = ShootSession.load()
     /// 当前会话：之后点「导入」都归到这里。
     var currentSessionID: UUID?
     /// 右边正在浏览的会话（已导入到电脑上的文件）；nil = 浏览相机 / 存储卡。
     var browsingSession: UUID?
+    /// 项目内容当前只看照片、只看视频，或 nil = 全部。
+    var browsingSessionMedia: ProjectMedia?
     /// 弹出「新建会话」窗口；importAfter = 建好后马上导入当前选中的内容。
     struct NewSessionPrompt: Identifiable { let id = UUID(); var importAfter: Bool }
     var newSessionPrompt: NewSessionPrompt?
     /// 导入到 LrC 前发现插件没装好 / 要重启 LrC。
     var lightroomPrompt: LightroomBridge.Status?
     /// 导入后 LrC 那边的进度（「Lightroom Classic 已添加 12/30」）。
+    var deliveryID = UUID()
+    var deliveryMessages: [String: String] = [:]
+    var deliveryFailures: Set<String> = []
+    var videoDeliveryServices = VideoDeliveryServices()
+    var videoDeliveryTask: Task<Void, Never>?
+    var videoDeliveryRunning: UUID?
+    @ObservationIgnored var videoDeliveryQueue: [VideoDeliveryJob] = []
+
+    /// 异步的软件回执只更新所属导入，避免覆盖下一批的结果。
+    func updateDelivery(_ software: String, message: String, failed: Bool = false, id: UUID) {
+        _ = importJournal.update(id) { $0.delivery[software] = message }
+        guard id == deliveryID else { return }
+        deliveryMessages[software] = message
+        if failed { deliveryFailures.insert(software) }
+        else { deliveryFailures.remove(software) }
+    }
+
     var lightroomStatus: String?
     var lightroomWatch: Task<Void, Never>?
 
     /// 一个分组已经在用的会话（中断后继续用）。
     struct ResumeSession {
-        /// C1 会话的 Capture 文件夹；LrC 收藏夹没有。
-        var captureDir: URL?
+        var captureOneTarget: CaptureOneBridge.SessionTarget?
         var name: String
         var event: String?
     }
@@ -513,8 +632,10 @@ final class AppModel {
         var session: SessionChoice?
         var event: String?
         var scene: Int?
-        /// 软件会话的名字：下载文件夹、视频文件夹都用它，不再按模板起名。
+        /// 用于记录归属的会话名；物理目录由照片、视频各自的整理偏好决定。
         var folder: String? = nil
+        /// 开始导入时冻结规则，中断后继续仍使用原目录。
+        var plan: ImportPlan? = nil
         /// 导完后记进哪个软件会话。
         var appSession: UUID? = nil
     }
@@ -571,7 +692,12 @@ final class AppModel {
     /// 最近用过的事件名（「3.15-公园」里的「公园」），新的在前。
     var recentContents: [String] = UserDefaults.standard.stringArray(forKey: "recentContents") ?? []
 
-    init() {
+    init(startServices: Bool = true, journalURL: URL? = nil, identityURL: URL? = nil) {
+        sourceIdentities = SourceIdentityStore(url: identityURL ?? (startServices ? SourceIdentityStore.defaultURL
+            : FileManager.default.temporaryDirectory.appending(path: "minidit-identities-" + UUID().uuidString + ".json")))
+        importJournal = ImportJournalStore(url: journalURL ?? (startServices ? ImportJournalStore.defaultURL
+            : FileManager.default.temporaryDirectory.appending(path: "minidit-check-journal-" + UUID().uuidString + ".json")))
+        guard startServices else { return }
         refreshCards()
         Notifier.shared.model = self
         let nc = NSWorkspace.shared.notificationCenter
@@ -588,6 +714,8 @@ final class AppModel {
             connectTask = Task { await autoConnectLast() }
         }
         startCameraWatch()
+        startLibraryWatch()
+        startAgentControl()
     }
 
     func rememberEvent(_ event: String?) {
@@ -602,26 +730,29 @@ final class AppModel {
 extension AppModel.ResumeSession {
     /// 继续导入时用：C1 会话直接用原来的 Capture 文件夹；LrC 收藏夹按名字找回（已有就加进去）。
     var session: AppModel.SessionChoice {
-        captureDir.map { .resolved(captureDir: $0, name: name) } ?? .new(name)
+        captureOneTarget.map { .resolved($0) } ?? .new(name)
     }
+}
+
+/// 工作流程：按自己的拍摄事件整理，或按团队的素材交接流程整理。
+/// 两种流程共用全部功能，只提供不同的默认建议。
+enum UsageMode: String, CaseIterable, Identifiable {
+    case personal
+    // 保留已有“专业”设置的存储值，升级后沿用用户选择。
+    case team = "pro"
+    var id: String { rawValue }
+    var title: String { self == .personal ? "个人" : "团队" }
+    var detail: String {
+        switch self {
+        case .personal: "自己整理和后期，推荐按日期、事件存放视频。所有功能均可设置。"
+        case .team: "素材交给团队后期，推荐按卷号整理、手动导入并保留原卡。所有功能均可设置。"
+        }
+    }
+    /// 团队交接时，每卷一个子文件夹；个人流程也可使用这一模板。
+    static let teamVideoTemplate = "{M}.{D}-{事件}/{卷号}"
 }
 
 /// 按文件夹管理照片的软件：「只下载」导入完成后用它打开下载的文件夹。
-/// 使用方式：个人（一个人拍、一个人剪）/ 专业（小团队、DIT、交付后期）。
-enum UsageMode: String, CaseIterable, Identifiable {
-    case personal, pro
-    var id: String { rawValue }
-    var title: String { self == .personal ? "个人" : "专业" }
-    var detail: String {
-        switch self {
-        case .personal: "仅显示常用设置，校验与备份在后台完成。"
-        case .pro: "显示全部设置项，关闭自动导入，不删除存储卡上的文件。"
-        }
-    }
-    /// 专业模式的视频文件夹：每卷一个子文件夹。
-    static let proVideoTemplate = "{M}.{D}-{事件}/{卷号}"
-}
-
 enum FolderApp: String, CaseIterable, Identifiable {
     case none, finder, bridge, dxo
     var id: String { rawValue }
@@ -646,4 +777,10 @@ enum FolderApp: String, CaseIterable, Identifiable {
 
     /// 装了才能选（访达总是有）。
     var isAvailable: Bool { appKind.map { AppInfo.find($0).isInstalled } ?? true }
+}
+
+extension CameraContentItem {
+    /// 空间检查和进度用的估算：大小未知（≥4GB 的视频，ObjectInfo 里是 0xFFFFFFFF）时按 4 GiB 下限算，
+    /// 避免被当成 0 字节。
+    var sizeEstimate: UInt64 { sizeKnown ? size : 4 << 30 }
 }

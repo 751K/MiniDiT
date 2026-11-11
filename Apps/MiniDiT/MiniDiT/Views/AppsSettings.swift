@@ -1,16 +1,14 @@
 import AppKit
+import Combine
+import MiniDiTCore
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// 设置 › 软件：和后期软件的连接情况（装没装、在不在运行、有没有授权自动化）。
+/// 设置 › 连接：和后期软件的连接情况（装没装、在不在运行、有没有授权自动化）。
 struct AppsSettings: View {
     @Environment(AppModel.self) private var model
     @State private var apps: [AppInfo] = []
     @State private var c1Permission: AutomationPermission = .unknown
-    /// 已装的 Look：打开页面时在后台扫一次（Camera Raw 预设文件夹可能有上千个 XMP，放在 body 里每次刷新都要读一遍）。
-    @State private var c1Looks: [InstalledLooks.Body] = []
-    @State private var lrLooks: [LightroomLooks.Profile] = []
-    @State private var looksScanned = false
 
     var body: some View {
         Form {
@@ -24,49 +22,25 @@ struct AppsSettings: View {
                 if let lr = apps.first(where: { $0.kind == .lightroom }) {
                     LightroomRow(app: lr, inUse: model.captureOneMode == .lightroom)
                 }
-            } header: {
-                Text("正在使用")
-            }
-            Section {
-                Toggle("按拍摄时的创意外观套用 Look", isOn: Bindable(model).applyCreativeLook)
-                let looks = c1Looks
-                ForEach(looks, id: \.body) { l in
-                    LabeledContent("Capture One · \(l.body)", value: l.codes.joined(separator: " · "))
-                }
-                let lr = Dictionary(grouping: lrLooks, by: \.model)
-                ForEach(lr.keys.sorted(), id: \.self) { m in
-                    LabeledContent("Lightroom · \(m)", value: lr[m]!.map(\.code).joined(separator: " · "))
-                }
-                if looksScanned && looks.isEmpty && lr.isEmpty {
-                    Text("未找到 Look 配置文件。").font(Theme.Font.caption).foregroundStyle(.secondary)
-                }
-            } header: {
-                Text("创意外观")
-            } footer: {
-                Text("仅处理 RAW 文件；未安装对应 Look 的照片保持原样。")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            Section {
                 ForEach(apps.filter { $0.kind != .captureOne && $0.kind != .lightroom && !$0.kind.isEditor }) { app in
                     FolderAppRow(app: app, usage: model.captureOneMode == .off && model.openAfterImport.appKind == app.kind ? "导入后打开" : nil)
                 }
             } header: {
-                Text("按文件夹管理")
+                Text("照片后期")
             }
             Section {
                 ForEach(apps.filter(\.kind.isEditor)) { app in
-                    let on = app.kind == .resolve ? model.sendToResolve : model.sendToFCP
-                    FolderAppRow(app: app, usage: app.isInstalled && on ? (app.kind == .resolve ? "导入后添加至当前项目" : "导入后发送至 FCP") : nil)
+                    if app.kind == .premiere { PremiereConnectionRow(app: app) }
+                    else {
+                        let on = app.kind == .resolve ? model.sendToResolve : model.sendToFCP
+                        FolderAppRow(app: app, usage: app.isInstalled && on ? (app.kind == .resolve ? "导入后添加至当前项目" : "导入后发送至 FCP") : nil)
+                    }
                 }
             } header: {
-                Text("视频剪辑")
+                Text("视频后期")
             }
         }
         .formStyle(.grouped)
-        .task {
-            let (c1, lr) = await Task.detached { (InstalledLooks.scan(), LightroomLooks.installed(fresh: true)) }.value
-            c1Looks = c1; lrLooks = lr; looksScanned = true
-        }
         // 从系统设置改完授权回来时重新检查。
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             Task { await refresh() }
@@ -107,10 +81,10 @@ struct AppsSettings: View {
 
 struct AppInfo: Identifiable {
     enum Kind: String, CaseIterable {
-        case captureOne, lightroom, bridge, dxo, resolve, finalCut
+        case captureOne, lightroom, bridge, dxo, resolve, finalCut, premiere
 
-        /// 剪辑软件：视频导完交给它们，不在「按文件夹管理」里。
-        var isEditor: Bool { self == .resolve || self == .finalCut }
+        /// 视频后期软件，其他软件归入照片后期。
+        var isEditor: Bool { self == .resolve || self == .finalCut || self == .premiere }
 
         var title: String {
             switch self {
@@ -120,6 +94,7 @@ struct AppInfo: Identifiable {
             case .dxo: "DxO PhotoLab"
             case .resolve: "DaVinci Resolve"
             case .finalCut: "Final Cut Pro"
+            case .premiere: "Adobe Premiere Pro"
             }
         }
         /// Bundle ID 的前缀（版本号会出现在 ID 里，比如 captureone16、bridge2025）。
@@ -131,6 +106,7 @@ struct AppInfo: Identifiable {
             case .dxo: ["com.dxo.PhotoLab", "com.dxo.photolab"]
             case .resolve: ["com.blackmagic-design.DaVinciResolve"]
             case .finalCut: ["com.apple.FinalCutApp", "com.apple.FinalCut"]
+            case .premiere: ["com.adobe.PremierePro"]
             }
         }
     }
@@ -221,10 +197,9 @@ private struct LightroomRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            AppIconView(url: app.url)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
-                    Text(app.kind.title).font(Theme.Font.headline)
+                    Text(app.kind.title)
                     if let v = app.version { Text(v).foregroundStyle(.secondary) }
                 }
                 // 每个软件一行状态：正常是灰字，需要处理时才有橙色警告。
@@ -290,10 +265,9 @@ private struct CaptureOneRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            AppIconView(url: app.url)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
-                    Text(app.kind.title).font(Theme.Font.headline)
+                    Text(app.kind.title)
                     if let v = app.version { Text(v).foregroundStyle(.secondary) }
                 }
                 if !app.isInstalled {
@@ -332,7 +306,6 @@ private struct FolderAppRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            AppIconView(url: app.url).opacity(app.isInstalled ? 1 : 0.4)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(app.kind.title)
@@ -361,41 +334,48 @@ private struct StatusLine: View {
     }
 }
 
-private struct AppIconView: View {
-    let url: URL?
 
+struct PremiereConnectionRow: View {
+    let app: AppInfo
+    @State private var heartbeat: PremiereBridge.Heartbeat?
+    @State private var message: String?
+    @State private var installing = false
+    private let timer = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
+    private var supported: Bool { app.version.map { $0.compare("25.6", options: .numeric) != .orderedAscending } ?? false }
     var body: some View {
-        Group {
-            if let url {
-                Image(nsImage: AppIcon.image(for: url))
-                    .resizable()
-            } else {
-                Image(systemName: "app.dashed").resizable().foregroundStyle(.tertiary)
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text("Adobe Premiere Pro")
+                    if let version = app.version { Text(version).foregroundStyle(.secondary) }
+                }
+                if !app.isInstalled { StatusLine(text: "未安装") }
+                else if !supported { StatusLine(text: "需更新至 25.6 或更高版本", warning: true) }
+                else if let h = heartbeat, h.isFresh, app.isRunning {
+                    if h.pluginVersion != PremierePlugin.version || h.protocolVersion != 1 { StatusLine(text: "MiniDiT 插件需更新", warning: true) }
+                    else if h.busy { StatusLine(text: "正在接收素材") }
+                    else if let project = h.project { StatusLine(text: "已连接 · 当前项目：" + project.name) }
+                    else { StatusLine(text: "已连接，请打开目标项目") }
+                } else { StatusLine(text: app.isRunning ? "请打开 Premiere Pro 中的 MiniDiT 面板" : "已安装 · 未运行") }
+                if let message { StatusLine(text: message) }
+            }
+            Spacer(minLength: 8)
+            if app.isInstalled && supported {
+                Button("安装插件…") {
+                    installing = true
+                    Task {
+                        defer { installing = false }
+                        do {
+                            let package = try await PremierePlugin.makePackage()
+                            guard NSWorkspace.shared.open(package) else { throw MiniDiTCore.VideoDelivery.Failure("请用 Adobe Creative Cloud 打开插件安装文件。") }
+                            message = "安装后，在 Premiere Pro 的“窗口 › UXP 插件”中打开 MiniDiT。"
+                        } catch { message = error.localizedDescription }
+                    }
+                }.disabled(installing)
             }
         }
-        .frame(width: 32, height: 32)
-    }
-}
-
-/// 装在 ColorSync 文件夹里的 Look 配置文件（「SonyA7M5-Look-ST.icc」），按机身列出有哪些外观。
-enum InstalledLooks {
-    struct Body { let body: String; let codes: [String] }
-
-    static func scan() -> [Body] {
-        let dirs = [FileManager.default.homeDirectoryForCurrentUser.appending(path: "Library/ColorSync/Profiles"),
-                    URL(filePath: "/Library/ColorSync/Profiles")]
-        var map: [String: Set<String>] = [:]
-        for d in dirs {
-            for f in (try? FileManager.default.contentsOfDirectory(atPath: d.path)) ?? [] {
-                let base = (f as NSString).deletingPathExtension
-                guard ["icc", "icm"].contains((f as NSString).pathExtension.lowercased()),
-                      let r = base.range(of: "-Look-") else { continue }
-                map[String(base[..<r.lowerBound]), default: []].insert(String(base[r.upperBound...]))
-            }
-        }
-        let order = CreativeLook.all
-        return map.keys.sorted().map { k in
-            Body(body: k, codes: map[k]!.sorted { (order.firstIndex(of: $0) ?? 99, $0) < (order.firstIndex(of: $1) ?? 99, $1) })
-        }
+        .padding(.vertical, 4)
+        .onAppear { heartbeat = PremiereBridge.heartbeat() }
+        .onReceive(timer) { _ in heartbeat = PremiereBridge.heartbeat() }
     }
 }

@@ -6,6 +6,7 @@ import SonyRemoteKit
 /// 和主来源同时打开的另一个来源：一张存储卡，或另一台 Wi-Fi 相机。
 struct ExtraSource: Identifiable {
     let id: Int
+    var connectionID = UUID()
     /// 存储卡的卷（读卡器来源）。
     var root: URL?
     /// Wi-Fi 相机（地址、连接方式）。
@@ -26,6 +27,7 @@ struct ExtraSource: Identifiable {
 struct Origin: Hashable {
     let source: Int
     let local: UInt32
+    var connectionID: UUID? = nil
 }
 
 /// 侧栏和筛选条上显示的一个来源。
@@ -61,9 +63,7 @@ struct CameraProfile: Codable, Equatable {
 
     /// 「型号#序列号」，序列号去掉前导 0（PTP 给的序列号前面补了一串 0，EXIF 里的没有）。
     static func bodyKey(model: String, serial: String) -> String? {
-        let m = model.trimmingCharacters(in: .whitespaces).uppercased()
-        let s = serial.trimmingCharacters(in: .whitespaces).drop { $0 == "0" }
-        return m.isEmpty || s.isEmpty ? nil : "\(m)#\(s)"
+        ImportSourceIdentity.bodyKey(model: model, serial: serial)
     }
 
     /// 「+2 分 30 秒」「−45 秒」。
@@ -110,8 +110,12 @@ extension AppModel {
 
     /// 这个文件所在机身的 ID（导入记录用）。读卡器没有。
     func camera(of h: UInt32) -> String? {
-        let s = source(of: h)
-        return s == Self.primarySource ? cameraID : extraSources.first { $0.id == s }?.cameraID
+        let id = source(of: h)
+        if cardRoot(for: id) != nil {
+            if let body = fileCameraKeys[h] { return body }
+        } else if let body = bodyIdentity(for: id) { return body }
+        if let card = sourceIdentitySnapshot(id).cardID { return "CARD:" + card.uuidString }
+        return "CONNECTION:" + connectionID(for: id).uuidString
     }
 
     func extra(_ id: Int) -> ExtraSource? { extraSources.first { $0.id == id } }
@@ -139,19 +143,15 @@ extension AppModel {
 
     /// 这个来源的机身（找档案用）。Wi-Fi 相机用机身 ID，存储卡用照片 EXIF 里的型号和序列号。
     func profileKey(_ id: Int) -> String? {
-        func body(_ c: String) -> String? {
-            let parts = c.split(separator: "#", maxSplits: 1).map(String.init)
-            return parts.count == 2 ? CameraProfile.bodyKey(model: parts[0], serial: parts[1]) : nil
-        }
-        if id == Self.primarySource, sourceKind == .camera, let c = cameraID { return body(c) }
-        if let e = extra(id), !e.isCard { return e.cameraID.flatMap(body) }
-        return cardCameraKeys[id]
+        bodyIdentity(for: id)
     }
 
-    func profile(_ id: Int) -> CameraProfile? { profileKey(id).flatMap { cameraProfiles[$0] } }
+    func profile(_ id: Int) -> CameraProfile? { profileKey(id).flatMap { cameraProfiles[$0] } ?? sessionCameraProfiles[id] }
 
     func updateProfile(_ id: Int, _ change: (inout CameraProfile) -> Void) {
-        guard let k = profileKey(id) else { return }
+        guard let k = profileKey(id) else {
+            var p = sessionCameraProfiles[id] ?? CameraProfile(); change(&p); sessionCameraProfiles[id] = p; return
+        }
         var p = cameraProfiles[k] ?? CameraProfile()
         change(&p)
         cameraProfiles[k] = p
@@ -160,7 +160,8 @@ extension AppModel {
     /// 改名：名字也用在多来源导入的子文件夹上。空 = 恢复机型名。
     func rename(_ id: Int, to name: String) {
         let n = NameTemplate.sanitize(name.trimmingCharacters(in: .whitespaces))
-        updateProfile(id) { $0.nickname = n.isEmpty ? nil : n }
+        if let root = cardRoot(for: id) { sourceIdentities.rename(root: root, to: n) }
+        else { updateProfile(id) { $0.nickname = n.isEmpty ? nil : n } }
         log.add("来源 \(id) 改名为「\(n.isEmpty ? "（机型名）" : n)」")
     }
 
@@ -231,6 +232,7 @@ extension AppModel {
 
     /// 来源显示的名字：自己起的名字优先；Wi-Fi 相机用相机名；存储卡用卡上照片的机型，读不到时用卷名。
     func sourceName(_ id: Int) -> String {
+        if let root = cardRoot(for: id) { return sourceIdentities.name(for: root) }
         if let n = profile(id)?.nickname { return n }
         if id == Self.primarySource {
             if sourceKind == .card, let n = cardCameraNames[id] { return n }
@@ -245,8 +247,11 @@ extension AppModel {
     func sourceLabel(_ id: Int) -> String {
         let name = sourceName(id)
         let clash = sources.filter { $0.name == name }.count > 1
-        guard clash, let vol = volumeName(id) else { return name }
-        return vol
+        guard clash else { return name }
+        let identity = sourceIdentitySnapshot(id)
+        if let card = identity.cardID { return name + " · " + card.uuidString.prefix(4) }
+        if let serial = identity.cameraSerial { return name + " · " + serial.suffix(4) }
+        return name + " · " + String(id + 1)
     }
 
     /// 卷名（存储卡来源）。
@@ -260,11 +265,11 @@ extension AppModel {
         if library != nil || offline {
             let isCard = sourceKind == .card
             out.append(SourceSummary(id: Self.primarySource, name: sourceName(Self.primarySource),
-                                     detail: isCard ? "读卡器 · \(cardRoot?.lastPathComponent ?? "")" : "Wi-Fi · \(connectedHost ?? "")",
+                                     detail: identityDetail(Self.primarySource),
                                      isCard: isCard))
         }
         for e in extraSources {
-            let detail = e.isCard ? "读卡器 · \(e.root?.lastPathComponent ?? "")" : "Wi-Fi · \(e.camera?.host ?? "")"
+            let detail = identityDetail(e.id)
             out.append(SourceSummary(id: e.id, name: sourceName(e.id), detail: detail, isCard: e.isCard,
                                      offline: e.offline, connecting: e.connecting))
         }
@@ -317,6 +322,18 @@ extension AppModel {
     /// 设了只看某张卡时只数那张卡上的。
     func shotCount(source: Int) -> Int { shotCount(source: source, slot: onlySlot(source)) }
 
+    /// 某个来源里还没导入的拍摄数。来源管理器直接显示这个数。
+    func newShotCount(source id: Int) -> Int {
+        allShots.filter {
+            source(of: $0.id) == id && !importFiles(of: $0).isEmpty && !isImported(shot: $0.id)
+        }.count
+    }
+
+    /// 所有已打开来源里未导入的拍摄数，不受当前来源筛选影响。
+    var newShotCountAllSources: Int {
+        allShots.filter { !importFiles(of: $0).isEmpty && !isImported(shot: $0.id) }.count
+    }
+
     /// 存储卡来源：从卡上第一张照片的 EXIF 读出机型，当来源名字。
     func readCardCameraName(_ id: Int, library lib: LocalCardLibrary, handles: [UInt32]) async {
         for h in handles.prefix(40) {
@@ -325,19 +342,12 @@ extension AppModel {
                 if let serial = x.serial, let k = CameraProfile.bodyKey(model: cam, serial: serial) {
                     cardCameraKeys[id] = k
                 } else {
-                    // 索尼的 EXIF 里没有机身序列号（在加密的 MakerNote 里）：改为按这张卡记住（卷 UUID）。
-                    cardCameraKeys[id] = Self.cardKey(model: cam, root: lib.root)
+                    cardCameraKeys[id] = nil
                 }
-                log.add("存储卡来源 \(id)：\(cam)，" + (x.serial != nil ? "按机身记住设置" : "没有机身序列号，按存储卡记住设置"))
+                log.add("存储卡来源 \(id)：\(cam)，" + (x.serial != nil ? "已识别拍摄机身" : "机身序列号未知，卡身份单独记录"))
                 return
             }
         }
-    }
-
-    /// 没有机身序列号时，按存储卡认：「CARD:型号@卷 UUID」（没有 UUID 用卷名）。
-    static func cardKey(model: String, root: URL) -> String {
-        let v = try? root.resourceValues(forKeys: [.volumeUUIDStringKey, .volumeNameKey])
-        return "CARD:\(model.uppercased())@\(v?.volumeUUIDString ?? v?.volumeName ?? root.lastPathComponent)"
     }
 
     // MARK: 同时打开存储卡
@@ -345,8 +355,8 @@ extension AppModel {
     /// 在当前来源之外再打开一张卡（主来源可以是相机，也可以是另一张卡）。
     func addCard(_ url: URL) {
         guard progress == nil, library != nil else { openCard(url); return }
-        let std = url.standardizedFileURL
-        if cardRoot?.standardizedFileURL == std || extraSources.contains(where: { $0.root?.standardizedFileURL == std }) { return }
+        let std = url.resolvingSymlinksInPath().standardizedFileURL
+        if cardRoot?.resolvingSymlinksInPath().standardizedFileURL == std || extraSources.contains(where: { $0.root?.resolvingSymlinksInPath().standardizedFileURL == std }) { return }
         let src = ExtraSource(id: nextSourceID, root: url, library: LocalCardLibrary(root: url))
         nextSourceID += 1
         extraSources.append(src)

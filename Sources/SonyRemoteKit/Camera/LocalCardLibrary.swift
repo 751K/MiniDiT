@@ -1,4 +1,5 @@
 import Foundation
+import AVFoundation
 import ImageIO
 import UniformTypeIdentifiers
 
@@ -16,6 +17,8 @@ public actor LocalCardLibrary: CameraLibrary {
     public private(set) var listingNotes: [String] = []
     private var entries: [UInt32: Entry] = [:]
     private var listed: [UInt32]?
+    private var handleByFile: [String: UInt32] = [:]
+    private var nextHandle: UInt32 = 1
 
     /// 读卡器当作卡槽 1。
     public static let storageID: UInt32 = 1 << 16 | 1
@@ -67,8 +70,11 @@ public actor LocalCardLibrary: CameraLibrary {
         // 新的在前；同一时间按文件名，保证 RAW 和 JPEG 挨在一起。
         found.sort { $0.raw != $1.raw ? $0.raw > $1.raw : $0.url.lastPathComponent < $1.url.lastPathComponent }
         var hs: [UInt32] = []
-        for (i, f) in found.enumerated() {
-            let h = UInt32(i + 1)
+        for f in found {
+            let key = "\(f.url.path)|\(f.size)|\(f.raw)"
+            let h: UInt32
+            if let old = handleByFile[key] { h = old }
+            else { h = nextHandle; nextHandle += 1; handleByFile[key] = h }
             let item = CameraContentItem(id: h, storageID: Self.storageID, filename: f.url.lastPathComponent,
                                          format: Self.format(for: f.url.lastPathComponent) ?? 0, size: f.size,
                                          captureDate: f.date == .distantPast ? nil : f.date,
@@ -146,6 +152,7 @@ public actor LocalCardLibrary: CameraLibrary {
 
     /// 卡上文件的位置（读卡器来源可以直接从这里复制）。
     public func fileURL(_ handle: UInt32) -> URL? { entries[handle]?.url }
+    public func sourcePath(_ handle: UInt32) async -> String? { entries[handle]?.url.path }
 
     /// 视频片段的拍摄信息（读同名的 M01.XML）。
     public func clipInfo(_ handle: UInt32) -> ClipInfo? {
@@ -162,10 +169,10 @@ public actor LocalCardLibrary: CameraLibrary {
         return (try? h.read(upToCount: PhotoRating.headLength)).flatMap(PhotoRating.parse)
     }
 
-    public func refresh() {
+    public func refresh() async {
         listed = nil
-        entries = [:]
         clipCache = [:]
+        listingNotes = []
     }
 
     /// 有 M01.XML 读它，没有就读 MP4 末尾内嵌的那份。
@@ -214,9 +221,30 @@ public actor LocalCardLibrary: CameraLibrary {
         return map
     }
 
-    public func thumbnail(_ handle: UInt32) async throws -> Data? { try image(handle, maxPixel: 320) }
+    public func thumbnail(_ handle: UInt32) async throws -> Data? {
+        if let still = try image(handle, maxPixel: 320) { return still }
+        return try await videoStill(handle, maxPixel: 320)
+    }
 
-    public func preview(_ handle: UInt32) async throws -> Data? { try image(handle, maxPixel: 1800) }
+    public func preview(_ handle: UInt32) async throws -> Data? {
+        if let still = try image(handle, maxPixel: 1800) { return still }
+        return try await videoStill(handle, maxPixel: 1800)
+    }
+
+    private func videoStill(_ handle: UInt32, maxPixel: Int) async throws -> Data? {
+        let entry = try entry(handle)
+        guard entry.item.kind == .video else { return nil }
+        let generator = AVAssetImageGenerator(asset: AVURLAsset(url: entry.url))
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: maxPixel, height: maxPixel)
+        let (image, _) = try await generator.image(at: .zero)
+        try Task.checkCancellation()
+        let data = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: 0.85] as CFDictionary)
+        guard CGImageDestinationFinalize(destination) else { return nil }
+        return data as Data
+    }
 
     public func exif(_ handle: UInt32) async -> ShotExif? {
         guard let e = try? entry(handle), e.item.kind != .video else { return nil }

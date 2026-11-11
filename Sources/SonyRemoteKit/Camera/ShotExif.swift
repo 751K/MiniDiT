@@ -28,9 +28,9 @@ public struct ShotExif: Sendable, Equatable {
         exposureBias = Self.number(exif[kCGImagePropertyExifExposureBiasValue])
         serial = (exif[kCGImagePropertyExifBodySerialNumber] as? String)?.trimmingCharacters(in: .whitespaces)
         if serial?.isEmpty == true { serial = nil }
-        if fNumber == nil && exposureTime == nil && iso == nil && focalLength == nil { return nil }
         if lens?.isEmpty == true { lens = nil }
         if camera?.isEmpty == true { camera = nil }
+        if fNumber == nil && exposureTime == nil && iso == nil && focalLength == nil && camera == nil && serial == nil { return nil }
     }
 
     public init?(imageData: Data) {

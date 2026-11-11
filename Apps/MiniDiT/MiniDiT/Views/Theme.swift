@@ -145,6 +145,7 @@ struct SegmentPicker<T: Hashable>: View {
 struct MultiSegmentPicker: View {
     struct Option { let title: String; let isOn: Binding<Bool> }
     let options: [Option]
+    var fill = false
 
     var body: some View {
         HStack(spacing: 2) {  // 几格同时打开时，蓝色块之间留缝，不连成一条
@@ -152,7 +153,9 @@ struct MultiSegmentPicker: View {
                 let o = options[i]
                 Button { withAnimation(.snappy(duration: 0.2)) { o.isOn.wrappedValue.toggle() } } label: {
                     SegmentLabel(title: o.title, count: nil, on: o.isOn.wrappedValue)
-                        .padding(.horizontal, 10).frame(height: segmentHeight)
+                        .padding(.horizontal, 10)
+                        .frame(maxWidth: fill ? .infinity : nil)
+                        .frame(height: segmentHeight)
                         .background { if o.isOn.wrappedValue { SegmentThumb() } }
                         .contentShape(Rectangle())
                 }

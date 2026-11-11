@@ -147,7 +147,7 @@ enum LightroomBridge {
         for p in photos {
             // 第 5 栏：相机里打的星级（从下载好的文件开头读；没打星不写）。
             let rating = PhotoRating.read(fileAt: p.url).flatMap { $0 != 0 ? String($0) : nil } ?? ""
-            lines.append("photo\t" + p.url.path + "\t" + (p.stackWith?.path ?? "") + "\t" + (p.look.map(clean) ?? "") + "\t" + rating)
+            lines.append("photo\t" + clean(p.url.path) + "\t" + clean(p.stackWith?.path ?? "") + "\t" + (p.look.map(clean) ?? "") + "\t" + rating)
         }
         // 先写成 .tmp 再改名，插件只认 .job，不会读到写了一半的文件。
         let tmp = jobsFolder.appending(path: name + ".tmp")
@@ -156,8 +156,11 @@ enum LightroomBridge {
         return name
     }
 
+    /// 任务文件是 Tab 分隔、按行读取的；任何一个字段里的 Tab / 换行都会让整行错位。
     private static func clean(_ s: String) -> String {
-        s.replacingOccurrences(of: "\t", with: " ").replacingOccurrences(of: "\n", with: " ")
+        s.replacingOccurrences(of: "\t", with: " ")
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
     }
 
     /// 让插件马上处理；LrC 没开时会把它打开（打开当前的目录）。不把 LrC 拉到前台。

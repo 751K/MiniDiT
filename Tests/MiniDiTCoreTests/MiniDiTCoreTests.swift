@@ -55,6 +55,27 @@ private func item(_ id: UInt32, _ name: String, _ fmt: UInt16, size: UInt64 = 10
         #expect(files == [1])
     }
 
+    @Test func simultaneousVideoRecordingImportsOneCopy() {
+        // 两张卡同时记录的视频也必须合成一次拍摄，只导入一份。
+        let a = item(1, "C0001.MP4", PTPObjectFormat.mp4, size: 500_000, slot: 1)
+        let b = item(2, "C0001.MP4", PTPObjectFormat.mp4, size: 500_000, slot: 2)
+        let shots = ShotBuilder.group([a, b])
+        #expect(shots.count == 1)
+        let byID: [UInt32: CameraContentItem] = [1: a, 2: b]
+        let files = ShotBuilder.files(of: shots[0], policy: .both, kindOf: { byID[$0]?.kind },
+                                      identity: { byID[$0].map { "\($0.filename)|\($0.size)" } })
+        #expect(files == [1])
+    }
+
+    @Test func differentCardContentsRemainDistinct() {
+        // 两张卡内容不同：各自文件都保留，只是合并成同一时间线。
+        let shots = ShotBuilder.group([
+            item(1, "DSC00001.JPG", PTPObjectFormat.jpeg, slot: 1),
+            item(2, "DSC00002.JPG", PTPObjectFormat.jpeg, slot: 2),
+        ])
+        #expect(shots.count == 2)
+    }
+
     @Test func pairPolicyPicksFiles() {
         let shot = ShotBuilder.group([item(1, "A.ARW", PTPObjectFormat.sonyARW), item(2, "A.HIF", PTPObjectFormat.heif)])[0]
         let kinds: [UInt32: CameraContentItem.Kind] = [1: .raw, 2: .heif]

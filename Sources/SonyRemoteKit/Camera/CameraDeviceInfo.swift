@@ -49,7 +49,7 @@ public struct CameraDeviceInfo: Sendable, Equatable, Codable {
         return table[m] ?? raw.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// 用来区分机身的 ID：有序列号用序列号，否则用型号。
+    /// 用来区分机身的 ID；未提供有效序列号时为 nil，不以型号冒充机身身份。
     public var cameraID: String? {
         let s = serialNumber.trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "0")))
         if !s.isEmpty { return "\(model)#\(serialNumber.trimmingCharacters(in: .whitespacesAndNewlines))" }

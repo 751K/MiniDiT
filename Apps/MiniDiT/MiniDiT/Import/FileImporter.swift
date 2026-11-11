@@ -4,7 +4,7 @@ import SonyRemoteKit
 
 /// 把一个文件从相机 / 存储卡导到本地：第一份 + 备份盘上的第二份，两份都用 xxHash64 校验。不碰界面状态。
 ///
-/// 第一份：目标位置已有同样的文件 → 用它；本地别处有（上次下载过）→ 移动或复制过来；
+/// 第一份：目标位置已有同样的文件 → 用它；本地别处有（上次下载过）→ 复制过来；
 /// 都没有 → 先下载成 `.文件名.part`，校验通过再改名。
 /// 第二份：「备份位置/年-月-日-事件/文件名」，复制后从盘上读回来比对哈希。
 ///
@@ -64,11 +64,21 @@ struct FileImporter {
     /// 备份盘上日期文件夹里再分的一层：视频放「视频/」，和照片分开。
     var backupSubfolder: String?
     /// 要删卡上的文件时，对没有重新复制的文件（目标已有 / 用了本地的）也读卡比对一遍。
+    /// 指定时镜像主副本的目录；nil 时沿用旧版自定义备份规则。
+    var backupDirectory: URL?
     var checkSource = false
     var log: AppLog = .shared
 
     /// 一个文件要计入进度的字节数（有备份时算两遍）。
-    func weight(of item: CameraContentItem) -> UInt64 { item.size * (backupRoot == nil ? 1 : 2) }
+    /// 一个文件在总进度里的权重；大小未知时优先用实际写好的文件，其次按 4 GiB 估算。
+    func weight(of item: CameraContentItem, at url: URL? = nil) -> UInt64 {
+        (url.flatMap(Self.fileSize) ?? item.sizeEstimate) * (backupRoot == nil ? 1 : 2)
+    }
+
+    /// 文件实际大小（导入完成后的文件可能和 ObjectInfo 里的未知大小不同）。
+    static func fileSize(_ url: URL) -> UInt64? {
+        (try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? UInt64
+    }
 
     /// `progress` 报告这个文件已经完成了多少字节（0…weight）；`stage` 报告正在做什么；
     /// `skipped` 报告不用传、直接算完成的字节（续传时已有的部分、本地已有的文件），算速度时不计入。
@@ -76,7 +86,8 @@ struct FileImporter {
                     progress: @escaping @Sendable (UInt64) -> Void,
                     stage: (String) -> Void,
                     skipped: (UInt64) -> Void = { _ in },
-                    resumed: (UInt64) -> Void = { _ in }) async throws -> Result {
+                    resumed: (UInt64) -> Void = { _ in },
+                    primarySaved: (URL, UInt64, Bool) -> Void = { _, _, _ in }) async throws -> Result {
         let (outcome, hash, fromCard) = try await primary(item, into: dir, progress: progress, stage: stage,
                                                           skipped: skipped, resumed: resumed)
         var matchesSource = fromCard
@@ -84,12 +95,16 @@ struct FileImporter {
             stage("核对 \(item.filename)")
             matchesSource = (try? await FileOps.hash(src)) == hash
         }
-        progress(item.size)
+        primarySaved(outcome.url, hash, matchesSource)
+        try Task.checkCancellation()
+        // 大小未知（≥4GB）的视频以实际写好的文件为准，进度和备份进度才有正确的基准。
+        let primarySize = Self.fileSize(outcome.url) ?? item.size
+        progress(primarySize)
         var backup = Backup.none
         if let backupRoot {
             stage("备份 \(item.filename)")
             do {
-                let u = try await copyToBackup(outcome.url, item: item, root: backupRoot, hash: hash) { d in progress(item.size + d) }
+                let u = try await copyToBackup(outcome.url, item: item, root: backupRoot, hash: hash) { d in progress(primarySize + d) }
                 backup = .done(u)
             } catch is CancellationError {
                 throw CancellationError()
@@ -112,21 +127,33 @@ struct FileImporter {
         let target = dir.appending(path: item.filename)
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         if ImportHistory.matches(target, item) {
-            skipped(item.size)
             stage("校验 \(item.filename)")
-            return (.alreadyThere(target), try await FileOps.hash(target), false)
+            let hash = try await FileOps.hash(target)
+            var same = false
+            var fromCard = false
+            if let card = library as? LocalCardLibrary, let source = await card.fileURL(item.id) {
+                same = try await FileOps.hash(source) == hash
+                fromCard = same
+            } else if let record = ImportHistory.shared.record(for: item, camera: camera), let path = record.path {
+                same = URL(filePath: path).standardizedFileURL == target.standardizedFileURL
+                    && record.xxh64 == XXH64.hex(hash)
+            }
+            if same {
+                skipped(Self.fileSize(target) ?? item.size)
+                return (.alreadyThere(target), hash, fromCard)
+            }
         }
 
         let final = fm.fileExists(atPath: target.path) ? Self.uniqueURL(target) : target
-        if let local = Self.localCopy(of: item, root: root, camera: camera), local.standardizedFileURL != final.standardizedFileURL {
-            skipped(item.size)
-            // 在下载文件夹里的就移过去，在别处（比如别的会话）的就复制。
-            if local.path.hasPrefix(root.path + "/") {
-                try fm.moveItem(at: local, to: final)
-                log.add("用本地文件（移动）\(local.path) → \(final.path)")
-                stage("校验 \(item.filename)")
-                return (.reused(final), try await FileOps.hash(final), false)
-            }
+        var local = ImportHistory.shared.localFile(item, camera: camera)
+        if local == nil, library is LocalCardLibrary { local = Self.localCopy(of: item, root: root, camera: camera) }
+        if let candidate = local, let card = library as? LocalCardLibrary, let source = await card.fileURL(item.id),
+           try await FileOps.hash(candidate) != FileOps.hash(source) {
+            local = nil
+        }
+        if let local, local.standardizedFileURL != final.standardizedFileURL {
+            skipped(Self.fileSize(local) ?? item.size)
+            // 同一文件可能属于已有会话，改变整理偏好时保留原来的那份。
             stage("复制 \(item.filename)")
             let h = try await verifiedCopy(from: local, to: final, name: item.filename, progress: progress)
             log.add("用本地文件（复制）\(local.path) → \(final.path)")
@@ -144,14 +171,15 @@ struct FileImporter {
         } else {
             // 断点续传：上次没传完的 .part 还在，就从它的末尾接着读。
             let have = (try? fm.attributesOfItem(atPath: part.path))?[.size] as? UInt64 ?? 0
-            let resume = have <= item.size ? have : 0
+            // 大小未知（≥4GB）时 item.size 是 0，不能拿来判断进度；从 0 开始流式下载。
+            let resume = item.sizeKnown && have <= item.size ? have : 0
             if resume > 0 {
                 log.add("续传 \(item.filename)：已有 \(resume)/\(item.size) 字节")
                 stage("续传 \(item.filename)")
                 resumed(resume)
                 skipped(resume)
             }
-            if resume < item.size {
+            if !item.sizeKnown || resume < item.size {
                 do {
                     try await library.download(item, to: part, from: resume) { done, _ in progress(done) }
                     if let rt = library as? SonyRemoteTransferLibrary, let note = await rt.lastDownloadNote { log.add(note) }
@@ -212,6 +240,7 @@ struct FileImporter {
 
     /// 备份盘上这个文件所在的文件夹：「年-月-日-事件/[视频/][来源/]」。
     private func backupDir(for item: CameraContentItem, root: URL) -> URL {
+        if let backupDirectory { return backupDirectory }
         var dir = Self.backupFolder(for: item, root: root, event: event, scene: scene)
         if let backupSubfolder { dir = dir.appending(path: backupSubfolder, directoryHint: .isDirectory) }
         if let sourceFolder { dir = dir.appending(path: sourceFolder, directoryHint: .isDirectory) }
@@ -230,7 +259,7 @@ struct FileImporter {
     /// 相机上这段没有代理时返回 nil。
     func importProxyOnly(_ item: CameraContentItem, into dir: URL,
                          progress: @escaping @Sendable (UInt64) -> Void,
-                         stage: (String) -> Void) async throws -> ProxyOnlyResult? {
+                         stage: (String) -> Void, issue: (String) -> Void = { _ in }) async throws -> ProxyOnlyResult? {
         guard let p = await library.proxy(of: item.id) else { return nil }
         let rel = "Proxy/" + item.baseName + "." + (p.filename as NSString).pathExtension
         stage("下载代理 \(item.filename)")
@@ -241,7 +270,7 @@ struct FileImporter {
             guard let bdir else { return nil }
             let b = bdir.appending(path: rel)
             do { _ = try await copySidecar(file, to: b, expect: hash); return b }
-            catch { log.add("备份失败 \(rel)：\(error.localizedDescription)"); return nil }
+            catch { let message = "备份失败 \(rel)：\(error.localizedDescription)"; log.add(message); issue(message); return nil }
         }
         if bdir != nil { stage("备份代理 \(item.filename)") }
         var result = ProxyOnlyResult(proxy: SidecarCopy(url: dst, xxh64: h, backup: await backup(dst, rel: rel, hash: h), alreadyThere: there))
@@ -256,6 +285,7 @@ struct FileImporter {
                 result.xml = SidecarCopy(url: x, xxh64: xh, backup: await backup(x, rel: xrel, hash: xh), alreadyThere: same)
             } catch {
                 log.add("写入 \(xrel) 失败：\(error.localizedDescription)")
+                issue("写入 \(xrel) 失败：\(error.localizedDescription)")
             }
         }
         return result
@@ -277,7 +307,7 @@ struct FileImporter {
     /// 读卡器：从卡上复制 XML 和 SUB 里的代理。Wi-Fi：相机列表里有代理就下载；XML 相机不给，
     /// 从下载好的 MP4 末尾切出内嵌的那份（和卡上的 M01.XML 一字不差）。
     func importSidecars(of item: CameraContentItem, clip: URL, backupClip: URL?, proxies: Bool,
-                        stage: (String) -> Void) async -> [SidecarCopy] {
+                        stage: (String) -> Void, issue: (String) -> Void = { _ in }) async -> [SidecarCopy] {
         let base = clip.deletingPathExtension().lastPathComponent
         let dir = clip.deletingLastPathComponent()
         var out: [SidecarCopy] = []
@@ -286,7 +316,7 @@ struct FileImporter {
             guard let backupClip else { return nil }
             let b = backupClip.deletingLastPathComponent().appending(path: rel)
             do { _ = try await copySidecar(file, to: b, expect: hash); return b }
-            catch { log.add("备份失败 \(rel)：\(error.localizedDescription)"); return nil }
+            catch { let message = "备份失败 \(rel)：\(error.localizedDescription)"; log.add(message); issue(message); return nil }
         }
         if let card = library as? LocalCardLibrary {
             for s in await card.sidecars(item.id) where s.kind == .metadata || proxies {
@@ -304,6 +334,7 @@ struct FileImporter {
                     return out
                 } catch {
                     log.add("复制失败 \(name)：\(error.localizedDescription)")
+                issue("复制失败 \(name)：\(error.localizedDescription)")
                 }
             }
         } else if proxies, let p = await library.proxy(of: item.id) {
@@ -317,6 +348,7 @@ struct FileImporter {
                 return out
             } catch {
                 log.add("下载代理失败 \(p.filename)：\(error.localizedDescription)")
+                issue("下载代理失败 \(p.filename)：\(error.localizedDescription)")
             }
         }
         if !haveXML, let xml = ClipInfo.embeddedXML(inFile: clip) {
@@ -330,6 +362,7 @@ struct FileImporter {
                 out.append(SidecarCopy(url: dst, xxh64: h, backup: await backup(dst, rel: rel, hash: h), alreadyThere: there))
             } catch {
                 log.add("写入 \(rel) 失败：\(error.localizedDescription)")
+                issue("写入 \(rel) 失败：\(error.localizedDescription)")
             }
         }
         return out

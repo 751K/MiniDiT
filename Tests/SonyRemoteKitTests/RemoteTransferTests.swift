@@ -65,6 +65,9 @@ import FakeSonyCamera
 
         let jpgHandle = try #require(kinds.first { $0.value == .jpeg }?.key)
         let jpg = try await lib.item(jpgHandle)
+        let sourcePath = try #require(await lib.sourcePath(jpgHandle))
+        #expect(sourcePath.contains("DCIM/"))
+        #expect(sourcePath.hasSuffix(jpg.filename))
         let thumb = try #require(try await lib.thumbnail(jpgHandle))
         #expect(thumb.prefix(4) == Data([0xFF, 0xD8, 0xFF, 0xE0]))
 
@@ -75,13 +78,20 @@ import FakeSonyCamera
         let data = try Data(contentsOf: url)
         #expect(UInt64(data.count) == jpg.size)
         #expect(data.prefix(4) == Data("DSC0".utf8))
-        #expect(progress.steps.count == 2)   // 5MB 按 4MiB 分块
+        #expect(!progress.steps.isEmpty)
+        #expect(progress.steps.last?.0 == jpg.size)
+        #expect(zip(progress.steps, progress.steps.dropFirst()).allSatisfy { $0.0 < $1.0 })
 
         // 卡 2：直接切过去就能读，不用重连。
         let hs2 = try await lib.handles(in: folders[1])
         #expect(hs2.count == 1)
         #expect(try await lib.item(hs2[0]).filename == "SLOT2.JPG")
         #expect(try await lib.item(hs2[0]).storageID >> 16 == 2)
+        await lib.refresh()
+        let refreshed = try await lib.handles(in: folders[0])
+        #expect(Set(refreshed) == Set(hs1))
+        #expect(card1.remoteListRequests == 4)
+        #expect(try await lib.item(jpgHandle).filename == jpg.filename)
         await lib.close()
     }
 

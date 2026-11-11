@@ -187,6 +187,7 @@
 				INFOPLIST_KEY_NSAppleEventsUsageDescription = "下载完照片后让 Capture One 导入它们。";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "MIT License";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "需要访问本地网络，才能找到并连接 Wi-Fi 上的相机。";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "将你选择导出的实况照片存入照片图库。";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -217,6 +218,7 @@
 				INFOPLIST_KEY_NSAppleEventsUsageDescription = "下载完照片后让 Capture One 导入它们。";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "MIT License";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "需要访问本地网络，才能找到并连接 Wi-Fi 上的相机。";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "将你选择导出的实况照片存入照片图库。";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",

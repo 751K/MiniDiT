@@ -57,37 +57,49 @@ public actor PTPIPClient {
 
     /// 建立命令通道和事件通道（PTP/IP 握手）。
     public func connect(timeout: TimeInterval = 8) async throws {
-        let cmd = try await openSocket(timeout: timeout)
-        try await cmd.send(.initCommandRequest(guid: identity.guid, name: identity.friendlyName, version: PTPIPPacket.protocolVersion))
+        var openedCommand: PTPIPSocket?
+        var openedEvent: PTPIPSocket?
+        do {
+            let cmd = try await openSocket(timeout: timeout)
+            openedCommand = cmd
+            try await cmd.send(.initCommandRequest(guid: identity.guid, name: identity.friendlyName, version: PTPIPPacket.protocolVersion))
 
-        let connectionNumber: UInt32
-        switch try await cmd.receive(timeout: timeout) {
-        case let .initCommandAck(conn, _, name, _):
-            connectionNumber = conn
-            cameraName = name
-        case let .initFail(reason):
-            cmd.close()
-            throw PTPIPTransportError.initFailed(reason: reason)
-        case let other:
-            cmd.close()
-            throw PTPIPTransportError.unexpectedPacket("\(other.type)")
+            let connectionNumber: UInt32
+            switch try await cmd.receive(timeout: timeout) {
+            case let .initCommandAck(conn, _, name, _):
+                connectionNumber = conn
+                cameraName = name
+            case let .initFail(reason):
+                throw PTPIPTransportError.initFailed(reason: reason)
+            case let other:
+                throw PTPIPTransportError.unexpectedPacket("\(other.type)")
+            }
+
+            let evt = try await openSocket(timeout: timeout)
+            openedEvent = evt
+            try await evt.send(.initEventRequest(connectionNumber: connectionNumber))
+            switch try await evt.receive(timeout: timeout) {
+            case .initEventAck: break
+            case let .initFail(reason):
+                throw PTPIPTransportError.initFailed(reason: reason)
+            case let other:
+                throw PTPIPTransportError.unexpectedPacket("\(other.type)")
+            }
+
+            command = cmd
+            eventSocket = evt
+            openedCommand = nil
+            openedEvent = nil
+            startEventLoop(evt)
+        } catch {
+            // 握手失败的每一条路径都要关掉已经打开的 socket；走 SSH 时还要关掉隧道，
+            // 否则它的 io 线程会一直活着，自动重连几次就耗尽 fd。
+            openedCommand?.close()
+            openedEvent?.close()
+            tunnel?.close()
+            cameraName = ""
+            throw error
         }
-
-        let evt = try await openSocket(timeout: timeout)
-        try await evt.send(.initEventRequest(connectionNumber: connectionNumber))
-        switch try await evt.receive(timeout: timeout) {
-        case .initEventAck: break
-        case let .initFail(reason):
-            cmd.close(); evt.close()
-            throw PTPIPTransportError.initFailed(reason: reason)
-        case let other:
-            cmd.close(); evt.close()
-            throw PTPIPTransportError.unexpectedPacket("\(other.type)")
-        }
-
-        command = cmd
-        eventSocket = evt
-        startEventLoop(evt)
     }
 
     private func openSocket(timeout: TimeInterval) async throws -> PTPIPSocket {

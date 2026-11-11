@@ -8,31 +8,35 @@ struct BrowserView: View {
 
     var body: some View {
         NavigationSplitView {
-            Sidebar()
+            ProjectSidebar()
                 .navigationSplitViewColumnWidth(min: 220, ideal: 264, max: 320)
-                .background(SidebarWidthFix(min: 220, ideal: 264, max: 320))
+                .background(SidebarWidthFix(min: 220, ideal: 240, max: 280, column: 0))
                 .toolbar(removing: .sidebarToggle)
+        } content: {
+            SourceDateSidebar()
+                .navigationSplitViewColumnWidth(min: 250, ideal: 300, max: 360)
+                .background(SidebarWidthFix(min: 250, ideal: 300, max: 360, column: 1))
         } detail: {
             if let id = model.browsingSession, let session = model.sessions.first(where: { $0.id == id }) {
-                SessionBrowser(session: session) { model.browsingSession = nil }
+                SessionBrowser(session: session, media: model.browsingSessionMedia) { model.browseSession(nil) }
             } else {
-            ZStack(alignment: .bottom) {
-                VStack(spacing: 0) {
-                    BrowseHeader()
-                    if model.offline { OfflineBanner() }
-                    if model.phase == .loading {
-                        LoadingGrid()
-                    } else {
-                        GridView()
+                ZStack(alignment: .bottom) {
+                    VStack(spacing: 0) {
+                        BrowseHeader()
+                        if model.offline { OfflineBanner() }
+                        if model.phase == .loading {
+                            LoadingGrid()
+                        } else {
+                            GridView()
+                        }
                     }
+                    // 窗口没有标题栏：顶栏直接放进标题栏那一行，不另留一条空白。
+                    .ignoresSafeArea(.container, edges: .top)
+                    FloatingBar()
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 16)
                 }
-                // 窗口没有标题栏：顶栏直接放进标题栏那一行，不另留一条空白。
-                .ignoresSafeArea(.container, edges: .top)
-                FloatingBar()
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 16)
-            }
-            .background(Color(nsColor: .textBackgroundColor))
+                .background(Color(nsColor: .textBackgroundColor))
             }
         }
         .overlay {
@@ -45,6 +49,7 @@ struct BrowserView: View {
 /// 直接找到底下的 NSSplitViewController，把侧栏的最小 / 最大宽度设上，太窄时拉到合适宽度。
 private struct SidebarWidthFix: NSViewRepresentable {
     let min: CGFloat, ideal: CGFloat, max: CGFloat
+    let column: Int
 
     func makeNSView(context: Context) -> NSView { Probe(fix: self) }
     func updateNSView(_ nsView: NSView, context: Context) {}
@@ -63,48 +68,35 @@ private struct SidebarWidthFix: NSViewRepresentable {
         private func apply() {
             var v: NSView? = superview
             while let cur = v, !(cur is NSSplitView) { v = cur.superview }
-            guard let split = v as? NSSplitView, let first = split.arrangedSubviews.first else { return }
-            if let ctrl = split.delegate as? NSSplitViewController, let item = ctrl.splitViewItems.first {
+            guard let split = v as? NSSplitView,
+                  split.arrangedSubviews.indices.contains(fix.column) else { return }
+            if let ctrl = split.delegate as? NSSplitViewController,
+               ctrl.splitViewItems.indices.contains(fix.column) {
+                let item = ctrl.splitViewItems[fix.column]
                 item.minimumThickness = fix.min
                 item.maximumThickness = fix.max
             }
-            if first.frame.width < fix.min { split.setPosition(fix.ideal, ofDividerAt: 0) }
+            if split.arrangedSubviews[fix.column].frame.width < fix.min {
+                let leading = split.arrangedSubviews.prefix(fix.column).reduce(0) { $0 + $1.frame.width }
+                split.setPosition(leading + fix.ideal, ofDividerAt: fix.column)
+            }
         }
     }
 }
 
 // MARK: - 侧栏
 
-struct Sidebar: View {
+/// 第一栏：导入目标和拍摄项目。这里不混入来源或日期。
+struct ProjectSidebar: View {
     @Environment(AppModel.self) private var model
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
-        @Bindable var model = model
-        // 点日期时如果正在看会话，回到相机 / 存储卡。
-        let selection = Binding<Set<String>>(
-            get: { model.shownDays },
-            set: { new in
-                model.browsingSession = nil
-                if !new.isEmpty { model.shownDays = new }
-            })
-        List(selection: selection) {
-            SessionSection()
-            Section("日期") {
-                ForEach(model.days) { day in
-                    DayRow(day: day).tag(day.id)
-                    if day.scenes.count > 1 {
-                        ForEach(day.scenes) { scene in
-                            SceneRow(scene: scene, day: day).tag(scene.id)
-                        }
-                    }
-                }
+        VStack(spacing: 0) {
+            ScrollView {
+                SessionSection()
             }
-        }
-        .safeAreaInset(edge: .top, spacing: 6) {
-            SourceCard().padding(.horizontal, 10).padding(.top, 4)
-        }
-        .safeAreaInset(edge: .bottom) {
+            .scrollIndicators(.hidden)
             Button { openSettings() } label: {
                 Label("设置", systemImage: "slider.horizontal.3").foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -116,62 +108,64 @@ struct Sidebar: View {
     }
 }
 
+/// 第二栏：当前要导入的来源，以及该来源下可选的具体日期。
+struct SourceDateSidebar: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        VStack(spacing: 8) {
+            SourceCard()
+            BrowseFilters()
+                .background(
+                    RoundedRectangle(cornerRadius: Theme.radius, style: .continuous)
+                        .fill(Theme.sidebarGroup)
+                )
+        }
+        .padding(.horizontal, 10)
+        .padding(.top, 4)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .ignoresSafeArea(.container, edges: .top)
+    }
+}
+
 /// 侧栏顶上的来源卡片：当前相机 / 存储卡、卡槽切换。换来源在右边的菜单里。
 private struct SourceCard: View {
     @Environment(AppModel.self) private var model
-    /// 展开换来源的列表。
-    @State private var expanded = false
-    @State private var listHeight: CGFloat = 0
+    @State private var focusedSourceID: Int?
     @State private var newName = ""
     @State private var newHost = ""
 
-    private struct ListHeight: PreferenceKey {
-        static let defaultValue: CGFloat = 0
-        static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
-    }
-
     var body: some View {
         VStack(spacing: 0) {
-            if model.isMultiSource { multiHeader } else { singleHeader }
+            sourceHeader
 
-            // 像手风琴一样展开：高度从 0 变到列表的高度，多出来的部分裁掉，不会压到下面的卡槽。
-            SourceList { withAnimation(.snappy(duration: 0.22)) { expanded = false } }
-                .fixedSize(horizontal: false, vertical: true)
-                .background(GeometryReader { g in Color.clear.preference(key: ListHeight.self, value: g.size.height) })
-                .frame(height: expanded ? listHeight : 0, alignment: .top)
-                .clipped()
-                .opacity(expanded ? 1 : 0)
-                .allowsHitTesting(expanded)
-                .accessibilityHidden(!expanded)
-                .onPreferenceChange(ListHeight.self) { listHeight = $0 }
-
-            if model.isMultiSource {
-                ForEach(model.sources) { src in
-                    VStack(spacing: 0) {
-                        SourceRow(source: src)
-                        // 每台 Wi-Fi 相机自己选看哪张卡：A 看卡 1、B 看卡 2，各管各的。
-                        if model.sourceSlots(src.id).count > 1 {
-                            SourceSlotPicker(id: src.id).padding(.leading, 36).padding(.trailing, 6).padding(.bottom, 6)
-                        }
-                    }
-                    .contextMenu { SourceMenu(id: src.id, rename: startRename) }
+            ForEach(model.sources) { src in
+                SourceManagerRow(
+                    source: src,
+                    focused: managedSourceID == src.id,
+                    rename: startRename
+                ) {
+                    model.sourceFilter = nil
+                    model.browseSession(nil)
+                    focusedSourceID = src.id
                 }
                 .padding(.horizontal, 6)
-                SourcePicker().padding(.horizontal, 10).padding(.vertical, 10)
-            } else {
-                if model.onlySlot(AppModel.primarySource) != nil {
-                    // 这台相机记住了只看某张卡（多来源时选的）：用同一条切换条，点「全部」就改回来。
-                    SourceSlotPicker(id: AppModel.primarySource).padding(.horizontal, 10).padding(.bottom, 10)
-                } else if model.slots.count > 1 {
-                    SlotPicker().padding(.horizontal, 10).padding(.bottom, 10)
-                }
+            }
+            if let id = managedSourceID, model.sourceSlots(id).count > 1 {
+                Divider().padding(.horizontal, 10)
+                SourceSlotPicker(id: id)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
             }
         }
         // 侧栏是系统的灰色底：分组用浅色半透明底跟着侧栏走，不用白底（白块在侧栏里很突兀）。
         .background(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).fill(Theme.sidebarGroup))
         .accessibilityElement(children: .contain)
-        .onChange(of: model.progress != nil) { _, busy in if busy { expanded = false } }
-        .onChange(of: model.renamingSource) { _, id in if let id { newName = model.profile(id)?.nickname ?? "" } }
+        .onAppear {
+            model.sourceFilter = nil
+            if focusedSourceID == nil { focusedSourceID = model.sources.first?.id }
+        }
+        .onChange(of: model.renamingSource) { _, id in if let id { newName = model.cardRoot(for: id).map { model.sourceIdentities.name(for: $0) } ?? model.profile(id)?.nickname ?? "" } }
         .alert("同时连接相机", isPresented: Bindable(model).askingHost) {
             TextField("IP 地址", text: $newHost)
             Button("连接") { model.addCamera(host: newHost); newHost = "" }
@@ -185,7 +179,14 @@ private struct SourceCard: View {
             Button("好") { if let id = model.renamingSource { model.rename(id, to: newName) }; model.renamingSource = nil }
             Button("取消", role: .cancel) { model.renamingSource = nil }
         } message: {
-            Text("例如“主机”“副机”。同时导入多个来源时，也用作子文件夹名。留空即恢复机型名。")
+            Text(model.renamingSource.flatMap { model.cardRoot(for: $0) } != nil
+                 ? "为这张卡命名，例如“主机卡 01”。不会修改拍摄相机的名称。"
+                 : "例如“主机”“副机”。无法读取机身序列号时，仅用于本次连接。")
+        }
+        .sheet(isPresented: Binding(get: { model.confirmingCard != nil }, set: { if !$0 { model.confirmingCard = nil } })) {
+            if let id = model.confirmingCard, let root = model.cardRoot(for: id) {
+                CardIdentityConfirmation(sourceID: id, root: root).environment(model)
+            }
         }
     }
 
@@ -204,193 +205,166 @@ private struct SourceCard: View {
         .accessibilityLabel("重新读取")
     }
 
-    private var toggle: some View {
-        Button { withAnimation(.snappy(duration: 0.22)) { expanded.toggle() } } label: {
-            Image(systemName: expanded ? "chevron.up" : "chevron.up.chevron.down")
+    private var addSourceMenu: some View {
+        Menu {
+            let openCards = Set(([model.cardRoot] + model.extraSources.map(\.root)).compactMap { $0?.standardizedFileURL })
+            let cards = model.cards.filter { !openCards.contains($0.standardizedFileURL) }
+            let cameras = model.knownCameras.filter {
+                !model.openFingerprints.contains($0.fingerprint) && !model.openHosts.contains($0.host)
+            }
+            ForEach(cards, id: \.self) { url in
+                Button("添加存储卡：\(url.lastPathComponent)") { model.addCard(url) }
+            }
+            ForEach(cameras) { k in
+                Button("\(k.displayName) · \(k.host)") { model.addCamera(known: k) }
+            }
+            if !cards.isEmpty || !cameras.isEmpty { Divider() }
+            Button("输入相机地址…") { model.askingHost = true }
+            Button("搜索相机或存储卡…") { model.disconnect() }
+        } label: {
+            Image(systemName: "plus")
                 .font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
                 .frame(width: 24, height: 28).contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
         .disabled(model.progress != nil)
-        .help(expanded ? "收起" : "添加或切换来源")
-        .accessibilityLabel(expanded ? "收起来源列表" : "添加或切换来源")
+        .help("添加或切换来源")
+        .accessibilityLabel("添加或切换来源")
     }
 
-    /// 同时打开了几个来源：标题只写数量，每个来源一行列在下面。
-    private var multiHeader: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "square.stack").font(.system(size: 17)).frame(width: 24)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("\(model.sources.count) 个来源").font(Theme.Font.headline)
-                if model.clocksUnaligned {
-                    Label("相机时间尚未对齐", systemImage: "clock.badge.exclamationmark")
-                        .font(Theme.Font.caption).foregroundStyle(Theme.warning)
-                        .help("各相机的时钟可能不一致，合并后的顺序会错位。选中两台相机在同一时刻拍的各一张照片，右键选“按这两张对齐时间”。")
-                } else {
-                    Text("按拍摄时间合并显示").font(Theme.Font.caption).foregroundStyle(.secondary)
-                }
+    /// 来源区的标题；每个来源本身在下面单独列出，不混在筛选菜单里。
+    private var sourceHeader: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text("设备").font(.system(size: 15, weight: .semibold))
+                Spacer()
+                refreshButton
+                addSourceMenu
             }
-            Spacer(minLength: 4)
-            refreshButton
-            toggle
+            if model.clocksUnaligned {
+                Label("相机时间尚未对齐", systemImage: "clock.badge.exclamationmark")
+                    .font(Theme.Font.caption).foregroundStyle(Theme.warning)
+                    .help("各相机的时钟可能不一致，合并后的顺序会错位。选中两台相机在同一时刻拍的各一张照片，右键选“按这两张对齐时间”。")
+            }
         }
         .padding(.horizontal, 12).padding(.vertical, 10)
     }
 
-    private var singleHeader: some View {
-            HStack(spacing: 10) {
-                Image(systemName: model.sourceKind == .card ? "sdcard" : "camera")
-                    .font(.system(size: 18)).frame(width: 24)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(model.sourceName(AppModel.primarySource)).font(Theme.Font.headline).lineLimit(1)
-                    HStack(spacing: 4) {
-                        // 正常不上色；断开时才有橙色警告。
-                        if model.offline { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.warning) }
-                        Text(statusText).lineLimit(1)
-                    }
-                    .font(Theme.Font.caption).foregroundStyle(.secondary)
-                    .help(statusHelp)
-                }
-                Spacer(minLength: 4)
-                refreshButton
-                toggle
-            }
-            .padding(.horizontal, 12).padding(.vertical, 10)
-            .contentShape(Rectangle())
-            .contextMenu { SourceMenu(id: AppModel.primarySource, rename: startRename) }
-    }
-
-    private var statusText: String {
-        if model.offline { return "已断开，正在重新连接…" }
-        if model.sourceKind == .card { return "读卡器 · " + (model.cardRoot?.lastPathComponent ?? "") }
-        let only = model.onlySlot(AppModel.primarySource).map { " · 仅卡 \($0)" } ?? ""
-        return "已连接 · " + (model.connectedHost ?? "") + only
-    }
-
-    private var statusHelp: String {
-        var parts: [String] = []
-        if let v = model.deviceInfo?.version, !v.isEmpty { parts.append("固件 \(v)") }
-        if model.sourceKind != .card && !model.usesRemoteTransfer { parts.append("内容传输模式") }
-        return parts.joined(separator: " · ")
-    }
-}
-
-/// 卡片里展开的换来源列表：插着的卡、连过的相机；推出存储卡；回到选择来源的界面。
-private struct SourceList: View {
-    @Environment(AppModel.self) private var model
-    let done: () -> Void
-
-    var body: some View {
-        let openCards = Set(([model.cardRoot] + model.extraSources.map(\.root)).compactMap { $0?.standardizedFileURL })
-        let cards = model.cards.filter { !openCards.contains($0.standardizedFileURL) }
-        let cameras = model.knownCameras.filter { !model.openFingerprints.contains($0.fingerprint) && !model.openHosts.contains($0.host) }
-        let open = model.library != nil || model.offline
-        VStack(alignment: .leading, spacing: 0) {
-            Divider().padding(.horizontal, 10)
-            VStack(spacing: 2) {
-                // 再插一张卡：和当前的来源同时打开（多机位一起导）。
-                ForEach(cards, id: \.self) { url in
-                    row(icon: "plus.circle", title: url.lastPathComponent, detail: "同时打开此存储卡") { model.addCard(url) }
-                }
-                // 连过的相机：和当前来源同时连接（多机位）。
-                ForEach(cameras) { k in
-                    row(icon: open ? "plus.circle" : "camera", title: k.displayName,
-                        detail: model.switchingTo == k.fingerprint ? "正在检查…" : (open ? "同时连接此相机 · \(k.host)" : (k.name == k.host ? "上次连接的相机" : "上次连接：\(k.host)"))) {
-                        if open { model.addCamera(known: k) } else { model.switchTo(known: k) }
-                    }
-                }
-                if open {
-                    row(icon: "network", title: "输入地址同时连接相机…", detail: nil) { model.askingHost = true }
-                }
-                if model.sourceKind == .card, !model.isMultiSource {
-                    row(icon: "eject", title: "推出存储卡", detail: nil) { model.ejectCard() }
-                }
-                row(icon: "magnifyingglass", title: "搜索相机或选择存储卡…", detail: nil) { model.disconnect() }
-            }
-            .padding(6)
-            Divider().padding(.horizontal, 10).padding(.bottom, 10)
+    private var managedSourceID: Int? {
+        if model.sources.count == 1 { return AppModel.primarySource }
+        if let focusedSourceID, model.sources.contains(where: { $0.id == focusedSourceID }) {
+            return focusedSourceID
         }
-    }
-
-    private func row(icon: String, title: String, detail: String?, action: @escaping () -> Void) -> some View {
-        SourceListRow(icon: icon, title: title, detail: detail) { done(); action() }
+        return model.sources.first?.id
     }
 }
 
-private struct SourceListRow: View {
-    let icon: String
-    let title: String
-    let detail: String?
-    let action: () -> Void
-    @State private var hover = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 10) {
-                Image(systemName: icon).font(.system(size: 13)).foregroundStyle(.secondary).frame(width: 24)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(title).lineLimit(1)
-                    if let detail { Text(detail).font(Theme.Font.caption).foregroundStyle(.secondary).lineLimit(1) }
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 6).padding(.vertical, 5)
-            .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(hover ? Color.primary.opacity(0.08) : .clear))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hover = $0 }
-    }
-}
-
-/// 同时打开几个来源时，卡片里的一行：名字、读卡器 / Wi-Fi；右边推出或关闭。
-private struct SourceRow: View {
+/// 来源管理器的一行：点主体筛选这个来源，右边的按钮只负责推出或断开。
+private struct SourceManagerRow: View {
     @Environment(AppModel.self) private var model
     let source: SourceSummary
+    let focused: Bool
+    let rename: (Int) -> Void
+    let focus: () -> Void
+    @State private var hover = false
 
     /// 卡槽限制、时钟校正。
     private var extra: String {
         var s = ""
-        // 有卡槽切换条时，看的是哪张卡在条上一目了然，这里不再重复。
-        if let only = model.onlySlot(source.id), model.sourceSlots(source.id).count < 2 { s += " · 仅卡 \(only)" }
+        if model.sourceSlots(source.id).count > 1, let slot = model.onlySlot(source.id) {
+            s += " · 仅卡 \(slot)"
+        }
         if let t = model.profile(source.id)?.clockOffset, t != 0 { s += " · 时间 " + CameraProfile.offsetText(t) }
         return s
     }
 
     var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: source.isCard ? "sdcard" : "camera").font(.system(size: 13)).foregroundStyle(.secondary).frame(width: 24)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(source.name).font(Theme.Font.headline).lineLimit(1)
-                HStack(spacing: 4) {
-                    if (source.id == AppModel.primarySource && model.offline) || source.offline {
-                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.warning)
-                        Text("已断开，正在重新连接…")
-                    } else if source.connecting {
-                        ProgressView().controlSize(.mini)
-                        Text("正在连接…")
-                    } else {
-                        Text(source.detail + extra)
+        let total = model.shotCount(source: source.id)
+        HStack(spacing: 4) {
+            Button(action: focus) {
+                HStack(spacing: 8) {
+                    Image(systemName: source.isCard ? "sdcard" : "camera")
+                        .font(.system(size: 13, weight: source.isCard ? .regular : .semibold))
+                        .foregroundStyle(source.isCard ? (focused ? Theme.accent : Color.secondary) : Color.primary)
+                        .frame(width: 24)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(model.sourceLabel(source.id))
+                            .font(Theme.Font.headline)
+                            .fontWeight(focused ? .semibold : .regular)
+                            .lineLimit(1)
+                        HStack(spacing: 4) {
+                            if (source.id == AppModel.primarySource && model.offline) || source.offline {
+                                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.warning)
+                                Text("已断开，正在重新连接…")
+                            } else if source.connecting {
+                                ProgressView().controlSize(.mini)
+                                Text("正在连接…")
+                            } else {
+                                Text(source.detail + extra)
+                            }
+                        }
+                        .font(Theme.Font.caption).foregroundStyle(.secondary).lineLimit(1)
+                        .help(source.detail + extra)
                     }
+                    Spacer(minLength: 4)
                 }
-                .font(Theme.Font.caption).foregroundStyle(.secondary).lineLimit(1)
-                .help(source.detail + extra)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
-            Spacer(minLength: 0)
-            Button {
+            .buttonStyle(.plain)
+            .accessibilityAddTraits(focused ? .isSelected : [])
+            .help(focused ? "正在设置此来源的卡槽；所有已打开来源都会参与导入"
+                           : "设置此来源的卡槽；不会关闭其他导入来源")
+
+            if model.cardNeedsConfirmation(source.id) {
+                Button("确认身份") { model.confirmingCard = source.id }
+                    .buttonStyle(.link).font(.system(size: 12))
+                    .disabled(model.progress != nil)
+            }
+            ZStack(alignment: .trailing) {
+                Text("\(total)")
+                    .font(.system(size: 12).monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .opacity(hover ? 0 : 1)
+                    .help("共 \(total) 次拍摄")
+                if hover {
+                    Button {
+                        if source.isCard, source.id != AppModel.primarySource { model.ejectExtra(source.id) }
+                        else if source.isCard { model.ejectCard() }
+                        else { model.removeSource(source.id) }
+                    } label: {
+                        Image(systemName: source.isCard ? "eject" : "xmark")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 24, height: 24)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(model.progress != nil)
+                    .help(source.isCard ? "推出 \(source.detail.replacingOccurrences(of: "读卡器 · ", with: ""))" : "断开此相机")
+                    .accessibilityLabel(source.isCard ? "推出存储卡" : "断开相机")
+                }
+            }
+            .frame(minWidth: 44, alignment: .trailing)
+        }
+        .padding(.horizontal, 6).padding(.vertical, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(focused ? Theme.accent.opacity(0.12) : .clear)
+        )
+        .onHover { hover = $0 }
+        .contextMenu {
+            SourceMenu(id: source.id, rename: rename)
+            Divider()
+            Button(source.isCard ? "推出存储卡" : "断开相机", role: .destructive) {
                 if source.isCard, source.id != AppModel.primarySource { model.ejectExtra(source.id) }
                 else if source.isCard { model.ejectCard() }
                 else { model.removeSource(source.id) }
-            } label: {
-                Image(systemName: source.isCard ? "eject" : "xmark").font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.secondary).frame(width: 24, height: 24).contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
             .disabled(model.progress != nil)
-            .help(source.isCard ? "推出 \(source.detail.replacingOccurrences(of: "读卡器 · ", with: ""))" : "断开此相机")
-            .accessibilityLabel(source.isCard ? "推出存储卡" : "断开相机")
         }
-        .padding(.horizontal, 6).padding(.vertical, 4)
     }
 }
 
@@ -401,11 +375,16 @@ struct SourceMenu: View {
     let rename: (Int) -> Void
 
     var body: some View {
-        if model.profileKey(id) == nil {
-            Text("未能识别机身，无法保存设置")
+        if model.cardRoot(for: id) != nil {
+            Button(model.sourceIdentitySnapshot(id).kind == .directory ? "重命名目录…" : "重命名存储卡…") {
+                if model.cardNeedsConfirmation(id) { model.confirmingCard = id }
+                else { rename(id) }
+            }
+            Button(model.sourceIdentitySnapshot(id).kind == .directory ? "确认目录身份…" : model.cardNeedsConfirmation(id) ? "确认存储卡身份…" : "更正存储卡身份…") { model.confirmingCard = id }
+            if model.cardNeedsConfirmation(id) { Text("身份待确认；当前仍可导入") }
         } else {
-            Button("重命名…") { rename(id) }
-            // 几个来源时卡槽在来源行的切换条上选。
+            Button("重命名相机…") { rename(id) }
+            if model.profileKey(id) == nil { Text("序列号未知，设置仅用于本次连接") }
             if id == AppModel.primarySource, model.sourceKind == .camera, !model.isMultiSource {
                 Picker("导入卡槽", selection: Binding(get: { model.onlySlot(id) ?? 0 },
                                                    set: { model.setOnlySlot(id, $0 == 0 ? nil : $0) })) {
@@ -414,22 +393,10 @@ struct SourceMenu: View {
                     Text("仅卡 2").tag(UInt32(2))
                 }
             }
-            if let t = model.profile(id)?.clockOffset {
-                Button("清除时间校正（\(CameraProfile.offsetText(t))）") { model.clearClockOffset(id) }
-            }
         }
-    }
-}
-
-/// 几个来源时的筛选：全部 / 每个来源，不超过三项用系统分段控件，再多用弹出菜单。
-private struct SourcePicker: View {
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        let options: [SegmentPicker<Int?>.Option] = [.init(title: "全部", value: nil)]
-            + model.sources.map { .init(title: model.sourceLabel($0.id), value: $0.id) }
-        ChoicePicker(title: "来源", options: options,
-                     selection: Binding(get: { model.sourceFilter }, set: { model.sourceFilter = $0 }))
+        if let t = model.profile(id)?.clockOffset {
+            Button("清除时间校正（\(CameraProfile.offsetText(t))）") { model.clearClockOffset(id) }
+        }
     }
 }
 
@@ -439,24 +406,12 @@ private struct SourceSlotPicker: View {
     let id: Int
 
     var body: some View {
-        let options: [SegmentPicker<UInt32?>.Option] = [.init(title: "全部", value: nil)]
+        let options: [SegmentPicker<UInt32?>.Option] = [.init(title: "合并", value: nil)]
             + model.sourceSlots(id).map { .init(title: "卡 \($0)", value: $0) }
         ChoicePicker(title: "卡槽", options: options,
                      selection: Binding(get: { model.onlySlot(id) }, set: { model.setOnlySlot(id, $0) }))
             .disabled(model.progress != nil)
-            .help("只显示并导入这台相机的某张存储卡；按机身记住")
-    }
-}
-
-/// 卡槽：全部 / 卡 1 / 卡 2。
-private struct SlotPicker: View {
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        let options: [SegmentPicker<UInt32?>.Option] = [.init(title: "全部", value: nil)]
-            + model.slots.map { .init(title: "卡 \($0)", value: $0) }
-        ChoicePicker(title: "卡槽", options: options,
-                     selection: Binding(get: { model.slotFilter }, set: { model.slotFilter = $0 }))
+            .help("合并两卡会去重；也可只看并只导入卡 1 或卡 2")
     }
 }
 
@@ -502,7 +457,7 @@ private struct DayRow: View {
             .buttonStyle(.plain)
             .accessibilityLabel("导入 \(day.title)")
             .accessibilityValue(state == .on ? "已勾选" : state == .mixed ? "部分勾选" : "未勾选")
-            .help(day.newCount > 0 ? "勾选当日 \(model.countText(day.shots.filter { !model.isImported(shot: $0) }, fresh: true))" : "勾选当日全部内容")
+            .help(day.newCount > 0 ? "勾选当日 \(AppModel.countText(photos: day.newPhotos, videos: day.newVideos, fresh: true))" : "勾选当日全部内容")
             DayTitle(title: day.title)
             Spacer(minLength: 4)
             let copies = day.newCount > 0 ? 0 : (day.shots.map { model.copyCount(shot: $0) }.min() ?? 0)
@@ -583,7 +538,7 @@ private struct SceneRow: View {
             .buttonStyle(.plain)
             .accessibilityLabel("导入 \(day.title) \(AppModel.sceneTitle(scene))")
             .accessibilityValue(state == .on ? "已勾选" : state == .mixed ? "部分勾选" : "未勾选")
-            .help(scene.newCount > 0 ? "勾选该场次 \(model.countText(scene.shots.filter { !model.isImported(shot: $0) }, fresh: true))" : "勾选该场次全部内容")
+            .help(scene.newCount > 0 ? "勾选该场次 \(AppModel.countText(photos: scene.newPhotos, videos: scene.newVideos, fresh: true))" : "勾选该场次全部内容")
             Text(scene.timeRange.isEmpty ? "第 \(scene.number) 场" : scene.timeRange).font(Theme.Font.caption).lineLimit(1)
             Spacer(minLength: 4)
             ShotCounts(new: scene.newCount, total: scene.shots.count, copies: 2, size: 11)
@@ -624,13 +579,6 @@ struct BrowseHeader: View {
             }
             .lineLimit(1)
             Spacer(minLength: 8)
-            // 单选、多选都用玻璃分段（灰色底槽 + 玻璃滑块），不用系统分段控件的整块蓝色。
-            SegmentPicker(options: [.init(title: "全部", value: false), .init(title: "未导入", value: true)], selection: $model.onlyNew)
-                .accessibilityLabel("显示范围")
-            MultiSegmentPicker(options: [.init(title: "RAW", isOn: $model.showRaw),
-                                        .init(title: "JPG/HIF", isOn: $model.showPhotos),
-                                        .init(title: "视频", isOn: $model.showVideo)])
-                .accessibilityLabel("文件类型")
             Slider(value: $model.thumbSize, in: 110...320)
                 .frame(width: 76)
                 .accessibilityLabel("缩略图大小")
@@ -641,8 +589,257 @@ struct BrowseHeader: View {
     }
 }
 
+private struct BrowseFilters: View {
+    @Environment(AppModel.self) private var model
+    @State private var dateAnchor: String?
+
+    private var dateRowCount: Int {
+        model.days.reduce(0) { count, day in
+            count + 1 + (day.scenes.count > 1 ? day.scenes.count : 0)
+        }
+    }
+
+    private var dateListHeight: CGFloat {
+        max(90, min(CGFloat(dateRowCount) * 31, 300))
+    }
+
+    var body: some View {
+        @Bindable var model = model
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("筛选").font(.system(size: 15, weight: .semibold))
+                Spacer()
+                if model.hasImportFilters {
+                    Button("清除") { model.resetImportFilters() }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.tint)
+                }
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                Text("显示").font(Theme.Font.caption).foregroundStyle(.secondary)
+                SegmentPicker(options: [.init(title: "全部", value: false), .init(title: "未导入", value: true)],
+                              selection: $model.onlyNew, fill: true)
+                    .accessibilityLabel("显示范围")
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                Text("导入内容").font(Theme.Font.caption).foregroundStyle(.secondary)
+                SegmentPicker(options: ImportContent.allCases.map { .init(title: $0.title, value: $0) },
+                              selection: $model.importContent, fill: true)
+                    .disabled(model.progress != nil)
+                    .accessibilityLabel("导入内容")
+            }
+            if model.importContent != .videos {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("照片格式").font(Theme.Font.caption).foregroundStyle(.secondary)
+                    MultiSegmentPicker(options: [
+                        .init(title: "RAW", isOn: $model.showRaw),
+                        .init(title: "JPG/HIF", isOn: $model.showPhotos),
+                    ], fill: true)
+                    .disabled(model.progress != nil)
+                    .accessibilityLabel("照片格式")
+                }
+            }
+            HStack(spacing: 8) {
+                HStack(spacing: 6) {
+                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                    TextField("搜索文件名或设备", text: $model.mediaFilter.query)
+                        .textFieldStyle(.plain)
+                        .font(Theme.Font.body)
+                        .accessibilityLabel("搜索素材")
+                    if !model.mediaFilter.query.isEmpty {
+                        Button { model.mediaFilter.query = "" } label: {
+                            Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("清除搜索")
+                    }
+                }
+                .padding(.horizontal, 10)
+                .frame(height: 32)
+                .background(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(Color.primary.opacity(0.06))
+                )
+
+                let markIsActive = model.mediaFilter.mark != .all
+                Menu {
+                    ForEach(MediaFilter.Mark.allCases, id: \.self) { mark in
+                        Button((mark == model.mediaFilter.mark ? "✓ " : "") + mark.menuTitle) {
+                            model.mediaFilter.mark = mark
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "tag")
+                        Text(model.mediaFilter.mark.shortTitle).lineLimit(1)
+                        Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold))
+                    }
+                    .font(.system(size: 12))
+                    .foregroundStyle(markIsActive ? Theme.accent : Color.secondary)
+                    .padding(.horizontal, 9)
+                    .frame(height: 32)
+                    .background(
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .fill(markIsActive ? Theme.accent.opacity(0.13) : Color.primary.opacity(0.06))
+                    )
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .accessibilityLabel("按机内标记筛选")
+            }
+            Divider()
+            Text("日期").font(.system(size: 15, weight: .semibold))
+            ScrollView {
+                LazyVStack(spacing: 2) {
+                    ForEach(model.days) { day in
+                        FilterDayRow(
+                            day: day,
+                            selected: model.shownDays.contains(day.id)
+                        ) {
+                            selectDate(day.id)
+                        }
+                        if day.scenes.count > 1 {
+                            ForEach(day.scenes) { scene in
+                                FilterSceneRow(
+                                    scene: scene,
+                                    day: day,
+                                    selected: model.shownDays.contains(scene.id)
+                                ) {
+                                    selectDate(scene.id)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .scrollIndicators(.hidden)
+            .frame(height: dateListHeight)
+            .transaction { $0.animation = nil }
+            if model.metadataLoading {
+                ProgressView().controlSize(.mini)
+                Text("正在读取标记…").foregroundStyle(.secondary).lineLimit(1)
+            } else if model.isRefreshingSources {
+                ProgressView().controlSize(.mini)
+                Text("正在刷新…").foregroundStyle(.secondary).lineLimit(1)
+            } else if let message = model.refreshMessage {
+                Text(message).foregroundStyle(.secondary).lineLimit(1)
+            }
+        }
+        .font(Theme.Font.caption)
+        .padding(12)
+    }
+
+    private func selectDate(_ id: String) {
+        let flags = NSApp.currentEvent?.modifierFlags ?? []
+        let current = model.shownDays
+        let selected: Set<String>
+        if flags.contains(.command) {
+            selected = current.contains(id) ? current.subtracting([id]) : current.union([id])
+        } else if flags.contains(.shift), let anchor = dateAnchor,
+                  let a = model.days.firstIndex(where: { $0.id == anchor }),
+                  let b = model.days.firstIndex(where: { $0.id == id }) {
+            selected = Set(model.days[min(a, b)...max(a, b)].map(\.id))
+        } else {
+            selected = [id]
+        }
+        guard !selected.isEmpty else { return }
+        let removed = current.subtracting(selected)
+        let added = selected.subtracting(current)
+        for date in removed { deselectNew(in: date) }
+        dateAnchor = id
+        model.browseSession(nil)
+        model.shownDays = selected
+        for date in added { selectNew(in: date) }
+        if added.isEmpty, current == Set([id]) { selectNew(in: id) }
+    }
+
+    private func selectNew(in id: String) {
+        if let day = model.days.first(where: { $0.id == id }) {
+            model.grid.set(day.shots.filter { !model.isImported(shot: $0) }, selected: true)
+        } else if let scene = model.days.flatMap(\.scenes).first(where: { $0.id == id }) {
+            model.grid.set(scene.shots.filter { !model.isImported(shot: $0) }, selected: true)
+        }
+    }
+
+    private func deselectNew(in id: String) {
+        if let day = model.days.first(where: { $0.id == id }) {
+            model.grid.set(day.shots, selected: false)
+        } else if let scene = model.days.flatMap(\.scenes).first(where: { $0.id == id }) {
+            model.grid.set(scene.shots, selected: false)
+        }
+    }
+}
+
+/// 筛选卡里的日期行：去掉系统 List 的深层缩进和分隔线，只保留紧凑的悬停 / 选中底。
+private struct FilterDayRow: View {
+    @Environment(AppModel.self) private var model
+    let day: ShootingDay
+    let selected: Bool
+    let select: () -> Void
+    @State private var hover = false
+
+    var body: some View {
+        Button(action: select) {
+            HStack(spacing: 8) {
+                DayTitle(title: day.title)
+                Spacer(minLength: 4)
+                let copies = day.newCount > 0 ? 0 : (day.shots.map { model.copyCount(shot: $0) }.min() ?? 0)
+                ShotCounts(new: day.newCount, total: day.shots.count, copies: copies, size: 13)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .font(.system(size: 15))
+        .padding(.trailing, 8).padding(.vertical, 5)
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(selected ? Theme.accent.opacity(0.13) : hover ? Color.primary.opacity(0.05) : .clear)
+        )
+        .onHover { hover = $0 }
+        .contextMenu {
+            Button("选择当日新照片") { model.selectNew(in: [day.id]) }
+            Button("选择当日全部照片") { model.selectAll(in: [day.id]) }
+            Button("取消选择当日照片") { model.deselect(in: [day.id]) }
+            Divider()
+            SceneGapMenu()
+        }
+    }
+}
+
+private struct FilterSceneRow: View {
+    @Environment(AppModel.self) private var model
+    let scene: ShootingScene
+    let day: ShootingDay
+    let selected: Bool
+    let select: () -> Void
+    @State private var hover = false
+
+    var body: some View {
+        Button(action: select) {
+            HStack(spacing: 8) {
+                Text(scene.timeRange.isEmpty ? "第 \(scene.number) 场" : scene.timeRange)
+                    .font(.system(size: 13))
+                Spacer(minLength: 4)
+                ShotCounts(new: scene.newCount, total: scene.shots.count, copies: 2, size: 12)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .font(.system(size: 14))
+        .padding(.leading, 24).padding(.trailing, 8).padding(.vertical, 3)
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(selected ? Theme.accent.opacity(0.13) : hover ? Color.primary.opacity(0.05) : .clear)
+        )
+        .onHover { hover = $0 }
+        .contextMenu { SceneGapMenu() }
+    }
+}
+
 private struct ImportOptions: View {
     @Environment(AppModel.self) private var model
+    @State private var showingDestinations = false
 
     var body: some View {
         @Bindable var model = model
@@ -657,8 +854,21 @@ private struct ImportOptions: View {
             GlassToggle(title: "备份", isOn: $model.backupEnabled)
             .help(model.backupEnabled ? "同时备份至另一磁盘；点按改为仅存储一份" : "仅存储一份；点按以同时备份")
 
+            Button { showingDestinations.toggle() } label: {
+                Image(systemName: "folder").frame(height: 20)
+            }
+            .glassButton().accessibilityLabel("查看本次存放位置")
+            .help("查看照片、视频和备份将存到哪里")
+            .popover(isPresented: $showingDestinations) {
+                ImportDestinationPreview(files: model.selectedFiles())
+            }
             Menu {
-                Button("更改存放位置…") { chooseFolder() }
+                if model.importContent != .videos {
+                    Button("更改照片存放位置…") { chooseFolder(video: false) }
+                }
+                if model.importContent != .photos {
+                    Button("更改视频存放位置…") { chooseFolder(video: true) }
+                }
                 Divider()
                 Toggle("完成后删除存储卡上的原片", isOn: $model.deleteAfterImport)
                     .disabled(!model.canDeleteFromSource)
@@ -684,8 +894,10 @@ private struct ImportOptions: View {
     }
 
     /// 新建会话改的是会话放在哪；其余方式改的是照片存放位置。
-    private func chooseFolder() {
-        if model.captureOneMode == .newSession {
+    private func chooseFolder(video: Bool) {
+        if video {
+            if let url = FolderPicker.choose(start: model.videoDestination) { model.videoDestination = url }
+        } else if model.captureOneMode == .newSession {
             if let url = FolderPicker.choose(start: model.sessionsFolder) { model.sessionsFolder = url }
         } else {
             if let url = FolderPicker.choose(start: model.destination) { model.destination = url }
@@ -898,9 +1110,10 @@ struct DayHeader: View {
             if day.partial, day.scenes.count == 1 {
                 Text(AppModel.sceneTitle(day.scenes[0])).font(Theme.Font.headline).foregroundStyle(.primary)
             }
-            Text(GroupMeta.text(model, shots: day.shots))
+            Text(GroupMeta.text(photos: day.photos, videos: day.videos,
+                                newPhotos: day.newPhotos, newVideos: day.newVideos))
             Spacer(minLength: 8)
-            Button(picked ? "取消选择" : day.newCount > 0 ? "选择新照片" : "全选") {
+            Button(picked ? "取消选择" : day.newCount > 0 ? "选择当前范围未导入素材" : "全选当前范围") {
                 if picked { model.deselect(in: [day.id]) }
                 else if day.newCount > 0 { model.selectNew(in: [day.id]) }
                 else { model.selectAll(in: [day.id]) }
@@ -924,9 +1137,10 @@ struct SceneHeader: View {
         let picked = scene.shots.contains(where: model.grid.contains)
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(AppModel.sceneTitle(scene)).font(Theme.Font.headline).foregroundStyle(.primary)
-            Text(GroupMeta.text(model, shots: scene.shots))
+            Text(GroupMeta.text(photos: scene.photos, videos: scene.videos,
+                                newPhotos: scene.newPhotos, newVideos: scene.newVideos))
             Spacer(minLength: 8)
-            Button(picked ? "取消选择" : scene.newCount > 0 ? "选择新照片" : "全选") {
+            Button(picked ? "取消选择" : scene.newCount > 0 ? "选择当前范围未导入素材" : "全选当前范围") {
                 if picked { model.grid.set(scene.shots, selected: false) }
                 else if scene.newCount > 0 { model.grid.set(scene.shots.filter { !model.isImported(shot: $0) }, selected: true) }
                 else { model.grid.set(scene.shots, selected: true) }
@@ -941,13 +1155,14 @@ struct SceneHeader: View {
 
 /// 「870 张 · 6 张新照片」/「112 张 · 均已导入」/「12 张照片、3 个片段 · 2 个新片段」。
 enum GroupMeta {
-    @MainActor static func text(_ model: AppModel, shots: [UInt32]) -> String {
-        let fresh = shots.filter { !model.isImported(shot: $0) }
-        let videos = shots.filter { model.shots[$0]?.isVideo == true }.count
-        let all = fresh.count == shots.count
-            ? (videos == 0 ? "均为新照片" : videos == shots.count ? "均为新片段" : "均未导入")
-            : model.countText(fresh, fresh: true)
-        return model.countText(shots) + " · " + (fresh.isEmpty ? "均已导入" : all)
+    /// 用 rebuild 里算好的计数，避免每次渲染都扫一遍 shots。
+    @MainActor static func text(photos: Int, videos: Int, newPhotos: Int, newVideos: Int) -> String {
+        let total = photos + videos
+        let fresh = newPhotos + newVideos
+        let all = fresh == total
+            ? (videos == 0 ? "均为新照片" : videos == total ? "均为新片段" : "均未导入")
+            : AppModel.countText(photos: newPhotos, videos: newVideos, fresh: true)
+        return AppModel.countText(photos: photos, videos: videos) + " · " + (fresh == 0 ? "均已导入" : all)
     }
 }
 
@@ -969,8 +1184,6 @@ struct ThumbCell: View {
                 .overlay {
                     if let img = model.thumbnails[primary] {
                         Image(nsImage: img).resizable().scaledToFill()
-                            .saturation(imported ? 0.55 : 1)
-                            .brightness(imported ? -0.2 : 0)
                     } else {
                         Image(systemName: shot?.isVideo == true ? "video" : "photo").foregroundStyle(.tertiary)
                     }
@@ -999,15 +1212,16 @@ struct ThumbCell: View {
             }
             .overlay(alignment: .bottomTrailing) {
                 if !imported, model.proxyOnlyCopy(shot: shotID) != nil {
-                    Badge(text: model.thumbSize >= 150 ? "仅代理" : "", check: true, checkColor: .blue).padding(5)
+                    Badge(text: model.thumbSize >= 150 ? "仅代理" : "", checks: 1, checkColor: .blue).padding(5)
                         .help("已导入代理，原片尚未导入")
                 }
                 if imported {
                     let copies = model.copyCount(shot: shotID)
-                    let text = copies >= 2 ? "两份" : copies == 1 ? "一份" : "已导入"
-                    Badge(text: model.thumbSize >= 150 ? text : "", check: true,
+                    let text = copies > 2 ? "\(copies) 份副本" : copies == 2 ? "已备份" : copies == 1 ? "已导入" : "不可访问"
+                    Badge(text: model.thumbSize >= 150 ? text : "",
+                          checks: copies >= 2 ? 2 : copies == 1 ? 1 : 0,
                           checkColor: copies == 1 ? Theme.warning : Theme.accent).padding(5)
-                        .help(copies >= 2 ? "电脑上存有两份，均已校验" : copies == 1 ? "仅存有一份，尚未备份" : "已导入，但电脑上未找到该文件")
+                        .help(copies >= 2 ? "当前可访问 \(copies) 份文件；仅检查存在和大小，不代表磁盘独立或刚完成内容复核" : copies == 1 ? "当前可访问一份；另一份可能未备份、离线或已移动" : "有导入记录，当前副本不可访问；请检查磁盘连接或文件位置")
                 }
             }
             .overlay(alignment: .topTrailing) {
@@ -1040,6 +1254,7 @@ struct ThumbCell: View {
         }
         .padding(7)
         .contentShape(Rectangle())
+        .overlay { FileDragSource(model: model, shotID: shotID) }
         .onTapGesture {
             let event = NSApp.currentEvent
             if event?.clickCount == 2 { model.openPreview(shotID); return }
@@ -1048,6 +1263,9 @@ struct ThumbCell: View {
         }
         .contextMenu {
             Button("大图预览") { model.openPreview(shotID) }
+            if shot?.isVideo == true {
+                Button("导出实况照片…") { model.openLivePhotoExport(shotID) }
+            }
             Divider()
             if let day = model.day(of: shotID) {
                 Button("选择当日新照片") { model.selectNew(in: [day.id]) }
@@ -1071,6 +1289,7 @@ struct ThumbCell: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel((item?.baseName ?? "") + (imported ? "，已导入" : "") + (selected ? "，已选中" : ""))
         .accessibilityAddTraits(.isButton)
+        .help("选中后可拖到桌面或访达文件夹，复制所选原文件")
         .onAppear { model.requestThumbnail(primary) }
         .onDisappear { model.cancelThumbnail(primary) }
     }
@@ -1084,12 +1303,18 @@ struct ThumbCell: View {
 
 private struct Badge: View {
     let text: String
-    var check = false
+    var checks = 0
     var checkColor: Color = Theme.accent
 
     var body: some View {
         HStack(spacing: 2) {
-            if check { Image(systemName: "checkmark").font(.system(size: 8, weight: .bold)).foregroundStyle(checkColor) }
+            if checks > 0 {
+                HStack(spacing: 0) {
+                    ForEach(0..<min(checks, 2), id: \.self) { _ in
+                        Image(systemName: "checkmark").font(.system(size: 8, weight: .bold)).foregroundStyle(checkColor)
+                    }
+                }
+            }
             if !text.isEmpty { Text(text) }
         }
         .font(.system(size: 10, weight: .medium))
@@ -1106,7 +1331,13 @@ struct FloatingBar: View {
 
     var body: some View {
         Group {
-            if let p = model.progress {
+            if model.importJournal.repairTask != nil {
+                capsule(maxWidth: 560) {
+                    ProgressView().controlSize(.small)
+                    twoLines("正在补备份", model.importJournal.repairProgress)
+                    secondaryButton("取消") { model.importJournal.repairTask?.cancel() }
+                }
+            } else if let p = model.progress {
                 capsule(maxWidth: 560) {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(alignment: .firstTextBaseline) {
@@ -1128,6 +1359,16 @@ struct FloatingBar: View {
                         }
                         .font(Theme.Font.caption).foregroundStyle(.secondary)
                         .help(p.bytesPerSecond.map { "\(Self.bytes(UInt64($0)))/s" } ?? "")
+                        ForEach(model.importBackupProgress) { target in
+                            HStack(spacing: 8) {
+                                Text(target.target.name).lineLimit(1)
+                                Spacer(minLength: 8)
+                                Text("\(target.verified)/\(target.total)" + (target.failed > 0 ? " · \(target.failed) 项待补" : target.copying ? " · 正在备份" : ""))
+                                    .monospacedDigit()
+                            }
+                            .font(Theme.Font.caption)
+                            .foregroundStyle(target.failed > 0 ? Theme.warning : Color.secondary)
+                        }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.trailing, 12)
@@ -1147,30 +1388,41 @@ struct FloatingBar: View {
                     statusIcon(warning: true)
                     twoLines("未能交由 Capture One 导入", "\(r.files) 个文件已存储至电脑，无需重新下载")
                     secondaryButton("稍后") { model.dismissResult() }
-                    mainButton("重新导入 C1") { model.retryCaptureOne() }
+                    mainButton(model.pendingCaptureOneSessions.isEmpty ? "重新导入 C1" : "重试打开 C1",
+                               disabled: model.retryingCaptureOne) { model.retryCaptureOne() }
                 }
             } else if !model.grid.selected.isEmpty {
+                let files = model.selectedFiles()
                 capsule {
                     if let r = model.lastResult, r.cancelled, r.savedBytes > 0, !model.sourcesOffline {
                         VStack(alignment: .leading, spacing: 1) {
-                            Text("已选 \(model.countText(model.grid.selected)) · \(Self.bytes(model.selectionBytes))")
+                            Text("已选 \(model.countText(model.grid.selected)) · \(Self.bytes(model.selectionBytes(of: files)))")
                                 .font(Theme.Font.headline).lineLimit(1)
                             Label("已保存未传输完成的 \(Self.bytes(r.savedBytes))，再次导入时将从断点续传", systemImage: "arrow.clockwise")
                                 .font(Theme.Font.caption).foregroundStyle(.tint).lineLimit(1)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                     } else {
-                        twoLines("已选 \(model.countText(model.grid.selected)) · \(Self.bytes(model.selectionBytes))", pickedDetail)
+                        twoLines("已选 \(model.countText(model.grid.selected)) · \(Self.bytes(model.selectionBytes(of: files)))", pickedDetail(files))
                     }
                     ImportOptions()
-                    mainButton(importLabel, disabled: model.sourcesOffline) { model.beginImport() }
+                    mainButton(importLabel, disabled: model.sourcesOffline || model.phase != .ready) { model.beginImport() }
                         .keyboardShortcut(.return, modifiers: .command)
                 }
             } else if let r = model.lastResult {
                 let (title, detail) = resultLines(r)
                 capsule(maxWidth: 560) {
-                    statusIcon(warning: r.needsAttention)
+                    statusIcon(warning: r.needsAttention || !model.deliveryFailures.isEmpty)
                     twoLines(title, detail).help(detail)
+                    let retryable = model.videoDeliveries(in: model.deliveryID).filter(\.canRetry)
+                    if !retryable.isEmpty {
+                        Menu("重试发送") {
+                            ForEach(retryable) { record in
+                                Button(record.software.name) { model.retryVideoDelivery(batchID: model.deliveryID, id: record.id) }
+                            }
+                        }.disabled(model.videoDeliveryTask != nil)
+                    }
+                    if model.videoDeliveryTask != nil { ProgressView().controlSize(.small) }
                     if let folder = AppModel.commonFolder(model.lastBatch) {
                         secondaryButton("在访达中显示") { NSWorkspace.shared.open(folder) }
                     }
@@ -1185,29 +1437,27 @@ struct FloatingBar: View {
         .animation(.snappy(duration: 0.2), value: model.grid.selected.isEmpty)
     }
 
-    private var importLabel: String {
-        switch model.captureOneMode {
-        case _ where model.currentSession != nil: "导入"
-        default: "导入…"
-        }
-    }
+    private var importLabel: String { model.currentSession == nil ? "新建项目" : "导入" }
 
-    private var pickedDetail: String {
+    private func pickedDetail(_ files: [CameraContentItem]) -> String {
         if model.sourcesOffline { return "相机重新连接后方可导入" }
-        let files = model.selectedFiles()
         let days = Set(files.map(AppModel.dayKey)).count
-        var s = "\(files.count) 个文件 · \(days) 天 · "
+        var s = "仅导入所选 \(files.count) 个文件 · \(days) 天 · "
         if let cur = model.currentSession {
-            s += "导入会话“\(cur.name)”"
+            s += "归入项目“\(cur.name)”"
         } else {
-            s += "尚未选择会话，导入前先新建"
+            s += "请先选择或新建项目"
         }
         if model.backupEnabled {
-            s += model.backupAvailable ? " · 备份至“\(model.backupFolder!.lastPathComponent)”" : " · ⚠︎ 备份磁盘未连接"
+            s += model.backupAvailable ? " · 备份至 \(model.enabledBackupTargets.count) 个位置" : " · 部分必需备份位置未连接"
         }
         if model.isMultiSource { s += model.splitBySlot && model.canSplitBySlot ? " · 按来源和卡槽分子文件夹" : " · 按来源分子文件夹" }
         if model.proxyOnlyWiFi && model.selectionHasWiFiVideo { s += " · 视频只导代理" }
         if model.willDeleteFromSource { s += " · 完成后删除存储卡上的照片" }
+        if let previous = model.lastResult {
+            if previous.failed > 0 { s += " · 上次 \(previous.failed) 个文件未完成" }
+            if previous.backupFailed > 0 { s += " · 上次 \(previous.backupFailed) 个备份失败" }
+        }
         return s
     }
 
@@ -1228,12 +1478,15 @@ struct FloatingBar: View {
         var s = Self.resultTitle(r)
         if r.files > 0 && r.proxyOnly > 0 { s += "、\(r.proxyOnly) 个片段的代理" }
         if r.proxyOnly > 0 { s += "，原片留在存储卡上" }
-        if let session = r.session { s += "，已存入会话“\(session)”" }
+        if let session = r.session { s += "，已存入 Capture One 会话“\(session)”" }
         if let c = r.lightroom { s += "，收藏夹“\(c)”" + (model.lightroomStatus.map { "：" + $0 } ?? "") }
         if r.resumed > 0 { s += "，其中 \(r.resumed) 个从断点续传" }
         if r.failed > 0 { s += "，\(r.failed) 个失败" }
-        if let b = r.backedUp {
-            s += r.backupFailed > 0 ? "，\(r.backupFailed) 个备份失败" : (b > 0 ? "，两份均已校验" : "")
+        if !r.backupTargets.isEmpty {
+            s += "，" + r.backupTargets.map { "\($0.target.name)：\($0.verified)/\($0.total) 个文件已校验" }.joined(separator: "；")
+        } else if let b = r.backedUp {
+            s += "，本次备份并校验 \(b) 个文件"
+            if r.backupFailed > 0 { s += "，\(r.backupFailed) 个备份失败" }
         } else {
             s += "，仅存储一份"
         }
@@ -1248,6 +1501,10 @@ struct FloatingBar: View {
         }
         if !r.reports.isEmpty { s += "，已写入校验清单" }
         if let o = r.opened { s += o }
+        for software in model.deliveryMessages.keys.sorted() where software != "Lightroom Classic" {
+            s += "；\(software)：\(model.deliveryMessages[software]!)"
+        }
+        if r.hasWiFiSource { s += "；Wi-Fi 校验依据为接收内容与本地副本，未取得相机源文件校验值" }
         if r.cancelled { s += r.savedBytes > 0 ? "（已取消；已保存 \(Self.bytes(r.savedBytes))，下次将从断点续传）" : "（已取消）" }
         return s
     }
@@ -1325,7 +1582,26 @@ struct PreviewOverlay: View {
         ZStack(alignment: .bottom) {
             Color.black
             Group {
-                if let img = model.previewImage {
+                if shot?.isVideo == true {
+                    if let url = model.previewVideoURL {
+                        VideoPreviewSurface(url: url, info: shot.flatMap { model.clipInfos[$0.primary] })
+                    } else {
+                        VStack(spacing: 14) {
+                            if let progress = model.previewVideoProgress {
+                                ProgressView(value: progress).frame(width: 240).tint(.white)
+                                Text("正在缓存\(model.previewIsProxy ? "代理" : "原片")预览… \(Int(progress * 100))%")
+                                Text("关闭预览即可取消，不计入导入记录").font(Theme.Font.caption).foregroundStyle(.white.opacity(0.6))
+                            } else if let message = model.previewVideoMessage {
+                                Image(systemName: "video").font(.system(size: 36))
+                                Text(message).multilineTextAlignment(.center).frame(maxWidth: 420)
+                                Button("缓存原片预览（\(FloatingBar.bytes(item?.sizeEstimate ?? 0))）") {
+                                    model.retryVideoPreview(allowOriginal: true)
+                                }
+                                .glassButton().disabled(model.progress != nil)
+                            } else { ProgressView("正在读取视频信息…").tint(.white) }
+                        }
+                    }
+                } else if let img = model.previewImage {
                     Image(nsImage: img).resizable().scaledToFit()
                         // 大图还没到：先放大缩略图，模糊处理，免得看着像糊了。
                         .blur(radius: model.previewLoaded ? 0 : 10, opaque: true)
@@ -1356,9 +1632,19 @@ struct PreviewOverlay: View {
         .focusEffectDisabled()
         .focused($focused)
         .onAppear { focused = true }
-        .onKeyPress(keys: [.leftArrow, .upArrow]) { _ in model.previewStep(-1); return .handled }
-        .onKeyPress(keys: [.rightArrow, .downArrow]) { _ in model.previewStep(1); return .handled }
-        .onKeyPress(.space) { model.closePreview(); return .handled }
+        .onKeyPress(keys: [.leftArrow, .rightArrow]) { press in
+            let direction = press.key == .leftArrow ? -1 : 1
+            if shot?.isVideo == true, model.previewVideoURL != nil {
+                model.videoPlayback.step(direction, rate: shot.flatMap { model.clipInfos[$0.primary] }.flatMap { ClipInfo.fpsValue($0.formatFps) } ?? 25)
+            } else { model.previewStep(direction) }
+            return .handled
+        }
+        .onKeyPress(.upArrow) { model.previewStep(-1); return .handled }
+        .onKeyPress(.downArrow) { model.previewStep(1); return .handled }
+        .onKeyPress(.space) {
+            if shot?.isVideo == true { model.videoPlayback.toggle() } else { model.closePreview() }
+            return .handled
+        }
         .onKeyPress(.escape) { model.closePreview(); return .handled }
         .onKeyPress(characters: CharacterSet(charactersIn: "pP")) { _ in model.togglePreviewSelection(); return .handled }
         .accessibilityAddTraits(.isModal)
@@ -1379,8 +1665,16 @@ struct PreviewOverlay: View {
                     if model.isImported(shot: id) {
                         let copies = model.copyCount(shot: id)
                         Text("·")
-                        Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)).foregroundStyle(copies == 1 ? Theme.warning : Theme.accent)
-                        Text(copies >= 2 ? "存有两份" : copies == 1 ? "仅一份" : "已导入")
+                        if copies > 0 {
+                            HStack(spacing: 0) {
+                                ForEach(0..<min(copies, 2), id: \.self) { _ in
+                                    Image(systemName: "checkmark")
+                                        .font(.system(size: 9, weight: .bold))
+                                        .foregroundStyle(copies == 1 ? Theme.warning : Theme.accent)
+                                }
+                            }
+                        }
+                        Text(copies >= 2 ? "已备份" : copies == 1 ? "已导入" : "不可访问")
                     }
                     if let gear = model.previewExif?.gearText, !gear.isEmpty {
                         Text("· " + gear).truncationMode(.tail)

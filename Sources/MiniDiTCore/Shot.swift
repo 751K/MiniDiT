@@ -42,9 +42,9 @@ public enum ShotBuilder {
         for item in items {
             let isVideo = item.kind == .video
             let key = item.baseName.uppercased()
-            if !isVideo, let candidates = open[key],
+            if let candidates = open[key],
                let idx = candidates.first(where: { i in
-                   !shots[i].isVideo && close(times[i] ?? nil, item.captureDate)
+                   shots[i].isVideo == isVideo && close(times[i] ?? nil, item.captureDate)
                }) {
                 shots[idx].handles.append(item.id)
                 shots[idx].kinds.append(item.kind)

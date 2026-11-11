@@ -63,6 +63,7 @@ public struct CameraContentItem: Identifiable, Hashable, Sendable {
 }
 
 public extension CameraLibrary {
+    func sourcePath(_ handle: UInt32) async -> String? { nil }
     func clipInfo(_ handle: UInt32) async -> ClipInfo? { nil }
     func clipXML(_ handle: UInt32) async -> Data? { nil }
     func proxy(of handle: UInt32) async -> CameraContentItem? { nil }
@@ -117,6 +118,8 @@ public protocol CameraLibrary: AnyObject, Sendable {
     /// 文件夹里的文件句柄，新的在前。只返回句柄，详细信息按需加载。
     func handles(in folder: CameraFolder) async throws -> [UInt32]
     func item(_ handle: UInt32) async throws -> CameraContentItem
+    /// Exact known file path, without additional transport requests.
+    func sourcePath(_ handle: UInt32) async -> String?
     func thumbnail(_ handle: UInt32) async throws -> Data?
     /// 大图预览（约 1600 px）；没有时返回缩略图。
     func preview(_ handle: UInt32) async throws -> Data?
@@ -171,6 +174,7 @@ func openForResume(_ url: URL, offset: UInt64) throws -> (FileHandle, UInt64) {
 }
 
 public actor PTPCameraLibrary: CameraLibrary {
+    public func refresh() async { infoCache = [:] }
     private let client: PTPIPClient
     private let largeObjectReads: Bool
     private let onClose: @Sendable () async -> Void
@@ -289,6 +293,18 @@ public actor PTPCameraLibrary: CameraLibrary {
 
     public func item(_ handle: UInt32) async throws -> CameraContentItem {
         CameraContentItem(handle: handle, info: try await info(handle))
+    }
+
+    public func sourcePath(_ handle: UInt32) async -> String? {
+        var current = handle
+        var names: [String] = []
+        var seen: Set<UInt32> = []
+        while current != 0 && current != 0xFFFF_FFFF {
+            guard seen.insert(current).inserted, let object = infoCache[current] else { return nil }
+            names.append(object.filename)
+            current = object.parent
+        }
+        return names.isEmpty ? nil : "/" + names.reversed().joined(separator: "/")
     }
 
     private var getThumbWorks: Bool?   // nil = 还没试过
@@ -413,8 +429,12 @@ public actor PTPCameraLibrary: CameraLibrary {
 
     public func download(_ item: CameraContentItem, to url: URL, from offset: UInt64,
                          progress: @escaping @Sendable (UInt64, UInt64) -> Void) async throws {
+        // 内容传输的分块大小（MB）。实测 a7 V：3 MB 17.1 MB/s，16 MB 18.3 MB/s，32 MB 18.6 MB/s；
+        // 16 MB 在取消响应（约 0.9 秒）和吞吐之间比较平衡。可用 contentChunkMB 覆盖。
+        let mb = UserDefaults.standard.integer(forKey: "contentChunkMB")
+        let chunk = UInt32((1...64).contains(mb) ? mb : 16) * 1024 * 1024
         try await client.download(item.id, size: item.sizeKnown ? item.size : nil, to: url, from: offset,
-                                  largeObjectReads: largeObjectReads, progress: progress)
+                                  largeObjectReads: largeObjectReads, chunkSize: chunk, progress: progress)
     }
 
     public func close() async {

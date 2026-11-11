@@ -12,7 +12,7 @@ struct MiniDiTApp: App {
         Window("MiniDiT", id: "main") {
             RootView()
                 .environment(model)
-                .frame(minWidth: 860, minHeight: 560)
+                .frame(minWidth: 1040, minHeight: 560)
                 .onAppear { model.mainWindowChanged(open: true) }
                 .onDisappear { model.mainWindowChanged(open: false) }
         }
@@ -116,7 +116,7 @@ struct RootView: View {
             if model.phase == .ready || model.offline || (model.phase == .loading && model.connectedName != nil) {
                 BrowserView()
             } else if let id = model.browsingSession, let s = model.sessions.first(where: { $0.id == id }) {
-                SessionBrowser(session: s) { model.browsingSession = nil }
+                SessionBrowser(session: s, media: model.browsingSessionMedia) { model.browseSession(nil) }
             } else {
                 ConnectView()
             }
@@ -129,19 +129,25 @@ struct RootView: View {
                                     set: { if !$0 { model.setupDone = true; model.showingSetup = false } })) {
             SetupSheet(reopened: model.setupDone) { model.showingSetup = false }.interactiveDismissDisabled()
         }
-        .alert(model.backupFolder == nil ? "尚未设置备份位置" : "未找到备份磁盘", isPresented: $model.backupMissingPrompt) {
-            Button("仅存储一份并继续") { model.beginImport(checkBackup: false) }
-            if model.backupFolder == nil {
+        .alert(model.enabledBackupTargets.isEmpty ? "尚未设置备份位置" : "部分备份位置不可用", isPresented: $model.backupMissingPrompt) {
+            Button("先导入，稍后补齐") { model.beginImport(checkBackup: false) }
+            if model.enabledBackupTargets.isEmpty {
                 Button("选择备份位置…") {
-                    if let u = FolderPicker.choose(start: nil) { model.backupFolder = u; model.beginImport() }
+                    if let u = FolderPicker.choose(start: nil) {
+                        if let index = model.backupTargets.firstIndex(where: { $0.root.resolvingSymlinksInPath().path == u.resolvingSymlinksInPath().path }) {
+                            model.backupTargets[index].enabled = true
+                        } else { model.addBackupTarget(u) }
+                        if model.backupAvailable { model.beginImport() }
+                    }
                 }
             }
             Button("取消", role: .cancel) {}
         } message: {
-            if let u = model.backupFolder {
-                Text("备份位置“\(u.path(percentEncoded: false))”当前不可用，磁盘可能未连接。\n本次将仅存储一份，且不会删除存储卡上的文件。连接磁盘后再次导入这些照片，即可补全备份。")
+            if model.enabledBackupTargets.isEmpty {
+                Text("本次先保存工作文件，不删除卡上原片；之后可在项目的导入记录中添加备份位置。")
             } else {
-                Text("本次将仅存储一份，且不会删除存储卡上的文件。可在“设置 › 备份”中选择备份位置。")
+                Text("不可用的必需位置：" + model.missingRequiredBackupTargets.map(\.name).joined(separator: "、")
+                     + "。继续后仍会备份到可用位置；未完成的目标保留在导入记录中，可单独补齐。")
             }
         }
         .alert(model.spaceProblem?.isBackup == true ? "备份磁盘空间不足" : "存储空间不足",

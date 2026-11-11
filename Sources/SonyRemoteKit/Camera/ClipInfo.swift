@@ -20,6 +20,14 @@ public struct ClipInfo: Sendable, Hashable {
     public var lens: String = ""
     /// 起始时间码「06:05:09;21」。
     public var timecode: String = ""
+    /// 时间码的时基可能低于视频帧率（如 100p 素材使用 25 fps TC）。
+    public var timecodeRate: String = ""
+    public var startTimecode: VideoTimecode? { VideoFrameRate(timecodeRate.isEmpty ? formatFps : timecodeRate).flatMap { VideoTimecode(timecode, rate: $0) } }
+    public var mediaTimecode: VideoTimecode? { VideoFrameRate(formatFps).flatMap { startTimecode?.converted(to: $0) } }
+    public var endTimecode: String? {
+        guard let start = startTimecode, let rate = VideoFrameRate(formatFps), frames > 0 else { return nil }
+        return start.adding(seconds: Double(frames - 1) / rate.value).text
+    }
     /// 有代理（SubStream）。
     public var hasProxy = false
     /// 片段里的标记：Shot Mark 等（KlvPacketTable 里的「_ShotMark1」），按帧号排。
@@ -161,20 +169,35 @@ public struct ClipInfo: Sendable, Hashable {
         let x = XMLParser(data: data)
         x.delegate = p
         guard x.parse() || p.info.frames > 0 else { return nil }
+        p.finishTimecode()
         p.info.marks.sort { $0.frame < $1.frame }
         return p.info
     }
 
     private final class Parser: NSObject, XMLParserDelegate {
         var info = ClipInfo()
+        var ltc: String?
+        var tcFps: String?
+        var halfStep = false
+
+        func finishTimecode() {
+            guard let ltc, let videoRate = VideoFrameRate(info.formatFps) else { return }
+            let half = halfStep || (tcFps == nil && [50, 60].contains(videoRate.nominal))
+            let base = tcFps.flatMap(Double.init) ?? Double(half ? videoRate.nominal / 2 : videoRate.nominal)
+            let nominal = base * (half ? 2 : 1)
+            let rateText = videoRate.isNTSC ? String(nominal * 1000 / 1001) : String(nominal)
+            guard let rate = VideoFrameRate(rateText), let tc = VideoTimecode.sony(ltc, rate: rate, halfStep: half) else { return }
+            info.timecode = tc.text
+            info.timecodeRate = rateText
+        }
 
         func parser(_ parser: XMLParser, didStartElement name: String, namespaceURI: String?,
                     qualifiedName: String?, attributes a: [String: String] = [:]) {
             switch name {
             case "Duration": info.frames = Int(a["value"] ?? "") ?? 0
-            case "LtcChangeTable": break
+            case "LtcChangeTable": tcFps = a["tcFps"]; halfStep = a["halfStep"] == "true"
             case "LtcChange":
-                if info.timecode.isEmpty, a["frameCount"] == "0", let v = a["value"] { info.timecode = Self.timecode(v) }
+                if ltc == nil, a["frameCount"] == "0", let v = a["value"] { ltc = v }
             case "VideoFrame":
                 info.codec = a["videoCodec"] ?? ""
                 info.captureFps = a["captureFps"] ?? ""
@@ -208,17 +231,10 @@ public struct ClipInfo: Sendable, Hashable {
                 bytes.append(b)
                 i = j
             }
-            guard let n = bytes.first, bytes.count > Int(n) else { return nil }
+            // lengthValue 的第一个字节是长度；长度为 0 时 1...0 是非法区间，会直接崩。
+            guard let n = bytes.first, n > 0, bytes.count > Int(n) else { return nil }
             return String(bytes: bytes[1...Int(n)], encoding: .ascii)
         }
 
-        /// 「61090506」：按「帧 秒 分 时」排的 4 个 BCD 字节，高位是标志（帧字节的 0x40 是丢帧，秒字节的 0x80 是 60p 的第二场）。
-        static func timecode(_ v: String) -> String {
-            guard v.count == 8, let n = UInt32(v, radix: 16) else { return "" }
-            func bcd(_ b: UInt32) -> Int { Int(b >> 4) * 10 + Int(b & 0xF) }
-            let ff = n >> 24 & 0xFF, ss = n >> 16 & 0xFF, mm = n >> 8 & 0xFF, hh = n & 0xFF
-            let drop = ff & 0x40 != 0
-            return String(format: "%02d:%02d:%02d%@%02d", bcd(hh & 0x3F), bcd(mm & 0x7F), bcd(ss & 0x7F), drop ? ";" : ":", bcd(ff & 0x3F))
-        }
     }
 }

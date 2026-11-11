@@ -16,9 +16,10 @@ public struct ImportRecord: Codable, Hashable, Sendable {
     public var xxh64: String?
     /// 第二份（备份盘上）的路径；没有备份时为 nil。
     public var backupPath: String?
+    public var backupPaths: [String]?
 
     public init(filename: String, size: UInt64, dateRaw: String, camera: String?, path: String?, importedAt: Date? = Date(),
-                xxh64: String? = nil, backupPath: String? = nil) {
+                xxh64: String? = nil, backupPath: String? = nil, backupPaths: [String]? = nil) {
         self.filename = filename
         self.size = size
         self.dateRaw = dateRaw
@@ -27,6 +28,7 @@ public struct ImportRecord: Codable, Hashable, Sendable {
         self.importedAt = importedAt
         self.xxh64 = xxh64
         self.backupPath = backupPath
+        self.backupPaths = backupPaths
     }
 }
 
@@ -56,15 +58,26 @@ public struct HistoryIndex: Sendable {
             records[i].importedAt = r.importedAt ?? records[i].importedAt
             records[i].xxh64 = r.xxh64 ?? records[i].xxh64
             records[i].backupPath = r.backupPath ?? records[i].backupPath
+            let paths = Array(Set((records[i].backupPaths ?? []) + (r.backupPaths ?? []) + [r.backupPath].compactMap { $0 })).sorted()
+            if !paths.isEmpty { records[i].backupPaths = paths }
             return
         }
         records.append(r)
         byKey[k, default: []].append(records.count - 1)
     }
 
-    public func find(_ item: CameraContentItem, camera: String?) -> ImportRecord? {
-        guard let list = byKey[Self.key(item.filename, item.size)] else { return nil }
-        return list.lazy.map { records[$0] }.first { Self.same($0, camera, item.captureDateRaw) }
+    public func find(_ item: CameraContentItem, camera: String?, matchingIdentityExactly: Bool = false) -> ImportRecord? {
+        if let list = byKey[Self.key(item.filename, item.size)],
+           let found = list.lazy.map({ records[$0] }).first(where: { (!matchingIdentityExactly || $0.camera == camera) && Self.same($0, camera, item.captureDateRaw) }) {
+            return found
+        }
+        // 大小未知（≥4GB 的文件，ObjectInfo 里是 0xFFFFFFFF）：记录里存的可能是实际大小，
+        // 按文件名 + 机身 + 拍摄时间再找一次。机身必须一致，避免把另一台相机的同名片段当成已导入。
+        guard !item.sizeKnown else { return nil }
+        let name = item.filename.uppercased()
+        return records.lazy.first {
+            $0.filename.uppercased() == name && $0.camera == camera && Self.same($0, camera, item.captureDateRaw)
+        }
     }
 
     public func contains(_ item: CameraContentItem, camera: String?) -> Bool { find(item, camera: camera) != nil }

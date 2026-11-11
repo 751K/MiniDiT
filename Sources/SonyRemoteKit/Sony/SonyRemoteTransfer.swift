@@ -123,6 +123,7 @@ public actor SonyRemoteTransferLibrary: CameraLibrary {
         let slot: UInt32
         let contentID: UInt32
         let fileID: UInt16
+        let path: String
         let item: CameraContentItem
     }
 
@@ -131,6 +132,7 @@ public actor SonyRemoteTransferLibrary: CameraLibrary {
     private var entries: [UInt32: Entry] = [:]
     private var slotHandles: [UInt32: [UInt32]] = [:]
     private var nextHandle: UInt32 = 1
+    private var handleByFile: [String: UInt32] = [:]
     /// 视频原片的句柄 → 它的代理的句柄（代理不在列表里，只用来下载）。
     private var proxies: [UInt32: UInt32] = [:]
     private var clipCache: [UInt32: ClipInfo] = [:]
@@ -258,18 +260,14 @@ public actor SonyRemoteTransferLibrary: CameraLibrary {
             let isProxy: (SonyContent.File) -> Bool = { $0.path.uppercased().contains("/SUB/") }
             var videoHandle: UInt32?
             for f in c.files where !isProxy(f) {
-                let item = Self.makeItem(handle: nextHandle, slot: slot, content: c, file: f)
-                guard item.kind != .other else { continue }   // XML 附属文件等
-                entries[nextHandle] = Entry(slot: slot, contentID: c.id, fileID: f.id, item: item)
-                if item.kind == .video { videoHandle = nextHandle }
-                made.append((c.createdUTC, nextHandle))
-                nextHandle += 1
+                let item = Self.makeItem(handle: 0, slot: slot, content: c, file: f)
+                guard item.kind != .other else { continue }
+                let h = intern(slot: slot, content: c, file: f)
+                if item.kind == .video { videoHandle = h }
+                made.append((c.createdUTC, h))
             }
             if let videoHandle, let f = c.files.first(where: isProxy) {
-                let item = Self.makeItem(handle: nextHandle, slot: slot, content: c, file: f)
-                entries[nextHandle] = Entry(slot: slot, contentID: c.id, fileID: f.id, item: item)
-                proxies[videoHandle] = nextHandle
-                nextHandle += 1
+                proxies[videoHandle] = intern(slot: slot, content: c, file: f)
             }
         }
         // 新的在前；同一次拍摄里保持文件原顺序。
@@ -279,6 +277,17 @@ public actor SonyRemoteTransferLibrary: CameraLibrary {
         listingNotes.append("卡槽 \(slot)：\(contents.count) 次拍摄，\(hs.count) 个文件")
         slotHandles[slot] = hs
         return hs
+    }
+
+    // 刷新不改变同一文件的句柄；拖出的文件承诺可能仍在队列里等待下载。
+    private func intern(slot: UInt32, content: SonyContent, file: SonyContent.File) -> UInt32 {
+        let key = "\(slot)|\(content.id)|\(file.id)|\(content.createdUTC)|\(file.path)|\(file.size)"
+        let h: UInt32
+        if let old = handleByFile[key] { h = old }
+        else { h = nextHandle; nextHandle += 1; handleByFile[key] = h }
+        let item = Self.makeItem(handle: h, slot: slot, content: content, file: file)
+        entries[h] = Entry(slot: slot, contentID: content.id, fileID: file.id, path: file.path, item: item)
+        return h
     }
 
     static func makeItem(handle: UInt32, slot: UInt32, content c: SonyContent, file f: SonyContent.File) -> CameraContentItem {
@@ -303,6 +312,7 @@ public actor SonyRemoteTransferLibrary: CameraLibrary {
     }
 
     public func item(_ handle: UInt32) async throws -> CameraContentItem { try entry(handle).item }
+    public func sourcePath(_ handle: UInt32) async -> String? { entries[handle]?.path }
 
     public func kinds(in folder: CameraFolder) async -> [UInt32: CameraContentItem.Kind]? {
         guard let hs = slotHandles[folder.id] else { return nil }
@@ -416,9 +426,8 @@ public actor SonyRemoteTransferLibrary: CameraLibrary {
     }
     private var ratingCache: [UInt32: Int] = [:]
 
-    public func refresh() {
+    public func refresh() async {
         slotHandles = [:]
-        entries = [:]
         proxies = [:]
         clipCache = [:]
         xmlCache = [:]

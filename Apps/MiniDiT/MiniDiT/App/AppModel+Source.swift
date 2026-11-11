@@ -120,7 +120,7 @@ extension AppModel {
             if Task.isCancelled { endCancelled(); return }
             phase = .idle
             status = ""
-            errorMessage = "“\(k.name)”离线（上次地址为 \(k.host)）。请确认相机已开机并开启遥控拍摄；若相机地址已变更，请点按“搜索相机”。"
+            errorMessage = "“\(k.name)”未连接。请打开相机或重新搜索。"
         }
     }
 
@@ -140,6 +140,8 @@ extension AppModel {
         do {
             let (lib, remote) = try await openLibrary(cam)
             if Task.isCancelled { await lib.close(); throw CancellationError() }
+            primaryConnectionID = UUID()
+            sessionCameraProfiles[Self.primarySource] = nil
             usesRemoteTransfer = remote
             sourceKind = .camera
             deviceInfo = await lib.deviceInfo
@@ -297,6 +299,8 @@ extension AppModel {
             for e in extras { await e.library?.close() }
         }
         resetContent()
+        sourceIdentities.retainOpen([])
+        sessionCameraProfiles = [:]
         phase = .idle
         log.add("已断开")
     }
@@ -309,7 +313,8 @@ extension AppModel {
     private func handleLost() {
         guard library != nil else { return }
         // 相机掉线：保留内容和选择，后台自动重连。
-        if sourceKind == .camera, lastCamera != nil, !items.isEmpty {
+        // 不能拿 items 是否为空来区分：空卡、或者列表还没读到时掉线，一样要重连。
+        if sourceKind == .camera, lastCamera != nil {
             log.add("和相机的连接断开了，开始自动重连")
             lostDuringImport = progress != nil
             importTask?.cancel()
@@ -369,7 +374,9 @@ extension AppModel {
             let keep = selectedKeys()
             let keepDays = shownDays
             deviceInfo = await lib.deviceInfo
-            cameraID = deviceInfo?.cameraID ?? cameraID
+            let previousBody = cameraID
+            cameraID = deviceInfo?.cameraID
+            if cameraID == nil || cameraID != previousBody { primaryConnectionID = UUID(); sessionCameraProfiles[Self.primarySource] = nil }
             attach(lib, name: connectedName ?? cam.host, host: cam.host)
             offline = false
             log.add("已重新连上相机")
@@ -384,12 +391,12 @@ extension AppModel {
 
     /// 选择的「身份」：来源 + 卡槽 + 文件名 + 拍摄时间。重新列目录后句柄会变，用它把选择找回来。
     /// 来源用卷路径或机身 ID 标识（来源 id 在关掉、顶替后会变）。
-    func stableKey(_ i: CameraContentItem) -> String { "\(sourceIdentity(source(of: i.id)))|\(i.storageID >> 16)|\(i.filename)|\(i.captureDateRaw)" }
+    func stableKey(_ i: CameraContentItem) -> String { "CONNECTION:\((origins[i.id]?.connectionID ?? connectionID(for: source(of: i.id))).uuidString)|\(i.storageID >> 16)|\(i.filename)|\(i.captureDateRaw)" }
 
     func sourceIdentity(_ id: Int) -> String {
-        if id == Self.primarySource { return cardRoot?.standardizedFileURL.path ?? cameraID ?? connectedHost ?? "" }
-        guard let e = extra(id) else { return "" }
-        return e.root?.standardizedFileURL.path ?? e.cameraID ?? e.camera?.host ?? ""
+        // Browsing selection belongs to an open connection; physical identity is
+        // stored separately and never inferred from a network address or mount path.
+        "CONNECTION:" + connectionID(for: id).uuidString
     }
 
     func selectedKeys() -> Set<String> {
@@ -397,10 +404,19 @@ extension AppModel {
     }
 
     func resetContent() {
+        libraryGeneration += 1
+        refreshTask?.cancel(); refreshTask = nil; isRefreshingSources = false; refreshMessage = nil
+        refreshRequest = UUID()
+        metadataTask?.cancel(); metadataTask = nil; metadataRead = []; metadataLoading = false
+        closePreview()
         items = [:]; allShots = []; shots = [:]; shotOfFile = [:]; slots = []; days = []
-        origins = [:]; cardCameraNames = [:]; cardCameraKeys = [:]; sourceFilter = nil
+        origins = [:]; cardCameraNames = [:]; cardCameraKeys = [:]; fileCameraKeys = [:]; sourceFilter = nil
         grid = GridSelection(); shownDays = []
+        sourceIdentities.retainOpen([])
+        confirmingCard = nil
         thumbnails = [:]; clipInfos = [:]; proxySizes = [:]; thumbOrder = []; pendingThumbs = []; fileCopies = [:]
+        copiesGeneration += 1   // 让还没算完的后台检查作废
+        importFilesCache = [:]; importedCache = [:]
         connectedName = nil; connectedHost = nil; cameraID = nil; deviceInfo = nil; cardRoot = nil
         previewShot = nil; previewImage = nil
         progress = nil; lastResult = nil; interrupted = nil; offline = false
@@ -432,6 +448,7 @@ extension AppModel {
         notice = nil
         lastCamera = nil
         let lib = LocalCardLibrary(root: url)
+        primaryConnectionID = UUID()
         sourceKind = .card
         usesRemoteTransfer = false
         cameraID = nil
@@ -445,6 +462,9 @@ extension AppModel {
     /// 同时打开的卡顶上来当主来源。
     func promote(_ e: ExtraSource) {
         guard let lib = e.library else { return }
+        primaryConnectionID = e.connectionID
+        phase = .loading
+        sessionCameraProfiles[Self.primarySource] = sessionCameraProfiles.removeValue(forKey: e.id)
         watchTask?.cancel()
         reconnectTask?.cancel()
         extraTasks.removeValue(forKey: e.id)?.cancel()
@@ -523,6 +543,9 @@ extension AppModel {
             let name = keepName ?? (modelName.isEmpty ? (cam.knownName ?? cam.host) : modelName)
             extraSources[i].library = lib
             extraSources[i].deviceInfo = info
+            if info?.cameraID == nil || info?.cameraID != extraSources[i].cameraID {
+                extraSources[i].connectionID = UUID(); sessionCameraProfiles[id] = nil
+            }
             extraSources[i].cameraID = info?.cameraID
             extraSources[i].name = name
             extraSources[i].usesRemoteTransfer = remote
