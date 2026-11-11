@@ -44,7 +44,6 @@ final class ImportRun {
     /// 可以从卡上删的：和卡上数据核对过；要求备份时备份也成功了；不是视频（删视频会让相机的数据库对不上）。
     var deletable: [UInt32] = []
     var consecutiveFailures = 0
-    var mhlBackup: [MHLWriter.Entry] = []
     var reports: [URL] = []
     var captureOneFiles: [CaptureOneBridge.SessionTarget: [URL]]
     var opened: [String: AppModel.ResumeSession] = [:]
@@ -98,8 +97,8 @@ final class ImportJobState {
     var rawByKey: [String: URL] = [:]
     var waiting: [String: [URL]] = [:]
     var firstInCollection = true
-    /// 写 MHL 校验清单用：第一份（这个会话 / 保存位置），视频按文件夹分。
-    var mhlPrimary: [MHLWriter.Entry] = []
+    /// 写 MHL 校验清单用：照片、视频的第一份，各按所在文件夹分，每个文件夹一份。
+    var mhlPhoto: [URL: [MHLWriter.Entry]] = [:]
     var mhlVideo: [URL: [MHLWriter.Entry]] = [:]
     /// 交给 Final Cut Pro 的片段，按视频文件夹分（一个文件夹一个事件）。
     var fcpClips: [URL: [FCPXMLWriter.Clip]] = [:]

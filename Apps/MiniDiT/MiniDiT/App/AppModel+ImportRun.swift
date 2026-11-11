@@ -138,6 +138,13 @@ extension AppModel {
             do { run.reports.append(try MHLWriter.append(root: folder, entries: entries)) }
             catch { log.add("写视频校验清单失败：\(error.localizedDescription)") }
         }
+        // 照片文件夹也各写一份。C1 会话写在 Capture 文件夹里，C1 自己的 CaptureOne/ 子文件夹不算。
+        for (folder, entries) in state.mhlPhoto {
+            do {
+                run.reports.append(try MHLWriter.append(root: folder, entries: entries,
+                                                        ignore: state.captureDir != nil ? ["CaptureOne", "CaptureOne/"] : []))
+            } catch { log.add("写照片校验清单失败：\(error.localizedDescription)") }
+        }
         let plan = run.plan
         if plan.sendToFCP || plan.sendToResolve || plan.sendToPremiere, !state.fcpClips.isEmpty {
             let base = run.videoRoot.standardizedFileURL.pathComponents
@@ -206,11 +213,16 @@ extension AppModel {
                             event: state.event, scene: state.job.scene, roll: run.rolls[item.id])
     }
 
-    func importDestination(_ item: CameraContentItem, _ state: ImportJobState, _ run: ImportRun) -> URL {
-        if item.kind == .video { return importSubfolder(importVideoFolder(item, state, run), item, run) }
+    /// 照片的文件夹（不含多来源时的子文件夹）：C1 会话模式是 Capture 文件夹，否则按照片整理规则。
+    func importPhotoFolder(_ item: CameraContentItem, _ state: ImportJobState, _ run: ImportRun) -> URL {
         let photos = state.layout.folder(for: item, root: run.root, sessionName: state.groupName,
                                          event: state.event, scene: state.job.scene)
-        return importSubfolder(state.captureDir ?? photos, item, run)
+        return state.captureDir ?? photos
+    }
+
+    func importDestination(_ item: CameraContentItem, _ state: ImportJobState, _ run: ImportRun) -> URL {
+        if item.kind == .video { return importSubfolder(importVideoFolder(item, state, run), item, run) }
+        return importSubfolder(importPhotoFolder(item, state, run), item, run)
     }
 
     /// RAW 和同名 JPG/HIF 的配对键：目标目录 + 不带扩展名的小写文件名。

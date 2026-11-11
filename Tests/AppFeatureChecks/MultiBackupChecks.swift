@@ -104,6 +104,13 @@ import SwiftUI
         precondition(model.lastResult?.needsAttention == true)
         precondition(model.lastResult?.backupTargets.map(\.verified) == [4, 4, 0])
         precondition(batch.reports.contains { $0.hasPrefix(a.path + "/") } && batch.reports.contains { $0.hasPrefix(b.path + "/") })
+        // 照片第一份所在的文件夹也写一份清单，并登记了这张照片（和视频文件夹一样）。
+        let photoCopy = try require(batch.files.first { $0.mediaKind == "photo" }?.assets.first { $0.kind == .original }?
+            .copies.first { $0.role == .working })
+        let photoFolder = URL(filePath: photoCopy.path).deletingLastPathComponent().path
+        let photoReport = try require(batch.reports.first { $0.hasPrefix(photoFolder + "/ascmhl/") })
+        let photoReportText = try String(contentsOfFile: photoReport, encoding: .utf8)
+        precondition(photoReportText.contains("MULTI001.JPG"), "照片第一份必须写进照片文件夹的校验清单")
         let aCopies = batch.files.flatMap(\.assets).flatMap(\.copies).filter { $0.targetID == a.id }
         let bCopies = batch.files.flatMap(\.assets).flatMap(\.copies).filter { $0.targetID == b.id }
         for asset in batch.files.flatMap(\.assets) {

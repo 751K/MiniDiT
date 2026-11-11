@@ -48,7 +48,6 @@ extension AppModel {
             for c in [r.proxy] + (r.xml.map { [$0] } ?? []) {
                 state.mhlVideo[importVideoFolder(item, state, run), default: []].append(.init(url: c.url, xxh64: c.xxh64,
                                                                                          action: c.alreadyThere ? .verified : .original))
-                if let b = c.backup { run.mhlBackup.append(.init(url: b, xxh64: c.xxh64, action: .original)) }
             }
             let proxyAssets = ([r.proxy] + (r.xml.map { [$0] } ?? [])).map { c in
                 importAssetRecord(url: c.url, hash: c.xxh64, backup: c.backup,
@@ -130,8 +129,7 @@ extension AppModel {
             var there = false
             if case .alreadyThere = r.outcome { there = true }
             let entry = MHLWriter.Entry(url: r.outcome.url, xxh64: r.xxh64, action: there ? .verified : .original)
-            if isVideo { state.mhlVideo[importVideoFolder(item, state, run), default: []].append(entry) } else { state.mhlPrimary.append(entry) }
-            if let backupURL { run.mhlBackup.append(.init(url: backupURL, xxh64: r.xxh64, action: .original)) }
+            if isVideo { state.mhlVideo[importVideoFolder(item, state, run), default: []].append(entry) } else { state.mhlPhoto[importPhotoFolder(item, state, run), default: []].append(entry) }
             var journalAssets = [importAssetRecord(url: r.outcome.url, hash: r.xxh64, backup: backupURL,
                                                    main: r.outcome.url, item: item, kind: .original, sourceCompared: r.matchesSource, state, run)]
             var journalIssues: [String] = []
@@ -144,7 +142,6 @@ extension AppModel {
                                                        proxies: run.proxies, stage: { self.progress?.current = $0 }, issue: { journalIssues.append($0) }) {
                     state.mhlVideo[importVideoFolder(item, state, run), default: []].append(.init(url: c.url, xxh64: c.xxh64,
                                                                                              action: c.alreadyThere ? .verified : .original))
-                    if let b = c.backup { run.mhlBackup.append(.init(url: b, xxh64: c.xxh64, action: .original)) }
                         journalAssets.append(importAssetRecord(url: c.url, hash: c.xxh64, backup: c.backup,
                         main: r.outcome.url, item: item, kind: c.url.pathExtension.lowercased() == "xml" ? .metadata : .proxy, state, run))
                     if c.url.deletingLastPathComponent().lastPathComponent == "Proxy" { proxy = c.url }
