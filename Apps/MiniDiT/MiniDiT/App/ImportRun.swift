@@ -41,6 +41,8 @@ final class ImportRun {
     var saved: [URL] = []
     var done: [ImportHistory.Entry] = []
     var proxyOnlyDone = 0
+    /// 自动安装创意外观配置文件的说明，加在导入结果后面。
+    var lookNotes: [String] = []
     /// 可以从卡上删的：和卡上数据核对过；要求备份时备份也成功了；不是视频（删视频会让相机的数据库对不上）。
     var deletable: [UInt32] = []
     var consecutiveFailures = 0

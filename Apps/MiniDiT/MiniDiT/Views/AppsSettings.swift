@@ -32,8 +32,9 @@ struct AppsSettings: View {
                 ForEach(apps.filter(\.kind.isEditor)) { app in
                     if app.kind == .premiere { PremiereConnectionRow(app: app) }
                     else {
-                        let on = app.kind == .resolve ? model.sendToResolve : model.sendToFCP
-                        FolderAppRow(app: app, usage: app.isInstalled && on ? (app.kind == .resolve ? "导入后添加至当前项目" : "导入后发送至 FCP") : nil)
+                        let on = app.kind == .resolve ? model.sendToResolve : app.kind == .jianying ? model.sendToJianying : model.sendToFCP
+                        let usage = switch app.kind { case .resolve, .premiere: "导入后加入同名项目"; case .jianying: "导入后加入同名草稿"; default: model.fcpProjectAs == .library ? "导入后加入同名资源库" : "导入后加入同名事件" }
+                        FolderAppRow(app: app, usage: app.isInstalled && on ? usage : nil)
                     }
                 }
             } header: {
@@ -81,10 +82,10 @@ struct AppsSettings: View {
 
 struct AppInfo: Identifiable {
     enum Kind: String, CaseIterable {
-        case captureOne, lightroom, bridge, dxo, resolve, finalCut, premiere
+        case captureOne, lightroom, bridge, dxo, resolve, finalCut, premiere, jianying
 
         /// 视频后期软件，其他软件归入照片后期。
-        var isEditor: Bool { self == .resolve || self == .finalCut || self == .premiere }
+        var isEditor: Bool { self == .resolve || self == .finalCut || self == .premiere || self == .jianying }
 
         var title: String {
             switch self {
@@ -95,6 +96,7 @@ struct AppInfo: Identifiable {
             case .resolve: "DaVinci Resolve"
             case .finalCut: "Final Cut Pro"
             case .premiere: "Adobe Premiere Pro"
+            case .jianying: "剪映专业版"
             }
         }
         /// Bundle ID 的前缀（版本号会出现在 ID 里，比如 captureone16、bridge2025）。
@@ -107,6 +109,7 @@ struct AppInfo: Identifiable {
             case .resolve: ["com.blackmagic-design.DaVinciResolve"]
             case .finalCut: ["com.apple.FinalCutApp", "com.apple.FinalCut"]
             case .premiere: ["com.adobe.PremierePro"]
+            case .jianying: ["com.lemon.lvpro"]
             }
         }
     }
@@ -354,8 +357,7 @@ struct PremiereConnectionRow: View {
                 else if let h = heartbeat, h.isFresh, app.isRunning {
                     if h.pluginVersion != PremierePlugin.version || h.protocolVersion != 1 { StatusLine(text: "MiniDiT 插件需更新", warning: true) }
                     else if h.busy { StatusLine(text: "正在接收素材") }
-                    else if let project = h.project { StatusLine(text: "已连接 · 当前项目：" + project.name) }
-                    else { StatusLine(text: "已连接，请打开目标项目") }
+                    else { StatusLine(text: "已连接") }
                 } else { StatusLine(text: app.isRunning ? "请打开 Premiere Pro 中的 MiniDiT 面板" : "已安装 · 未运行") }
                 if let message { StatusLine(text: message) }
             }

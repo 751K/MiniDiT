@@ -15,12 +15,15 @@ struct VideoDeliveryResultRow: View {
                 Spacer()
                 if record.state == .sending { ProgressView().controlSize(.small) }
                 if record.canRetry {
-                    Button((record.software == .resolve && record.resolveProjectID == nil) || (record.software == .premiere && record.premiereProjectID == nil) ? "选择项目并重试…" : "重试发送") {
+                    Button("重试发送") {
                         model.retryVideoDelivery(batchID: batchID, id: record.id)
                     }
                     .disabled(model.videoDeliveryTask != nil || model.progress != nil || model.importJournal.repairTask != nil || model.importJournal.persistenceError != nil)
                 }
                 if !record.failedPaths.isEmpty || !record.warnings.isEmpty { Button("详情…") { details = true } }
+                if record.software == .jianying, let path = record.documentPath, FileManager.default.fileExists(atPath: path) {
+                    Button("显示草稿") { NSWorkspace.shared.activateFileViewerSelecting([URL(filePath: path)]) }
+                }
                 if record.software == .finalCutPro, let path = record.documentPath,
                    [.awaitingConfirmation, .uncertain].contains(record.state) {
                     Button("显示交接文件") { NSWorkspace.shared.activateFileViewerSelecting([URL(filePath: path)]) }

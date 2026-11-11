@@ -11,19 +11,22 @@ enum ResolveBridge {
         var project: String, projectID: String
         var imported: Int, proxies: Int, skipped: Int, colored: Int, unmanaged: Int, timecodes: Int
         var timecodeWarnings: [String], metadataWarnings: [String], failedPaths: [String], receivedPaths: [String]
+        /// 这次新建了 Resolve 项目（同名项目原本不存在）。
+        var created: Bool? = nil
     }
     enum Failure: LocalizedError {
         case notInstalled, notReachable, script(String)
         var errorDescription: String? {
             switch self {
             case .notInstalled: "未找到 DaVinci Resolve，请安装后重试。"
-            case .notReachable: "无法连接 DaVinci Resolve。请打开项目，并在 Resolve 的偏好设置中将“外部脚本使用”设为“本地”。"
+            case .notReachable: "无法连接 DaVinci Resolve。请在 Resolve 的偏好设置中将“外部脚本使用”设为“本地”。"
             case .script(let message): message
             }
         }
     }
     /// Capture XML-derived metadata now, so a retry never reads later settings or replacement sidecars.
-    static func payload(_ events: [FCPXMLWriter.Event], setColorSpace: Bool) throws -> Data {
+    /// `project` 是目标 Resolve 项目名（MiniDiT 项目名）：有同名项目就打开，没有就新建。
+    static func payload(_ events: [FCPXMLWriter.Event], setColorSpace: Bool, project: String) throws -> Data {
         let rows = events.map { event in
             ["bin": event.name, "clips": event.clips.map { clip in
                 let info = ClipInfo.sidecar(for: clip.url).flatMap(ClipInfo.read)
@@ -32,15 +35,15 @@ enum ResolveBridge {
                         "timecode": info?.mediaTimecode?.text ?? "", "gamma": info?.gamma ?? "", "primaries": info?.primaries ?? ""] as [String: Any]
             }] as [String: Any]
         }
-        return try JSONSerialization.data(withJSONObject: ["events": rows, "color": setColorSpace])
+        return try JSONSerialization.data(withJSONObject: ["events": rows, "color": setColorSpace, "project": project])
     }
-    @MainActor static func identifyProject() async throws -> Project {
-        let data = try JSONSerialization.data(withJSONObject: ["action": "identify"])
-        return try JSONDecoder().decode(Project.self, from: try await request(data))
-    }
-    @MainActor static func send(_ payload: Data, project: Project) async throws -> Result {
+    /// 加入目标项目。`expected` 是第一次发送时 Resolve 返回的项目：重试时必须还是它。
+    /// 旧记录没有冻结项目名时，用当时记下的项目名。
+    @MainActor static func send(_ payload: Data, expected: Project?) async throws -> Result {
         guard var request = try JSONSerialization.jsonObject(with: payload) as? [String: Any] else { throw Failure.script("发送记录无法读取。") }
-        request["action"] = "import"; request["projectID"] = project.id
+        request["action"] = "import"
+        if let expected { request["projectID"] = expected.id }
+        if (request["project"] as? String ?? "").isEmpty, let name = expected?.name { request["project"] = name }
         return try JSONDecoder().decode(Result.self, from: try await self.request(JSONSerialization.data(withJSONObject: request)))
     }
     @MainActor private static func request(_ input: Data) async throws -> Data {
@@ -90,7 +93,7 @@ enum ResolveBridge {
             }
         } onCancel: { control.stop() }
         try Task.checkCancellation()
-        if control.stopped { throw Failure.script("等待 Resolve 脚本响应超时；已保存的文件不受影响，可在原项目中重试。") }
+        if control.stopped { throw Failure.script("等待 Resolve 脚本响应超时；已保存的文件不受影响，可重试。") }
         return result
     }
     private final class ProcessControl: @unchecked Sendable {
@@ -119,22 +122,61 @@ resolve = fs.scriptapp("Resolve")
 if not resolve:
     sys.exit(3)
 pm = resolve.GetProjectManager()
-project = pm.GetCurrentProject()
-if not project:
+if not pm:
     sys.exit(3)
+with open(sys.argv[2], encoding="utf-8") as f:
+    request = json.load(f)
+# 目标是与 MiniDiT 项目同名的 Resolve 项目：有就打开，没有就在项目库根目录新建。
+target_name = (request.get("project") or "").strip() or "MiniDiT"
+expected_id = request.get("projectID", "")
+
+def find_in_folder(name):
+    # 从当前文件夹往下逐层找；找到时项目管理器停在它所在的文件夹，LoadProject 才能打开它。
+    if name in (pm.GetProjectListInCurrentFolder() or []):
+        return True
+    for folder in pm.GetFolderListInCurrentFolder() or []:
+        if pm.OpenFolder(folder):
+            if find_in_folder(name):
+                return True
+            pm.GotoParentFolder()
+    return False
+
+def save_current(current):
+    # 切换前保存当前项目，不丢用户的改动；未命名的临时项目不保存。
+    if current and current.GetName() != "Untitled Project":
+        pm.SaveProject()
+
+def open_target():
+    current = pm.GetCurrentProject()
+    if current and current.GetName() == target_name and (not expected_id or str(current.GetUniqueId()) == expected_id):
+        return current, False
+    pm.GotoRootFolder()
+    if find_in_folder(target_name):
+        save_current(current)
+        loaded = pm.LoadProject(target_name)
+        if not loaded:
+            raise RuntimeError("无法打开 Resolve 项目“%s”，未导入素材。" % target_name)
+        return loaded, False
+    if expected_id:
+        raise RuntimeError("Resolve 中未找到原项目“%s”，未导入素材。" % target_name)
+    pm.GotoRootFolder()
+    save_current(current)
+    made = pm.CreateProject(target_name)
+    if not made:
+        raise RuntimeError("无法新建 Resolve 项目“%s”，未导入素材。" % target_name)
+    return made, True
+
+project, created = open_target()
 project_id = str(project.GetUniqueId() or "")
 if not project_id:
     raise RuntimeError("Resolve 未提供项目标识，未导入素材。")
-with open(sys.argv[2], encoding="utf-8") as f:
-    request = json.load(f)
-if request.get("action") == "identify":
-    print(json.dumps({"id": project_id, "name": project.GetName()}))
-    sys.exit(0)
-expected_id = request.get("projectID", "")
+if expected_id and project_id != expected_id:
+    raise RuntimeError("Resolve 中的“%s”已非原项目，未导入素材。" % target_name)
+expected_id = project_id
 def check_project():
     current = pm.GetCurrentProject()
     if not current or str(current.GetUniqueId()) != expected_id:
-        raise RuntimeError("Resolve 项目已切换，请打开原项目后重试；未向新项目发送素材。")
+        raise RuntimeError("导入时 Resolve 项目已切换，未向其他项目发送素材；可重试。")
 check_project()
 # An old helper may outlive an app restart. Serialize retries before inspecting the actual media pool.
 lock_root = os.path.expanduser("~/Library/Application Support/SonyImport/ResolveLocks")
@@ -274,7 +316,9 @@ for e in events:
                     metadata_warnings.append(c["path"] + ": 代理未能链接")
         except Exception as error:
             metadata_warnings.append(c["path"] + ": " + str(error))
-print(json.dumps({"project": project.GetName(), "projectID": project_id, "imported": imported, "proxies": proxies, "skipped": skipped,
+check_project()
+pm.SaveProject()
+print(json.dumps({"project": project.GetName(), "projectID": project_id, "created": created, "imported": imported, "proxies": proxies, "skipped": skipped,
                   "colored": colored, "unmanaged": unmanaged, "timecodes": timecodes, "timecodeWarnings": timecode_warnings,
                   "metadataWarnings": metadata_warnings, "failedPaths": failed_paths, "receivedPaths": received_paths}))
 """#

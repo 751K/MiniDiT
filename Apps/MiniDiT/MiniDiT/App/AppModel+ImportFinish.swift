@@ -30,6 +30,7 @@ extension AppModel {
         } else {
             summary += "，未备份"
         }
+        for note in run.lookNotes { summary += "，" + note }
         if Task.isCancelled { summary += "（已取消）" }
         lastBatch = run.saved
         let sessionNames = Set(run.captureOneFiles.keys.map(\.name)).sorted()
@@ -53,6 +54,8 @@ extension AppModel {
         } else if mode != .off && !run.saved.isEmpty {
             summary += await sendToCaptureOne(run.saved, inPlace: mode == .inPlace)
         } else if mode == .off && !Task.isCancelled, let folder = Self.commonFolder(done.map(\.url)) {
+            // DxO 打开文件夹时读 RAW 旁边的 .dop，所以先写好再打开。
+            if openAfterImport == .dxo && applyCreativeLook { summary += applyDxOLooks(done.map(\.url)) }
             openedText = openFolder(folder, in: openAfterImport)
             if let openedText { summary += openedText }
         }

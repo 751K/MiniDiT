@@ -1,6 +1,6 @@
 /* All communication stays in this user's MiniDiT support folder. No network or executable requests. */
 function createMailbox(fs, base, receiver, options = {}) {
-    const now = options.now || (() => Date.now() / 1000), version = "1.0.0";
+    const now = options.now || (() => Date.now() / 1000), version = "1.1.0";
     let busy = false, processing = false;
     const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     async function read(path) { return JSON.parse(await fs.readFile(path, { encoding: "utf-8" })); }

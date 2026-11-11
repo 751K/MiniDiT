@@ -165,6 +165,7 @@ extension AppModel {
                 let key = lightroomPairKey(item, state, run)
                 if item.kind == .raw {
                     state.rawByKey[key] = url
+                    if applyCreativeLook, let note = ensureLookPack(forRaw: url) { run.lookNotes.append(note) }
                     let look = applyCreativeLook ? LightroomLooks.profile(for: url) : nil
                     sendImportToLightroom([.init(url: url, look: look)] + (state.waiting.removeValue(forKey: key) ?? []).map { .init(url: $0, stackWith: url) }, state, run)
                 } else if let raw = state.rawByKey[key] {

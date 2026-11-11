@@ -7,6 +7,7 @@ export FEATURE_ROOT FEATURE_BUILD
 case " $* " in
   *" --live-photo "*) FEATURE_SOURCE=LivePhotoChecks.swift ;;
   *" --premiere "*) FEATURE_SOURCE=PremiereBridgeChecks.swift ;;
+  *" --look-packs "*) FEATURE_SOURCE=LookPackChecks.swift ;;
   *" --video-delivery "*) FEATURE_SOURCE=VideoDeliveryChecks.swift ;;
   *" --handoff-pdf "*) FEATURE_SOURCE=HandoffPDFChecks.swift ;;
   *" --disk-identity "*) FEATURE_SOURCE=PhysicalDiskChecks.swift ;;

@@ -271,8 +271,8 @@ extension AppModel {
             "photoLayout": .string(rules.photos.rawValue), "videoLayout": .string(rules.videos.rawValue), "roll": .bool(rules.splitVideoByRoll),
             "backupTemplate": .string(rules.backupTemplate), "photoTemplate": .string(rules.photoTemplate), "videoTemplate": .string(rules.videoTemplate), "sessionTemplate": .string(rules.sessionTemplate),
             "captureOne": .string(captureOneMode.rawValue), "delete": .bool(willDeleteFromSource), "proxies": .bool(importProxies),
-            "proxyOnly": .bool(proxyOnlyWiFi), "resolve": .bool(sendToResolve), "fcp": .bool(sendToFCP), "resolveColor": .bool(resolveColorSpace),
-            "fcpLog": .bool(fcpLogProcessing), "creativeLook": .bool(applyCreativeLook), "openAfter": .string(openAfterImport.rawValue),
+            "proxyOnly": .bool(proxyOnlyWiFi), "resolve": .bool(sendToResolve), "fcp": .bool(sendToFCP), "jianying": .bool(sendToJianying), "resolveColor": .bool(resolveColorSpace),
+            "fcpLog": .bool(fcpLogProcessing), "fcpProjectAs": .string(fcpProjectAs.rawValue), "fcpEventLibrary": .string(fcpEventLibrary.path), "creativeLook": .bool(applyCreativeLook), "openAfter": .string(openAfterImport.rawValue),
             "splitBySlot": .bool(splitBySlot), "sourceFolders": .object(sourceFolders().reduce(into: [:]) { $0[String($1.key)] = .string($1.value) })])
     }
 }

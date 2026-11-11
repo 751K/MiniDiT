@@ -4,7 +4,7 @@ import MiniDiTCore
 
 @Suite struct VideoDeliveryTests {
     @Test func retryStatesDistinguishFailureFromUnknownReceipt() throws {
-        for software in [VideoDelivery.Software.finalCutPro, .resolve, .premiere] {
+        for software in [VideoDelivery.Software.finalCutPro, .resolve, .premiere, .jianying] {
             var record = VideoDelivery(software: software, projectIDs: [UUID()], payload: Data([1, 2]), files: [])
             #expect(!record.canRetry)
             record.state = .failed; #expect(record.canRetry)

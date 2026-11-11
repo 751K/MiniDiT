@@ -257,10 +257,23 @@ final class AppModel {
     var sendToPremiere: Bool = UserDefaults.standard.bool(forKey: "sendToPremiere") {
         didSet { UserDefaults.standard.set(sendToPremiere, forKey: "sendToPremiere") }
     }
+    /// 导入后在剪映专业版里新建草稿，视频放在素材区。
+    var sendToJianying: Bool = UserDefaults.standard.bool(forKey: "sendToJianying") {
+        didSet { UserDefaults.standard.set(sendToJianying, forKey: "sendToJianying") }
+    }
 
     /// 交给 FCP 时给 S-Log3 片段打开 FCP 内置的 Log 处理。
     var fcpLogProcessing: Bool = UserDefaults.standard.object(forKey: "fcpLogProcessing") as? Bool ?? true {
         didSet { UserDefaults.standard.set(fcpLogProcessing, forKey: "fcpLogProcessing") }
+    }
+
+    /// MiniDiT 项目在 FCP 里作为资源库还是事件。
+    var fcpProjectAs: FCPXMLWriter.ProjectMapping = FCPXMLWriter.ProjectMapping(rawValue: UserDefaults.standard.string(forKey: "fcpProjectAs") ?? "") ?? .library {
+        didSet { UserDefaults.standard.set(fcpProjectAs.rawValue, forKey: "fcpProjectAs") }
+    }
+    /// 「作为事件」时放进的资源库；没选过时用「影片」文件夹里的 MiniDiT.fcpbundle，FCP 会自动新建。
+    var fcpEventLibrary: URL = UserDefaults.standard.string(forKey: "fcpEventLibrary").map { URL(filePath: $0) } ?? FCPXMLWriter.defaultEventLibrary {
+        didSet { UserDefaults.standard.set(fcpEventLibrary.path, forKey: "fcpEventLibrary") }
     }
 
     /// 加入 Resolve 时按片段的伽马 / 色域写上输入色彩空间（不套 LUT）。

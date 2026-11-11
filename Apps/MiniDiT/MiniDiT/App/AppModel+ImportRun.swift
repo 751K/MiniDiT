@@ -146,7 +146,7 @@ extension AppModel {
             } catch { log.add("写照片校验清单失败：\(error.localizedDescription)") }
         }
         let plan = run.plan
-        if plan.sendToFCP || plan.sendToResolve || plan.sendToPremiere, !state.fcpClips.isEmpty {
+        if plan.sendToFCP || plan.sendToResolve || plan.sendToPremiere || plan.sendToJianying, !state.fcpClips.isEmpty {
             let base = run.videoRoot.standardizedFileURL.pathComponents
             run.videoEvents += state.fcpClips.sorted { $0.key.path < $1.key.path }.map { folder, clips in
                 let parts = folder.standardizedFileURL.pathComponents

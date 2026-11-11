@@ -4,7 +4,7 @@
 
 MiniDiT 面向摄影与视频创作者，负责拍摄素材的导入、整理、校验、备份与后期交接，品牌适配会逐步扩展。
 
-通过 Wi-Fi 连接相机，或插上读卡器，浏览并选择照片和视频，再导入选定的项目。照片和视频可以分别设置保存位置及目录规则，也可以备份到多个位置并分别校验。下载完成后，照片可自动导入 Capture One 或 Lightroom Classic，视频可交给 DaVinci Resolve、Final Cut Pro 或 Adobe Premiere Pro。
+通过 Wi-Fi 连接相机，或插上读卡器，浏览并选择照片和视频，再导入选定的项目。照片和视频可以分别设置保存位置及目录规则，也可以备份到多个位置并分别校验。下载完成后，照片可自动导入 Capture One 或 Lightroom Classic，视频可交给 DaVinci Resolve、Final Cut Pro、Adobe Premiere Pro 或剪映专业版。
 
 > 早期版本（v0.8），当前仅适配 Sony α 相机；其他品牌尚未适配。电脑需要 Apple 芯片的 Mac、macOS 14 以上。功能规划见 [docs/MiniDiT-ROADMAP.md](docs/MiniDiT-ROADMAP.md)。
 >
@@ -52,9 +52,11 @@ MiniDiT 面向摄影与视频创作者，负责拍摄素材的导入、整理、
 **交给后期**
 
 - Capture One：建好会话，照片直接存进 Capture 文件夹；可按创意外观自动套 Look。
+- 「只下载」并在导入完成后用 DxO PhotoLab 打开时，同一开关会给每张 RAW 写好 .dop，打开即套用对应的创意外观（需要 DxO PhotoLab Elite 的 LUT 调色）；已有 .dop 的照片不改动。
+- 打开「对 RAW 自动加载创意外观」后，相机机型的 Look 配置文件未安装时，会在后台从 [sony-look-bridge](https://github.com/751K/sony-look-bridge) 下载并安装（Capture One 与 Lightroom Classic 需重新启动后生效）。
 - Lightroom Classic：通过插件逐张加入当前目录，RAW+JPG 自动叠放。
 - 只下载到文件夹，导完用访达、Adobe Bridge 或 DxO PhotoLab 打开。
-- 视频单独存放，代理和 XML 一起导；可以加入 DaVinci Resolve 当前项目或交给 Final Cut Pro，带卷号和 Log 设置。
+- 视频单独存放，代理和 XML 一起导；可以加入与项目同名的 DaVinci Resolve 项目、Premiere Pro 项目、Final Cut Pro 资源库或剪映草稿（没有就新建），带卷号和 Log 设置。
 - Wi-Fi 导视频时可以只导代理，原片留在卡上。
 - 保留原片内的时间码，FCP 交接写入源时间码；Resolve 导入后核对起始时间码。
 
@@ -84,11 +86,15 @@ MiniDiT 面向摄影与视频创作者，负责拍摄素材的导入、整理、
 
 **Lightroom Classic**：先在「设置 › 连接」里点「安装插件」（LrC 开着时装完要重启一次），再在「设置 › 照片」里选「导入到 Lightroom Classic」。用读卡器时，建议在 LrC 的「偏好设置 › 常规」里关掉「检测到存储卡时显示导入对话框」。
 
-**DaVinci Resolve**：在 Resolve 的偏好设置里把「外部脚本使用」设为「本地」，再在「设置 › 视频」里打开「导入后加入 DaVinci Resolve 当前项目」。
+**DaVinci Resolve**：在 Resolve 的偏好设置里把「外部脚本使用」设为「本地」，再在「设置 › 视频 › 导入至」里打开「DaVinci Resolve」。导入完成后，视频会加入与 MiniDiT 项目同名的 Resolve 项目：已有就打开它，没有就在项目库根目录新建；切换前会先保存 Resolve 当前打开的项目，加入后保存目标项目。Resolve 没开时会在后台打开。
 
-Resolve、Premiere Pro 或 Final Cut Pro 发送失败时，可在「项目 › 导入记录与备份 › 后期软件」中点击「重试发送」，无需重新下载。Resolve 重试使用原项目，跳过已存在的素材。Final Cut Pro 接收请求后仍需在软件内确认导入；MiniDiT 会保留交接文件，供之后查看。
+Resolve、Premiere Pro、Final Cut Pro 或剪映发送失败时，可在「项目 › 导入记录与备份 › 后期软件」中点击「重试发送」，无需重新下载。Resolve 和 Premiere Pro 重试只加入第一次发送时的那个项目，跳过已存在的素材。MiniDiT 无法得知 Final Cut Pro 是否导入完成，请在 FCP 中查看；交接文件会保留，供之后查看。
 
-**Adobe Premiere Pro**：需要 25.6 或更新版本。在「设置 › 连接」中点击「安装插件…」，由 Adobe Creative Cloud 安装；随后在 PR 的「窗口 › UXP 插件」中打开 MiniDiT 面板，打开目标项目，并启用「设置 › 视频 › Adobe Premiere Pro · 当前项目」。下载完成后，视频按 MiniDiT 项目和卷号加入素材箱，并关联已导入的代理、添加 Shot Mark。发送失败可在原导入记录中重试，不重新下载。完整说明见 [Premiere Pro 连接](docs/PREMIERE.md)。
+**Adobe Premiere Pro**：需要 25.6 或更新版本。在「设置 › 连接」中点击「安装插件…」，由 Adobe Creative Cloud 安装；随后在 PR 的「窗口 › UXP 插件」中打开 MiniDiT 面板，并启用「设置 › 视频 › 导入至 › Adobe Premiere Pro」。下载完成后，视频加入与 MiniDiT 项目同名的 PR 项目：已有就打开它，没有就在「影片」文件夹新建；按 MiniDiT 项目和卷号加入素材箱，并关联已导入的代理、添加 Shot Mark。发送失败可在原导入记录中重试，不重新下载。完整说明见 [Premiere Pro 连接](docs/PREMIERE.md)。
+
+**剪映专业版**：在「设置 › 视频 › 导入至」里打开「剪映专业版」。导入完成后，视频加入剪映默认草稿位置里与 MiniDiT 项目同名的草稿的素材区，没有就新建，时间线留空；剪映没开时会在后台打开它，首页「本地草稿」里就能看到。剪映会加密打开过的草稿，之后 MiniDiT 无法再往里加素材，会提示你在剪映中手动导入；在剪映里改过草稿位置时，请改回默认位置。
+
+**Final Cut Pro**：在「设置 › 视频 › 导入至」里打开「Final Cut Pro」，并选择 MiniDiT 项目作为「资源库」还是「事件」。作为资源库时，视频加入与 MiniDiT 项目同名的资源库，每个视频文件夹一个事件；作为事件时，视频放进你选定的资源库中与 MiniDiT 项目同名的事件，原来的文件夹（卷号）成为关键词精选。资源库和事件已有就加入，没有就新建。
 
 ## 实况照片
 

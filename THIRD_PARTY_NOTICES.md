@@ -27,3 +27,7 @@ The protocol facts in `docs/PROTOCOL.md` were collected from:
 - Sony's public help guides
 
 This project re-implements the protocol independently and contains no code from these projects.
+
+## Jianying draft format reference (no code copied)
+
+`Sources/MiniDiTCore/JianyingDraft.swift` writes 剪映专业版 drafts using the field layout documented by pyJianYingDraft (Apache-2.0, https://github.com/GuanYixuan/pyJianYingDraft). MiniDiT re-implements the writer in Swift and contains no code from that project.

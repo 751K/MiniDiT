@@ -25,7 +25,14 @@ public struct PremiereHandoff: Codable, Sendable, Equatable {
         public var clips: [Clip]
         public init(binPath: [String], clips: [Clip]) { self.binPath = binPath; self.clips = clips }
     }
+    /// 目标项目：与 MiniDiT 项目同名的 .prproj。已有就打开，没有就在这个位置新建。旧版本的请求没有这一项，发到当前项目。
+    public struct Target: Codable, Sendable, Equatable {
+        public var name: String
+        public var path: String
+        public init(name: String, path: String) { self.name = name; self.path = path }
+    }
     public var version = 1
+    public var project: Target?
     public var groups: [Group]
-    public init(groups: [Group]) { self.groups = groups }
+    public init(project: Target? = nil, groups: [Group]) { self.project = project; self.groups = groups }
 }

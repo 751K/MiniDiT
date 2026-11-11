@@ -2,6 +2,7 @@ import AppKit
 import MiniDiTCore
 import SonyRemoteKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// 设置窗口：通用 / 照片 / 视频 / 备份 / 连接。
 struct SettingsView: View {
@@ -53,8 +54,7 @@ private struct ImportSettings: View {
                         if model.captureOneMode == .newSession { choose(\.sessionsFolder) } else { choose(\.destination) }
                     }
                 } label: {
-                    Text(model.captureOneMode == .newSession ? "Capture One 会话根目录" : "默认存储地址")
-                    Text(locationText).lineLimit(1).truncationMode(.middle)
+                    Text(locationText).lineLimit(1).truncationMode(.middle).help(locationText)
                 }
                 if model.captureOneMode == .off {
                     Picker("导入完成后打开", selection: $model.openAfterImport) {
@@ -136,31 +136,12 @@ struct CaptureOneImportOptions: View {
 
     var body: some View {
         @Bindable var model = model
-        VStack(alignment: .leading, spacing: 6) {
-            Picker("处理方式", selection: $model.captureOneMode) {
-                Text("新建会话").tag(CaptureOneMode.newSession)
-                Text("按 Capture One 导入设置").tag(CaptureOneMode.c1Settings)
-                Text("添加到目录，不复制文件").tag(CaptureOneMode.inPlace)
-            }
-            .pickerStyle(.menu)
-            Text(detail)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+        Picker("处理方式", selection: $model.captureOneMode) {
+            Text("新建会话").tag(CaptureOneMode.newSession)
+            Text("按 Capture One 导入设置").tag(CaptureOneMode.c1Settings)
+            Text("添加到目录，不复制文件").tag(CaptureOneMode.inPlace)
         }
-    }
-
-    private var detail: String {
-        switch model.captureOneMode {
-        case .newSession:
-            "新建或选择已有会话，照片直接存入会话的 Capture 文件夹。"
-        case .c1Settings:
-            "先下载到下方位置，再按 Capture One 当前文档的导入设置处理，可能额外复制文件。"
-        case .inPlace:
-            "先下载到下方位置，再让 Capture One 目录引用这些文件，不额外复制。此方式用于目录。"
-        case .off, .lightroom:
-            ""
-        }
+        .pickerStyle(.menu)
     }
 }
 
@@ -341,6 +322,7 @@ private struct VideoSettings: View {
     var body: some View {
         @Bindable var model = model
         let resolve = ResolveBridge.appURL != nil, fcp = FCPXMLWriter.appURL != nil, premiere = PremiereBridge.app.isInstalled
+        let jianying = NSWorkspace.shared.urlForApplication(withBundleIdentifier: JianyingDraft.bundleID) != nil
         Form {
             Section {
                 LabeledContent {
@@ -348,8 +330,8 @@ private struct VideoSettings: View {
                         if let u = FolderPicker.choose(start: model.videoDestination) { model.videoDestination = u }
                     }
                 } label: {
-                    Text("默认存储地址")
-                    Text(model.videoDestination.path(percentEncoded: false)).lineLimit(1).truncationMode(.middle)
+                    let path = model.videoDestination.path(percentEncoded: false)
+                    Text(path).lineLimit(1).truncationMode(.middle).help(path)
                 }
             } header: {
                 Text("默认存储地址")
@@ -359,17 +341,18 @@ private struct VideoSettings: View {
             }
             Section {
                 Toggle("文件夹", isOn: Binding(
-                    get: { !model.sendToResolve && !model.sendToFCP && !model.sendToPremiere },
+                    get: { !model.sendToResolve && !model.sendToFCP && !model.sendToPremiere && !model.sendToJianying },
                     set: { folderOnly in
                         if folderOnly {
                             model.sendToResolve = false
                             model.sendToFCP = false
                             model.sendToPremiere = false
+                            model.sendToJianying = false
                         }
                     }
                 ))
                 if resolve {
-                    ResolveImportToggle(title: "DaVinci Resolve · 当前项目")
+                    ResolveImportToggle(title: "DaVinci Resolve")
                     if model.sendToResolve {
                         Toggle(isOn: $model.resolveColorSpace) {
                         Text("设置片段的输入色彩空间")
@@ -381,20 +364,22 @@ private struct VideoSettings: View {
                 if fcp {
                     Toggle("Final Cut Pro", isOn: $model.sendToFCP)
                     if model.sendToFCP {
+                        FCPTargetOptions().padding(.leading, 16)
                         Toggle("设置片段的 Log 处理", isOn: $model.fcpLogProcessing)
                     .padding(.leading, 16)
                     }
                 }
                 if premiere { PremiereImportToggle() }
-                if !resolve && !fcp && !premiere {
+                if jianying { JianyingImportToggle(title: "剪映专业版") }
+                if !resolve && !fcp && !premiere && !jianying {
                     Text("未找到已支持的视频后期软件。").foregroundStyle(.secondary)
                 }
             } header: {
                 Text("导入至")
             }
             Section {
-                Toggle("同时导入代理文件", isOn: $model.importProxies)
-                Toggle("通过 Wi-Fi 导入时仅导入代理", isOn: $model.proxyOnlyWiFi)
+                Toggle("导入原片时，一并导入代理", isOn: $model.importProxies)
+                Toggle("通过 Wi-Fi 导入时，仅导入代理", isOn: $model.proxyOnlyWiFi)
             } header: {
                 Text("代理")
             }
@@ -421,7 +406,7 @@ struct ResolveImportToggle: View {
         .alert("启用 DaVinci Resolve 导入", isPresented: $showingSetupHint) {
             Button("知道了", role: .cancel) {}
         } message: {
-            Text("请在 DaVinci Resolve 的偏好设置中，将“外部脚本使用”设为“本地”。")
+            Text("导入完成后，视频将加入与 MiniDiT 项目同名的 Resolve 项目；该项目不存在时将自动新建。切换项目前，将先保存 Resolve 当前打开的项目。\n\n请在 DaVinci Resolve 偏好设置中将“外部脚本使用”设为“本地”。")
         }
     }
 }
@@ -683,11 +668,57 @@ private struct NameField: View {
 }
 
 
+/// MiniDiT 项目在 FCP 里作为资源库还是事件；作为事件时选放进哪个资源库。
+struct FCPTargetOptions: View {
+    @Environment(AppModel.self) private var model
+    var body: some View {
+        @Bindable var model = model
+        VStack(alignment: .leading, spacing: 8) {
+            Picker("MiniDiT 项目作为", selection: $model.fcpProjectAs) {
+                ForEach(FCPXMLWriter.ProjectMapping.allCases, id: \.self) { Text($0.title).tag($0) }
+            }
+            if model.fcpProjectAs == .event {
+                LabeledContent {
+                    Menu("选择…") {
+                        Button("已有资源库…") { openExisting() }
+                        Button("新建资源库…") { createNew() }
+                    }
+                    .fixedSize()
+                } label: {
+                    let path = model.fcpEventLibrary.path(percentEncoded: false)
+                    Text(path).lineLimit(1).truncationMode(.middle).help(path)
+                }
+            }
+        }
+    }
+    private var libraryType: UTType { UTType(filenameExtension: "fcpbundle", conformingTo: .package) ?? .package }
+    private func openExisting() {
+        let panel = NSOpenPanel()
+        panel.title = "选择资源库"; panel.prompt = "选择"
+        panel.allowedContentTypes = [libraryType]
+        panel.canChooseFiles = true; panel.canChooseDirectories = false; panel.treatsFilePackagesAsDirectories = false
+        panel.directoryURL = model.fcpEventLibrary.deletingLastPathComponent()
+        guard panel.runModal() == .OK, let url = panel.url, url.pathExtension == "fcpbundle" else { return }
+        model.fcpEventLibrary = url
+    }
+    /// 只定下位置和名字，第一次发送时由 FCP 新建。
+    private func createNew() {
+        let panel = NSSavePanel()
+        panel.title = "新建资源库"; panel.prompt = "选择"; panel.nameFieldLabel = "资源库："
+        panel.allowedContentTypes = [libraryType]
+        panel.directoryURL = model.fcpEventLibrary.deletingLastPathComponent()
+        panel.nameFieldStringValue = "MiniDiT"
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        model.fcpEventLibrary = url.pathExtension == "fcpbundle" ? url : url.appendingPathExtension("fcpbundle")
+    }
+}
+
 struct PremiereImportToggle: View {
     @Environment(AppModel.self) private var model
     @State private var showingHint = false
     var body: some View {
-        Toggle("Adobe Premiere Pro · 当前项目", isOn: Binding(
+        Toggle("Adobe Premiere Pro", isOn: Binding(
             get: { model.sendToPremiere },
             set: { enabled in
                 let previous = model.sendToPremiere; model.sendToPremiere = enabled
@@ -697,7 +728,28 @@ struct PremiereImportToggle: View {
         .alert("启用 Premiere Pro 导入", isPresented: $showingHint) {
             Button("知道了", role: .cancel) {}
         } message: {
-            Text("请先在“设置 › 连接”中安装 MiniDiT 插件，再在 Premiere Pro 的“窗口 › UXP 插件”中打开 MiniDiT 面板，并打开目标项目。")
+            Text("导入完成后，视频将加入与 MiniDiT 项目同名的 Premiere Pro 项目；该项目不存在时将在“影片”文件夹中新建。\n\n使用前，请在“设置 › 连接”中安装 MiniDiT 插件，并在 Premiere Pro 的“窗口 › UXP 插件”中打开 MiniDiT 面板。")
+        }
+    }
+}
+
+/// 剪映没有脚本接口：通过草稿文件交接，打开开关时说明一次。
+struct JianyingImportToggle: View {
+    @Environment(AppModel.self) private var model
+    let title: String
+    @State private var showingHint = false
+    var body: some View {
+        Toggle(title, isOn: Binding(
+            get: { model.sendToJianying },
+            set: { enabled in
+                let previous = model.sendToJianying; model.sendToJianying = enabled
+                if enabled && !previous { showingHint = true }
+            }
+        ))
+        .alert("启用剪映专业版", isPresented: $showingHint) {
+            Button("知道了", role: .cancel) {}
+        } message: {
+            Text("导入完成后，视频将加入与 MiniDiT 项目同名的剪映草稿素材区；该草稿不存在时将自动新建。草稿一经在剪映中打开，即由剪映加密，此后 MiniDiT 无法再向其中加入素材，需在剪映中手动导入。\n\n草稿保存于剪映的默认草稿位置。如已在剪映中更改草稿位置，请恢复为默认位置。")
         }
     }
 }

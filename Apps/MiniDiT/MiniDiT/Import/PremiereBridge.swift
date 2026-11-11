@@ -8,6 +8,8 @@ import SonyRemoteKit
     struct Project: Codable, Sendable, Equatable { var id: String; var name: String; var path: String }
     struct Result: Codable, Sendable {
         var project: String, projectID: String
+        /// 这次是否新建了项目；旧插件不返回。
+        var created: Bool? = nil
         var imported: Int, skipped: Int, proxies: Int
         var receivedPaths: [String], failedPaths: [String], warnings: [String]
     }
@@ -20,7 +22,7 @@ import SonyRemoteKit
     static var isSupported: Bool { app.version.map { $0.compare("25.6", options: .numeric) != .orderedAscending } ?? false }
     static func heartbeat() -> Heartbeat? { try? JSONDecoder().decode(Heartbeat.self, from: Data(contentsOf: base.appending(path: "heartbeat.json"))) }
 
-    nonisolated static func payload(events: [FCPXMLWriter.Event], batch: ImportBatchRecord, projectNames: [UUID: String]) throws -> Data {
+    nonisolated static func payload(events: [FCPXMLWriter.Event], batch: ImportBatchRecord, projectNames: [UUID: String], target: PremiereHandoff.Target? = nil) throws -> Data {
         let ownership = Dictionary(batch.files.flatMap { file in
             file.assets.flatMap { asset in asset.copies.filter { $0.role == .working }.map { ($0.path, file) } }
         }, uniquingKeysWith: { a, _ in a })
@@ -41,17 +43,14 @@ import SonyRemoteKit
                 else { groups.append(.init(binPath: bins, clips: [media])) }
             }
         }
-        return try JSONEncoder().encode(PremiereHandoff(groups: groups))
+        return try JSONEncoder().encode(PremiereHandoff(project: target, groups: groups))
     }
 
-    static func identifyProject() async throws -> Project {
-        try await connect()
-        return try await exchange(action: "identify", base: base)
-    }
-    static func send(_ payload: Data, project: Project) async throws -> Result {
+    /// 插件按交接内容里的目标项目打开或新建 .prproj 再导入。`expected` 是第一次发送时绑定的项目，重试时必须还是它。
+    static func send(_ payload: Data, expected: Project?) async throws -> Result {
         try await connect()
         let handoff = try JSONDecoder().decode(PremiereHandoff.self, from: payload)
-        return try await exchange(action: "import", projectID: project.id, handoff: handoff, base: base)
+        return try await exchange(action: "import", projectID: expected?.id, handoff: handoff, base: base)
     }
     private static func connect() async throws {
         let application = app
@@ -115,7 +114,7 @@ import SonyRemoteKit
 }
 
 @MainActor enum PremierePlugin {
-    static let version = "1.0.0"
+    static let version = "1.1.0"
     static var resource: URL? { Bundle.main.url(forResource: "PremierePlugin", withExtension: "bundle") }
     static func makePackage(source: URL? = nil, output: URL? = nil) async throws -> URL {
         guard let source = source ?? resource else { throw VideoDelivery.Failure("未找到 Premiere Pro 插件文件，请重新安装 MiniDiT。") }

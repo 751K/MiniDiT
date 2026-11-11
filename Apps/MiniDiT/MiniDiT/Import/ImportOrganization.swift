@@ -101,8 +101,11 @@ struct ImportPlan {
     var sendToFCP = false
     var sendToResolve = false
     var sendToPremiere = false
+    var sendToJianying = false
     var fcpLogProcessing = true
     var resolveColorSpace = true
+    var fcpProjectAs: FCPXMLWriter.ProjectMapping = .library
+    var fcpEventLibrary: URL = FCPXMLWriter.defaultEventLibrary
 }
 
 extension AppModel {
@@ -112,7 +115,8 @@ extension AppModel {
               backupRoot: backupEnabled && backupAvailable && !noBackupThisTime ? backupFolder : nil,
               captureOneMode: captureOneMode, backupRequested: backupEnabled, configuredBackupRoot: enabledBackupTargets.first?.root,
               backupTargets: backupEnabled ? enabledBackupTargets : [], runBackups: !noBackupThisTime,
-              sendToFCP: sendToFCP, sendToResolve: sendToResolve, sendToPremiere: sendToPremiere, fcpLogProcessing: fcpLogProcessing, resolveColorSpace: resolveColorSpace)
+              sendToFCP: sendToFCP, sendToResolve: sendToResolve, sendToPremiere: sendToPremiere, sendToJianying: sendToJianying, fcpLogProcessing: fcpLogProcessing, resolveColorSpace: resolveColorSpace,
+              fcpProjectAs: fcpProjectAs, fcpEventLibrary: fcpEventLibrary)
     }
 
     var importOrganization: ImportOrganization {

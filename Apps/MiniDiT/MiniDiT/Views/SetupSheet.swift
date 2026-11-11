@@ -272,7 +272,7 @@ struct SetupSheet: View {
 
     @ViewBuilder private var videoStep: some View {
         @Bindable var model = model
-        let editors = [apps[.resolve], apps[.finalCut], apps[.premiere]].compactMap { $0 }.filter(\.isInstalled)
+        let editors = [apps[.resolve], apps[.finalCut], apps[.premiere], apps[.jianying]].compactMap { $0 }.filter(\.isInstalled)
         SectionTitle("存放位置")
         Panel {
             FolderRow(title: "视频存放位置", url: model.videoDestination) { model.videoDestination = $0 }
@@ -282,10 +282,11 @@ struct SetupSheet: View {
         SectionTitle("导入至")
         Panel {
             ChoiceCard(icon: CaptureOneMode.off.importIcon, title: "文件夹",
-                       selected: !model.sendToResolve && !model.sendToFCP && !model.sendToPremiere) {
+                       selected: !model.sendToResolve && !model.sendToFCP && !model.sendToPremiere && !model.sendToJianying) {
                 model.sendToResolve = false
                 model.sendToFCP = false
                 model.sendToPremiere = false
+                model.sendToJianying = false
             }
             ForEach(editors, id: \.kind) { app in
                 PanelDivider()
@@ -297,6 +298,10 @@ struct SetupSheet: View {
                     PanelRow(icon: .app(app.url), title: "Adobe Premiere Pro") {
                         PremiereImportToggle().labelsHidden().toggleStyle(.switch)
                     }
+                } else if app.kind == .jianying {
+                    PanelRow(icon: .app(app.url), title: "剪映专业版") {
+                        JianyingImportToggle(title: "剪映专业版").labelsHidden().toggleStyle(.switch)
+                    }
                 } else {
                     PanelRow(icon: .app(app.url), title: "Final Cut Pro") {
                         Toggle("Final Cut Pro", isOn: $model.sendToFCP).labelsHidden().toggleStyle(.switch)
@@ -306,8 +311,8 @@ struct SetupSheet: View {
         }
         SectionTitle("代理")
         Panel {
-            PanelRow(icon: .symbol("square.on.square"), title: "同时导入代理文件") {
-                Toggle("同时导入代理文件", isOn: $model.importProxies).labelsHidden().toggleStyle(.switch)
+            PanelRow(icon: .symbol("square.on.square"), title: "导入原片时，一并导入代理") {
+                Toggle("导入原片时，一并导入代理", isOn: $model.importProxies).labelsHidden().toggleStyle(.switch)
             }
         }
     }
@@ -390,6 +395,7 @@ struct SetupSheet: View {
         if model.sendToResolve, apps[.resolve]?.isInstalled == true { to.append("DaVinci Resolve") }
         if model.sendToFCP, apps[.finalCut]?.isInstalled == true { to.append("Final Cut Pro") }
         if model.sendToPremiere, apps[.premiere]?.isInstalled == true { to.append("Adobe Premiere Pro") }
+        if model.sendToJianying, apps[.jianying]?.isInstalled == true { to.append("剪映专业版") }
         return to.isEmpty ? "仅存储至文件夹" : "发送至 " + to.joined(separator: "、")
     }
 

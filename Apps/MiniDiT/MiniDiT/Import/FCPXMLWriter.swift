@@ -1,12 +1,46 @@
 import AppKit
+import AVFoundation
 import CryptoKit
 import SonyRemoteKit
 import MiniDiTCore
 
 /// 导入的视频交给 Final Cut Pro：写一份 FCPXML（每个视频文件夹一个事件，片段原地引用、不复制，
-/// 代理作为 proxy-media 一起挂上），再用 FCP 打开，由 FCP 询问放进哪个资源库。
+/// 代理作为 proxy-media 一起挂上），再用 FCP 打开。导入选项指定与 MiniDiT 项目同名的资源库：
+/// 资源库不存在时 FCP 会新建；事件按名字归入已有的同名事件。
 enum FCPXMLWriter {
     static let bundleID = "com.apple.FinalCutApp"
+
+    /// MiniDiT 项目在 FCP 里对应什么：一个资源库（每个视频文件夹一个事件），或固定资源库里的一个事件。
+    enum ProjectMapping: String, CaseIterable, Sendable {
+        case library, event
+        var title: String { self == .library ? "资源库" : "事件" }
+    }
+
+    /// 「作为事件」时默认放进的资源库。
+    static var defaultEventLibrary: URL { EditorDocumentLocator.defaultFolder.appending(path: "MiniDiT.fcpbundle", directoryHint: .notDirectory) }
+
+    /// 关键词需要片段时长：相机 XML 读不到时，从视频文件读。
+    static func withMediaDurations(_ events: [Event]) async -> [Event] {
+        var result = events
+        for e in result.indices {
+            for c in result[e].clips.indices where result[e].clips[c].keyword != nil {
+                let clip = result[e].clips[c]
+                if let info = ClipInfo.sidecar(for: clip.url).flatMap(ClipInfo.read), info.frames > 0, frameDuration(info.formatFps) != nil, info.width > 0 { continue }
+                if let time = try? await AVURLAsset(url: clip.url).load(.duration), time.isNumeric, time.value > 0, time.timescale > 0 {
+                    result[e].clips[c].mediaDuration = "\(time.value)/\(time.timescale)s"
+                }
+            }
+        }
+        return result
+    }
+
+    /// 「作为事件」：所有片段放进以项目命名的一个事件，原来的视频文件夹（卷）写成关键词，FCP 里按关键词精选分组。
+    static func projectEvent(_ events: [Event], name: String) -> [Event] {
+        let multiple = Set(events.map(\.name)).count > 1 || events.first?.name != name
+        return [Event(name: name, clips: events.flatMap { event in
+            event.clips.map { clip in var c = clip; if multiple { c.keyword = event.name }; return c }
+        })]
+    }
 
     struct Clip: Sendable {
         let url: URL
@@ -14,11 +48,15 @@ enum FCPXMLWriter {
         /// 卷号「A001」，写进 FCP 的卷名 / Resolve 的 Reel Name。
         var roll: String? = nil
         var uid: String? = nil
+        /// 写成片段关键词（「作为事件」时用来保留原来的文件夹分组）。
+        var keyword: String? = nil
+        /// 读不到相机 XML 时从视频文件读的时长（FCPXML 时间写法），关键词需要它才有范围。
+        var mediaDuration: String? = nil
     }
 
     struct Event: Sendable {
         let name: String
-        let clips: [Clip]
+        var clips: [Clip]
         var uid: String? = nil
     }
 
@@ -32,7 +70,7 @@ enum FCPXMLWriter {
         return nil
     }
 
-    static func xml(_ events: [Event], logProcessing setLog: Bool = false) -> String {
+    static func xml(_ events: [Event], logProcessing setLog: Bool = false, library: URL? = nil) -> String {
         var res: [String] = [], body: [String] = []
         var formats: [String: String] = [:]
         var n = 0
@@ -45,6 +83,7 @@ enum FCPXMLWriter {
                 var attrs = "id=\"\(id)\" name=\"\(XMLText.escape(c.url.deletingPathExtension().lastPathComponent))\" hasVideo=\"1\" hasAudio=\"1\""
                 if let uid = c.uid { attrs += " uid=\"\(XMLText.escape(uid))\"" }
                 var clipAttrs = ""
+                var clipDuration: String?
                 let start = info?.startTimecode
                 if let start {
                     attrs += " start=\"\(start.xmlTime)\""
@@ -64,6 +103,7 @@ enum FCPXMLWriter {
                         let d = "\(Int64(info.frames) * fd.num)/\(fd.den)s"
                         attrs += " duration=\"\(d)\""
                         clipAttrs += " duration=\"\(d)\""
+                        clipDuration = d
                     }
                 }
                 var reps = "      <media-rep kind=\"original-media\" src=\"\(XMLText.escape(c.url.absoluteString))\"/>\n"
@@ -89,6 +129,10 @@ enum FCPXMLWriter {
                         markers.append("      <marker start=\"\(num)/\(den * fd.den)s\" duration=\"\(fd.text)\" value=\"Shot Mark \(m.shotMark ?? 1)\"/>")
                     }
                 }
+                // 关键词覆盖整个片段；读不到时长时不写（FCP 需要关键词的范围）。
+                if let keyword = c.keyword, let clipDuration = clipDuration ?? c.mediaDuration {
+                    markers.insert("      <keyword start=\"\(start?.xmlTime ?? "0s")\" duration=\"\(clipDuration)\" value=\"\(XMLText.escape(keyword.replacingOccurrences(of: ",", with: " ")))\"/>", at: 0)
+                }
                 let clipOpen = "    <asset-clip ref=\"\(id)\" name=\"\(XMLText.escape(c.url.deletingPathExtension().lastPathComponent))\"\(clipAttrs)"
                 clips.append(markers.isEmpty ? clipOpen + "/>" : clipOpen + ">\n" + markers.joined(separator: "\n") + "\n    </asset-clip>")
             }
@@ -101,7 +145,7 @@ enum FCPXMLWriter {
         <?xml version="1.0" encoding="UTF-8"?>
         <!DOCTYPE fcpxml>
         <fcpxml version="1.14">
-          <import-options>
+          <import-options>\(library.map { "\n    <option key=\"library location\" value=\"\(XMLText.escape(URL(filePath: $0.path, directoryHint: .notDirectory).absoluteString))\"/>" } ?? "")
             <option key="copy assets" value="0"/>
             <option key="suppress warnings" value="1"/>
           </import-options>
@@ -112,6 +156,16 @@ enum FCPXMLWriter {
         </fcpxml>
 
         """
+    }
+
+    /// 交接文件指定的资源库名（不含 .fcpbundle）；旧的交接文件没有这一项。
+    static func libraryName(_ payload: Data) -> String? {
+        let text = String(decoding: payload, as: UTF8.self)
+        guard let key = text.range(of: "<option key=\"library location\" value=\""),
+              let end = text[key.upperBound...].firstIndex(of: "\"") else { return nil }
+        let value = String(text[key.upperBound..<end]).replacingOccurrences(of: "&quot;", with: "\"")
+            .replacingOccurrences(of: "&lt;", with: "<").replacingOccurrences(of: "&gt;", with: ">").replacingOccurrences(of: "&amp;", with: "&")
+        return URL(string: value).map { $0.deletingPathExtension().lastPathComponent }
     }
 
     /// 「59.94p」→ 1001/60000s，「25p」→ 100/2500s。

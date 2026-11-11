@@ -11,16 +11,18 @@ async function identity(path) {
     // MiniDiT sends resolved native paths. Normalize the common macOS /var alias for existing items.
     return path.replace(/^\/var\//, "/private/var/").replace(/\/$/, "");
 }
+async function exists(path) { try { await fs.lstat(path); return true; } catch (_) { return false; } }
+async function makeParent(path) { await fs.mkdir(path.slice(0, path.lastIndexOf("/")), { recursive: true }); }
 async function start() {
     if (worker) return;
     if (starting) return starting;
     starting = (async () => {
         await fs.mkdir(base + "/requests", { recursive: true });
-        worker = createMailbox(fs, base, createReceiver(ppro, { identity }));
+        worker = createMailbox(fs, base, createReceiver(ppro, { identity, exists, makeParent }));
         async function beat() {
             try {
                 const project = await worker.heartbeat();
-                status(worker.isBusy() ? "正在接收素材…" : project ? "已连接，等待素材" : "请先打开目标项目", project ? "当前项目：" + project.name : "");
+                status(worker.isBusy() ? "正在接收素材…" : "已连接，等待素材", project ? "当前项目：" + project.name : "");
             } catch (error) { status("连接失败：" + String(error.message || error)); }
         }
         await beat();

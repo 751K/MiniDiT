@@ -2,8 +2,8 @@ import Foundation
 
 /// Frozen handoff data belongs to an import, not to the current UI preferences.
 public struct VideoDelivery: Codable, Identifiable, Sendable, Equatable {
-    public enum Software: String, Codable, Sendable { case finalCutPro, resolve, premiere
-        public var name: String { switch self { case .finalCutPro: "Final Cut Pro"; case .resolve: "DaVinci Resolve"; case .premiere: "Adobe Premiere Pro" } }
+    public enum Software: String, Codable, Sendable { case finalCutPro, resolve, premiere, jianying
+        public var name: String { switch self { case .finalCutPro: "Final Cut Pro"; case .resolve: "DaVinci Resolve"; case .premiere: "Adobe Premiere Pro"; case .jianying: "剪映专业版" } }
     }
     public enum State: String, Codable, Sendable { case queued, sending, failed, awaitingConfirmation, completed, needsAttention, interrupted, uncertain }
     public struct File: Codable, Sendable, Equatable {
@@ -46,7 +46,11 @@ public struct VideoDelivery: Codable, Identifiable, Sendable, Equatable {
         var next = self
         if state == .sending {
             next.state = software == .finalCutPro ? .uncertain : .interrupted
-            next.message = software == .finalCutPro ? "上次发送的结果无法确认，请先在 Final Cut Pro 中查看。" : "上次发送已中断，可重试加入原项目。"
+            next.message = switch software {
+            case .finalCutPro: "上次发送的结果无法确认，请先在 Final Cut Pro 中查看。"
+            case .jianying: "上次新建剪映草稿时中断，可重试。"
+            default: "上次发送已中断，可重试加入原项目。"
+            }
         } else if state == .queued {
             next.state = .failed; next.message = "上次尚未发送，可重试。"
         }

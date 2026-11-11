@@ -8,19 +8,52 @@ function createReceiver(ppro, io) {
         if (!info.id) throw new Error("Premiere Pro 未提供项目标识。");
         return info;
     }
-    async function receive(request, active = async () => {}) {
-        if (request.action === "identify") return identify();
-        if (request.action !== "import" || !request.projectID || request.handoff?.version !== 1) throw new Error("不支持的发送请求。");
-        const project = await ppro.Project.getActiveProject();
-        if (!project || projectInfo(project).id !== request.projectID) throw new Error("Premiere Pro 项目已切换，请打开原项目后重试。");
-        async function check() {
-            await active();
-            const current = await ppro.Project.getActiveProject();
-            if (!current || projectInfo(current).id !== request.projectID || projectInfo(project).id !== request.projectID) {
-                throw new Error("Premiere Pro 项目已切换，请打开原项目后重试。");
+    /* 与 MiniDiT 项目同名的 .prproj：当前打开的就是它就直接用；文件已存在就打开；都没有就新建。
+       重试（带 projectID）只认第一次的项目：找不到不新建，换成了别的项目就拒绝。
+       旧版本的请求没有目标项目，仍然发到当前项目。 */
+    async function target(request) {
+        const want = request.handoff.project;
+        const active = await ppro.Project.getActiveProject();
+        if (!want) {
+            if (!active || !request.projectID || projectInfo(active).id !== request.projectID) throw new Error("Premiere Pro 项目已切换，请打开原项目后重试。");
+            return { project: active, created: false };
+        }
+        if (typeof want.name !== "string" || typeof want.path !== "string" || !want.path.startsWith("/") || !want.path.endsWith(".prproj")) throw new Error("目标项目无效。");
+        const same = project => project && (project.path || "") === want.path;
+        let project = same(active) ? active : null, created = false;
+        if (!project) {
+            if (await io.exists(want.path)) {
+                const options = ppro.OpenProjectOptions ? new ppro.OpenProjectOptions() : undefined;
+                if (options) { options.setShowLocateFileDialog?.(false); options.setShowWarningDialog?.(false); options.setAddToMRUList?.(true); }
+                project = await ppro.Project.open(want.path, options);
+            } else if (request.projectID) {
+                throw new Error("未找到原项目“" + want.name + "”，未导入素材。");
+            } else {
+                await io.makeParent(want.path);
+                project = await ppro.Project.createProject(want.path);
+                created = true;
             }
         }
-        const result = { project: project.name, projectID: request.projectID, imported: 0, skipped: 0, proxies: 0, receivedPaths: [], failedPaths: [], warnings: [] };
+        if (!project) throw new Error("无法打开 Premiere Pro 项目“" + want.name + "”。");
+        if (request.projectID && projectInfo(project).id !== request.projectID) throw new Error("Premiere Pro 中的“" + want.name + "”已非原项目，未导入素材。");
+        return { project, created };
+    }
+    async function receive(request, active = async () => {}) {
+        if (request.action === "identify") return identify();
+        if (request.action !== "import" || request.handoff?.version !== 1) throw new Error("不支持的发送请求。");
+        const { project, created } = await target(request);
+        const projectID = projectInfo(project).id;
+        if (!projectID) throw new Error("Premiere Pro 未提供项目标识。");
+        /* 按目标项目发送时，只要该项目仍然打开就继续（切换到其他项目不影响导入到它）；旧请求仍要求当前项目不变。 */
+        async function check() {
+            await active();
+            const byTarget = request.handoff.project && ppro.Project.getProject;
+            const current = byTarget ? await ppro.Project.getProject(project.guid) : await ppro.Project.getActiveProject();
+            if (!current || projectInfo(current).id !== projectID || projectInfo(project).id !== projectID) {
+                throw new Error(byTarget ? "Premiere Pro 项目“" + project.name + "”已关闭，导入未完成，可重试。" : "Premiere Pro 项目已切换，请打开原项目后重试。");
+            }
+        }
+        const result = { project: project.name, projectID, created, imported: 0, skipped: 0, proxies: 0, receivedPaths: [], failedPaths: [], warnings: [] };
         const root = await project.getRootItem();
         function folder(item) { try { return ppro.FolderItem.cast(item); } catch (_) { return null; } }
         function clip(item) { try { return ppro.ClipProjectItem.cast(item); } catch (_) { return null; } }
@@ -112,6 +145,7 @@ function createReceiver(ppro, io) {
             }
         }
         await check();
+        if (!(await project.save())) result.warnings.push("项目未能自动保存，请在 Premiere Pro 中保存。");
         return result;
     }
     return { identify, receive };
