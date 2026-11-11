@@ -167,3 +167,34 @@ struct MultiSegmentPicker: View {
         .accessibilityElement(children: .contain)
     }
 }
+
+extension Color {
+    /// 键盘焦点框：浅色模式深蓝、深色模式浅蓝，比选中的蓝框浅一档。
+    static let focusRing = Color(nsColor: NSColor(name: nil) { a in
+        a.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor(srgbRed: 0x7c / 255, green: 0xc0 / 255, blue: 1, alpha: 1)
+            : NSColor(srgbRed: 0, green: 0x60 / 255, blue: 0xdf / 255, alpha: 1)
+    })
+}
+
+// MARK: - 液态玻璃（macOS 26 起；更早的系统用毛玻璃）
+
+extension View {
+    @ViewBuilder func glassCapsule() -> some View {
+        if #available(macOS 26.0, *) {
+            glassEffect(.regular, in: Capsule())
+        } else {
+            background(Capsule().fill(.regularMaterial))
+                .overlay(Capsule().strokeBorder(Color(nsColor: .separatorColor)))
+        }
+    }
+
+    @ViewBuilder func glassRounded(_ radius: CGFloat) -> some View {
+        if #available(macOS 26.0, *) {
+            glassEffect(.regular, in: RoundedRectangle(cornerRadius: radius))
+        } else {
+            background(RoundedRectangle(cornerRadius: radius).fill(.regularMaterial))
+        }
+    }
+
+}

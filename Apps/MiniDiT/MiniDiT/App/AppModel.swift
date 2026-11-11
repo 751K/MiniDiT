@@ -5,60 +5,6 @@ import Observation
 import ServiceManagement
 import SonyRemoteKit
 
-/// 一天的拍摄（按相机里的拍摄日期分组，不受 Mac 时区影响）。
-struct ShootingDay: Identifiable, Hashable {
-    let id: String          // yyyyMMdd，没有日期的是 "unknown"
-    let title: String
-    var shots: [UInt32]
-    var importedCount: Int
-    var newCount: Int { shots.count - importedCount }
-    /// 没导入过的照片 / 片段数。侧栏 tooltip 直接用，免得每次渲染都扫一遍。
-    var newPhotos = 0
-    var newVideos = 0
-    /// 内容里的片段总数；照片数 = shots.count - videos。
-    var videos = 0
-    var photos: Int { shots.count - videos }
-    /// 按时间间隔分出的场次（新的在前）；没有分组或只有一场时只有一个。
-    var scenes: [ShootingScene] = []
-    /// 只显示了这一天的部分场次（侧栏点的是场次，不是日期）。
-    var partial = false
-}
-
-/// 一天里的一场：相邻两张隔得比「场次间隔」久，就分成两场。
-struct ShootingScene: Identifiable, Hashable {
-    let id: String          // 「yyyyMMdd-场次号」
-    /// 这一天里的第几场（从早到晚，从 1 开始）。
-    let number: Int
-    /// 「14:05–16:30」，按相机记录的时间（不换算时区）。
-    let timeRange: String
-    var shots: [UInt32]
-    var importedCount: Int
-    var newCount: Int { shots.count - importedCount }
-    var newPhotos = 0
-    var newVideos = 0
-    var videos = 0
-    var photos: Int { shots.count - videos }
-}
-
-enum CaptureOneMode: String, CaseIterable, Identifiable {
-    case newSession, c1Settings, inPlace, lightroom, off
-    var id: String { rawValue }
-    /// 导入时要给每组照片起名字（C1 会话 / LrC 收藏夹）。
-    var namesGroups: Bool { self == .newSession || self == .lightroom }
-    var title: String {
-        switch self {
-        case .newSession: "新建 C1 会话（日期 + 事件），直接存入 Capture 文件夹"
-        case .lightroom: "导入到 Lightroom Classic（按收藏夹整理）"
-        case .off: "不导入，仅下载至文件夹"
-        case .c1Settings: "按 Capture One 的导入设置导入"
-        case .inPlace: "就地添加（不复制文件，仅添加到目录）"
-        }
-    }
-}
-
-/// 侧栏日期前的勾选框状态。
-enum CheckState { case off, mixed, on }
-
 @MainActor @Observable
 final class AppModel {
     // MARK: 连接
@@ -246,109 +192,6 @@ final class AppModel {
     @ObservationIgnored let videoPlayback = VideoPlayback()
 
     // MARK: 导入
-
-    struct ImportProgress {
-        var total: Int
-        var done = 0
-        var skipped = 0
-        var reused = 0
-        var failed: [String] = []
-        var bytesDone: UInt64 = 0 { didSet { sample() } }
-        var bytesTotal: UInt64
-        var current = ""
-        var backedUp = 0
-        var backupFailed: [String] = []
-        /// 当前文件是续传的：从这个字节数接着传。
-        var resumingFrom: UInt64?
-        /// 这次导入里续传了几个文件。
-        var resumedFiles = 0
-        var fraction: Double { bytesTotal == 0 ? 0 : min(1, Double(bytesDone) / Double(bytesTotal)) }
-
-        // 速度按最近 10 秒算：下载（Wi-Fi）和写备份（本地盘）快慢不同，太短的窗口会跳得厉害。
-        private struct Sample { var t: TimeInterval; var bytes: UInt64 }
-        private var samples: [Sample] = [Sample(t: Date().timeIntervalSinceReferenceDate, bytes: 0)]
-
-        private mutating func sample() {
-            let now = Date().timeIntervalSinceReferenceDate
-            if let last = samples.last, now - last.t < 0.25 { samples[samples.count - 1].bytes = bytesDone; return }
-            samples.append(Sample(t: now, bytes: bytesDone))
-            while samples.count > 2, now - samples[0].t > 10 { samples.removeFirst() }
-        }
-
-        /// 不用传就算完成的字节（续传时已有的部分、本地已有的文件）：进度往前走，但不算进速度。
-        mutating func credit(_ n: UInt64) {
-            for i in samples.indices { samples[i].bytes += n }
-            bytesDone += n
-        }
-
-        /// 每秒多少字节；数据不够 2 秒时为 nil。
-        var bytesPerSecond: Double? {
-            guard let f = samples.first, let l = samples.last, l.t - f.t >= 2, l.bytes > f.bytes else { return nil }
-            return Double(l.bytes - f.bytes) / (l.t - f.t)
-        }
-
-        /// 预计还要多少秒。
-        var secondsLeft: Double? {
-            guard let r = bytesPerSecond, r > 0, bytesTotal > bytesDone else { return nil }
-            return Double(bytesTotal - bytesDone) / r
-        }
-    }
-
-    /// 导入前发现磁盘空间不够。
-    struct SpaceProblem: Identifiable {
-        let id = UUID()
-        let isBackup: Bool
-        let folder: URL
-        let needed: UInt64
-        let available: UInt64
-    }
-
-    struct ImportResult {
-        var files: Int
-        var reused: Int
-        var failed: Int
-        var session: String?
-        var c1Failed: Bool
-        var cancelled: Bool
-        /// 备份了几个；nil = 这次没有备份（没设置或备份盘没接上）。
-        var backedUp: Int?
-        var backupFailed = 0
-        /// 从存储卡删除了几个；nil = 这次没有要求删除。
-        var deleted: Int?
-        /// 要求删除、但没有删的（没通过校验、没有备份，或是视频）。
-        var keptOnCard = 0
-        var deleteFailed = 0
-        /// 存储卡是只读的（写保护开关，或文件系统不能写），没有删。
-        var cardReadOnly = false
-        /// 其中从断点接着传的文件数。
-        var resumed = 0
-        /// 没传完、留着下次接着传的字节数（取消时）。
-        var savedBytes: UInt64 = 0
-        /// 这次写的 MHL 校验清单。
-        var reports: [URL] = []
-        /// 结果中实际发生的异常；用户主动选择只存一份不视为失败。
-        var needsAttention: Bool { failed > 0 || cancelled || c1Failed || backupFailed > 0 || cardReadOnly || deleteFailed > 0 }
-        /// 交给 Lightroom Classic 的收藏夹名（「A」「B」）。
-        var lightroom: String? = nil
-        /// 「只下载」导入后打开了文件夹：「，已在访达中打开」之类。
-        var opened: String? = nil
-        /// 只导了代理的视频片段数。
-        var proxyOnly = 0
-        var hasWiFiSource = false
-        var backupTargets: [BackupTargetProgress] = []
-    }
-    /// 导入中断（相机掉线）：没导完的仍然选中，重连后可以继续。
-    struct Interrupted {
-        var done: Int
-        var total: Int
-        /// 已经建好 / 打开的会话（按导入分组的 key），继续时直接用，不再问名字。
-        var sessions: [String: ResumeSession] = [:]
-        var grouping: SessionGrouping = .single
-        /// 没传完、已经保存下来的字节数，继续时从这里接着传。
-        var savedBytes: UInt64 = 0
-        var jobs: [ImportJob] = []
-        var captureOneFiles: [CaptureOneBridge.SessionTarget: [URL]] = [:]
-    }
 
     var progress: ImportProgress?
     var lastResult: ImportResult?
@@ -539,14 +382,6 @@ final class AppModel {
         FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask)[0].appending(path: "Capture One 会话", directoryHint: .isDirectory)
     }
 
-    /// 导入前要用户填会话名。
-    enum SessionChoice { case new(String), existing(URL), resolved(CaptureOneBridge.SessionTarget) }
-    struct SessionRequest: Identifiable {
-        let id = UUID()
-        let existing: [URL]
-        /// 中断后继续、但有的分组还没建会话时：已经建好的那些。
-        var resume: [String: ResumeSession] = [:]
-    }
     var sessionRequest: SessionRequest?
 
     /// 软件自己管理的会话（侧栏「会话」）：一次拍摄任务（日期 + 事件）。和 Capture One 的会话无关，
@@ -560,8 +395,6 @@ final class AppModel {
     var browsingSession: UUID?
     /// 项目内容当前只看照片、只看视频，或 nil = 全部。
     var browsingSessionMedia: ProjectMedia?
-    /// 弹出「新建会话」窗口；importAfter = 建好后马上导入当前选中的内容。
-    struct NewSessionPrompt: Identifiable { let id = UUID(); var importAfter: Bool }
     var newSessionPrompt: NewSessionPrompt?
     /// 导入到 LrC 前发现插件没装好 / 要重启 LrC。
     var lightroomPrompt: LightroomBridge.Status?
@@ -586,58 +419,8 @@ final class AppModel {
     var lightroomStatus: String?
     var lightroomWatch: Task<Void, Never>?
 
-    /// 一个分组已经在用的会话（中断后继续用）。
-    struct ResumeSession {
-        var captureOneTarget: CaptureOneBridge.SessionTarget?
-        var name: String
-        var event: String?
-    }
-
-    /// 一次导入分成几个会话。
-    enum SessionGrouping: String, CaseIterable, Identifiable {
-        case single, perDay, perScene
-        var id: String { rawValue }
-        var title: String {
-            switch self {
-            case .single: "合并为一个会话"
-            case .perDay: "每天一个"
-            case .perScene: "每场一个"
-            }
-        }
-    }
     var sessionGrouping = SessionGrouping(rawValue: UserDefaults.standard.string(forKey: "sessionGrouping") ?? "") ?? .single {
         didSet { UserDefaults.standard.set(sessionGrouping.rawValue, forKey: "sessionGrouping") }
-    }
-
-    /// 要导入的一组文件（一个会话）。
-    struct ImportGroup: Identifiable {
-        /// 「all」、日期 id 或场次 id。
-        let id: String
-        /// 这组最早一天（「yyyyMMdd」），会话名的日期用它。
-        let day: String
-        /// 分场次导入时是这一天的第几场。
-        let scene: Int?
-        let title: String
-        let shotCount: Int
-        /// 其中的视频片段数。
-        var videoCount: Int { files.filter { $0.kind == .video }.count }
-        /// 旧的在前。
-        let files: [CameraContentItem]
-    }
-
-    /// 一个分组的一次导入：去哪个会话、事件名。
-    struct ImportJob {
-        var key: String
-        var files: [CameraContentItem]
-        var session: SessionChoice?
-        var event: String?
-        var scene: Int?
-        /// 用于记录归属的会话名；物理目录由照片、视频各自的整理偏好决定。
-        var folder: String? = nil
-        /// 开始导入时冻结规则，中断后继续仍使用原目录。
-        var plan: ImportPlan? = nil
-        /// 导完后记进哪个软件会话。
-        var appSession: UUID? = nil
     }
 
     // MARK: 后台（v0.6）
@@ -725,62 +508,4 @@ final class AppModel {
         recentContents = Array(recentContents.prefix(12))
         UserDefaults.standard.set(recentContents, forKey: "recentContents")
     }
-}
-
-extension AppModel.ResumeSession {
-    /// 继续导入时用：C1 会话直接用原来的 Capture 文件夹；LrC 收藏夹按名字找回（已有就加进去）。
-    var session: AppModel.SessionChoice {
-        captureOneTarget.map { .resolved($0) } ?? .new(name)
-    }
-}
-
-/// 工作流程：按自己的拍摄事件整理，或按团队的素材交接流程整理。
-/// 两种流程共用全部功能，只提供不同的默认建议。
-enum UsageMode: String, CaseIterable, Identifiable {
-    case personal
-    // 保留已有“专业”设置的存储值，升级后沿用用户选择。
-    case team = "pro"
-    var id: String { rawValue }
-    var title: String { self == .personal ? "个人" : "团队" }
-    var detail: String {
-        switch self {
-        case .personal: "自己整理和后期，推荐按日期、事件存放视频。所有功能均可设置。"
-        case .team: "素材交给团队后期，推荐按卷号整理、手动导入并保留原卡。所有功能均可设置。"
-        }
-    }
-    /// 团队交接时，每卷一个子文件夹；个人流程也可使用这一模板。
-    static let teamVideoTemplate = "{M}.{D}-{事件}/{卷号}"
-}
-
-/// 按文件夹管理照片的软件：「只下载」导入完成后用它打开下载的文件夹。
-enum FolderApp: String, CaseIterable, Identifiable {
-    case none, finder, bridge, dxo
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .none: "不打开"
-        case .finder: "访达"
-        case .bridge: "Adobe Bridge"
-        case .dxo: "DxO PhotoLab"
-        }
-    }
-
-    /// 对应「设置 › 软件」里的哪一个（访达不用找）。
-    var appKind: AppInfo.Kind? {
-        switch self {
-        case .bridge: .bridge
-        case .dxo: .dxo
-        default: nil
-        }
-    }
-
-    /// 装了才能选（访达总是有）。
-    var isAvailable: Bool { appKind.map { AppInfo.find($0).isInstalled } ?? true }
-}
-
-extension CameraContentItem {
-    /// 空间检查和进度用的估算：大小未知（≥4GB 的视频，ObjectInfo 里是 0xFFFFFFFF）时按 4 GiB 下限算，
-    /// 避免被当成 0 字节。
-    var sizeEstimate: UInt64 { sizeKnown ? size : 4 << 30 }
 }
