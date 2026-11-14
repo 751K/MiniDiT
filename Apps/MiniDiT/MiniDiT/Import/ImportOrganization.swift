@@ -2,15 +2,27 @@ import Foundation
 import MiniDiTCore
 import SonyRemoteKit
 
-enum ImportContent: String, CaseIterable, Identifiable {
-    case all, photos, videos
+/// 项目类型：新建项目时选，导入到这个项目时只导这一类素材。
+enum ImportContent: String, CaseIterable, Identifiable, Codable {
+    case photos, videos, all
     var id: String { rawValue }
     var title: String {
         switch self {
         case .all: "照片和视频"
-        case .photos: "仅照片"
-        case .videos: "仅视频"
+        case .photos: "照片"
+        case .videos: "视频"
         }
+    }
+    /// 旧版本的全局「导入内容」设置。旧项目没有记类型，沿用当时的设置，升级后导入范围不变。
+    static let legacy: ImportContent = {
+        let d = UserDefaults.standard
+        return ImportContent(rawValue: d.string(forKey: "importContent") ?? "")
+            ?? ((d.object(forKey: "showVideo") as? Bool) == false ? .photos : .all)
+    }()
+    /// 按选中的素材推测：只有照片或只有视频时就是那一类。
+    static func guess(_ kinds: some Sequence<CameraContentItem.Kind>) -> ImportContent? {
+        let set = Set(kinds.filter { $0 != .other }.map { $0 == .video })
+        return set.count == 1 ? (set.first! ? .videos : .photos) : set.isEmpty ? nil : .all
     }
     func accepts(_ kind: CameraContentItem.Kind) -> Bool {
         guard kind != .other else { return false }

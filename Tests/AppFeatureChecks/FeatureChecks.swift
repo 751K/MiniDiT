@@ -21,7 +21,6 @@ import SwiftUI
         let root = URL(filePath: args[1])
         let model = AppModel(startServices: false)
         model.onlyNew = false
-        model.importContent = .all
         model.showPhotos = true; model.showRaw = true; model.showVideo = true
         model.mediaFilter = .init()
         model.autoRefresh = false

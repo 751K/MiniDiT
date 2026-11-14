@@ -47,7 +47,8 @@ extension AppModel {
                 if captureOneMode == .newSession { sessionsFolder = photoRoot } else { destination = photoRoot }
             }
             if let videoRoot { videoDestination = videoRoot }
-            let project = createSession(day: day, event: p["event"].string.map(NameTemplate.sanitize))
+            let project = createSession(day: day, event: p["event"].string.map(NameTemplate.sanitize),
+                                        content: p["content"].string.flatMap(ImportContent.init(rawValue:)) ?? .all)
             return try .encoded(project)
         case "projects.select":
             try agentIdle()
@@ -93,7 +94,6 @@ extension AppModel {
                 let known = Set(allShots.compactMap { items[$0.primary].map(Self.dayKey) })
                 guard Set(requestedDays).isSubset(of: known) else { throw AgentControlError("invalid_params", "日期不在当前来源中；请使用 YYYYMMDD。") }
             }
-            if let value = p["content"].string { importContent = ImportContent(rawValue: value)! }
             if let value = p["onlyNew"].bool { onlyNew = value }
             if let value = p["query"].string { mediaFilter.query = value }
             if let value = p["mark"].string { mediaFilter.mark = MediaFilter.Mark(rawValue: value)! }

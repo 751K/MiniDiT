@@ -27,12 +27,12 @@ import SonyRemoteKit
         model.sessions = []; model.currentSessionID = nil
         model.captureOneMode = .off; model.openAfterImport = .none; model.backupEnabled = false
         model.sendToFCP = false; model.sendToResolve = false; model.deleteAfterImport = false
-        model.autoRefresh = false; model.onlyNew = false; model.importContent = .all
+        model.autoRefresh = false; model.onlyNew = false
         model.photoFolderLayout = .session; model.videoFolderLayout = .session; model.splitVideoByRoll = false
         model.destination = photos; model.videoDestination = videos
         model.sourceKind = .card; model.cardRoot = card; model.connectedName = "Agent 检查卡"; model.library = LocalCardLibrary(root: card)
         await model.loadAll()
-        _ = try model.agentCall("assets.filter", params: .object(["content": .string("all"), "onlyNew": .bool(false), "query": .string(""), "days": .array([])]))
+        _ = try model.agentCall("assets.filter", params: .object(["onlyNew": .bool(false), "query": .string(""), "days": .array([])]))
         let assets = try model.agentCall("assets.list")["assets"].array!
         precondition(assets.count == 2)
         let ids = assets.map { $0["id"] }

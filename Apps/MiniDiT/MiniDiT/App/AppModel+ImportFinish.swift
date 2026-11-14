@@ -33,6 +33,8 @@ extension AppModel {
         for note in run.lookNotes { summary += "，" + note }
         if Task.isCancelled { summary += "（已取消）" }
         lastBatch = run.saved
+        lastFolders = Self.importFolders(photos: done.filter { $0.item.kind != .video }.map(\.url),
+                                         videos: done.filter { $0.item.kind == .video }.map(\.url))
         let sessionNames = Set(run.captureOneFiles.keys.map(\.name)).sorted()
         let sessionText = sessionNames.isEmpty ? nil : sessionNames.joined(separator: "”“")
         let lightroomText = run.lightroomCollections.isEmpty ? nil : run.lightroomCollections.joined(separator: "”“")
@@ -53,10 +55,10 @@ extension AppModel {
             }
         } else if mode != .off && !run.saved.isEmpty {
             summary += await sendToCaptureOne(run.saved, inPlace: mode == .inPlace)
-        } else if mode == .off && !Task.isCancelled, let folder = Self.commonFolder(done.map(\.url)) {
+        } else if mode == .off && !Task.isCancelled && !lastFolders.isEmpty {
             // DxO 打开文件夹时读 RAW 旁边的 .dop，所以先写好再打开。
             if openAfterImport == .dxo && applyCreativeLook { summary += applyDxOLooks(done.map(\.url)) }
-            openedText = openFolder(folder, in: openAfterImport)
+            openedText = openFolders(lastFolders, in: openAfterImport)
             if let openedText { summary += openedText }
         }
         if mode != .newSession && mode != .off && mode != .lightroom && !run.saved.isEmpty { c1Failed = summary.contains("Capture One 导入失败") }

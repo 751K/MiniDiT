@@ -22,11 +22,18 @@ import SonyRemoteKit
             defaults.removeObject(forKey: key)
         }
 
-        // 升级保留原先“仅照片”的选择，以及仍在使用的自定义备份规则。
+        // 升级保留原先“仅照片”的选择（旧项目没有类型时沿用），以及仍在使用的自定义备份规则。
         defaults.set(false, forKey: "showVideo")
         defaults.set("客户-{YYYY}-{MM}-{DD}", forKey: "template.backup")
         let migrated = AppModel(startServices: false)
-        precondition(migrated.importContent == .photos)
+        let legacyProject = try JSONDecoder().decode(ShootSession.self, from: Data(#"{"id":"\#(UUID().uuidString)","day":"20260101","name":"旧项目","created":0,"files":[]}"#.utf8))
+        precondition(legacyProject.content == nil && legacyProject.contentType == .photos)
+        precondition(migrated.importContent == .all, "没选项目时显示全部素材")
+        let typed = ShootSession(day: "20260101", name: "新项目", content: .videos)
+        let decoded = try JSONDecoder().decode(ShootSession.self, from: JSONEncoder().encode(typed))
+        precondition(decoded.contentType == .videos)
+        precondition(ImportContent.guess([.raw, .jpeg]) == .photos && ImportContent.guess([.video]) == .videos)
+        precondition(ImportContent.guess([.raw, .video]) == .all && ImportContent.guess([.other]) == nil)
         precondition(!migrated.backupFollowsOrganization)
         defaults.removeObject(forKey: "template.backup")
 
@@ -109,7 +116,6 @@ import SonyRemoteKit
 
         let model = AppModel(startServices: false)
         model.onlyNew = false
-        model.importContent = .all
         model.showVideo = true
         model.sourceKind = .card
         model.cardRoot = card
@@ -122,17 +128,19 @@ import SonyRemoteKit
         model.photoFolderLayout = .date
         model.videoFolderLayout = .session
         await model.loadAll()
-        let session = ShootSession(day: day, event: "采访", name: "采访")
+        let session = ShootSession(day: day, event: "采访", name: "采访", content: .all)
         model.sessions = [session]
         model.currentSessionID = session.id
         for scope in ImportContent.allCases {
-            model.importContent = scope
+            model.setContent(scope, of: session.id)
+            precondition(model.importContent == scope)
             model.selectAll(in: Set(model.days.map(\.id)))
             let selected = model.selectedFiles()
             precondition(!selected.isEmpty)
             precondition(selected.allSatisfy { scope.accepts($0.kind) })
             if scope == .all { precondition(Set(selected.map { $0.kind.rawValue }).count == 2) }
         }
+        model.setContent(.videos, of: session.id)
         for target in [CaptureOneMode.newSession, .lightroom] {
             model.captureOneMode = target
             let job = try require(model.currentSessionJob())
@@ -146,17 +154,16 @@ import SonyRemoteKit
         let snapshot = model.importPlan
         model.videoFolderLayout = .flat
         model.videoDestination = root.appending(path: "changed-videos")
-        model.importContent = .photos
+        model.setContent(.photos, of: session.id)
         model.captureOneMode = .newSession
         precondition(snapshot.organization.videos == .session, "已开始导入的规则快照不能被设置改动影响")
         precondition(snapshot.videoRoot.path == videos.path)
         precondition(snapshot.content == .videos && snapshot.captureOneMode == .off)
         // 项目可跨日期追加；项目起始日期不应过滤掉本次素材。
-        let crossDayProject = ShootSession(day: "20000101", event: "跨天拍摄", name: "跨天拍摄")
+        let crossDayProject = ShootSession(day: "20000101", event: "跨天拍摄", name: "跨天拍摄", content: .all)
         model.sessions = [crossDayProject]
         model.currentSessionID = crossDayProject.id
         model.captureOneMode = .off
-        model.importContent = .all
         model.onlyNew = false
         model.selectAll(in: Set(model.days.map(\.id)))
         let crossDayJob = try require(model.currentSessionJob())

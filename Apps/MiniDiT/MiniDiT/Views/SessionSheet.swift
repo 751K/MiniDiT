@@ -308,6 +308,7 @@ struct NewSessionSheet: View {
     @State private var photoRoot: URL?
     @State private var videoRoot: URL?
     @State private var openInC1: Set<String> = []
+    @State private var pickedContent = ImportContent.all
     @FocusState private var eventFocused: Bool
 
     /// 能选的日期：卡上的拍摄日（新的在前），今天不在里面就放在最前。
@@ -323,10 +324,13 @@ struct NewSessionSheet: View {
         return e.isEmpty ? nil : e
     }
     private var name: String { ShootSession.name(day: day, event: cleanEvent) }
-    private var exists: Bool { model.sessions.contains { $0.name == name } }
+    private var existing: ShootSession? { model.sessions.first { $0.name == name } }
+    private var exists: Bool { existing != nil }
+    /// 同名项目已存在时沿用它的类型。
+    private var content: ImportContent { existing?.contentType ?? pickedContent }
     /// C1 里开着同名文档、磁盘上又没有这个会话：导入时建不了。
     private var blocked: Bool {
-        model.importContent != .videos && model.captureOneMode == .newSession && openInC1.contains(name)
+        content != .videos && model.captureOneMode == .newSession && openInC1.contains(name)
             && !CaptureOneBridge.sessions(in: baseDirectory(video: false))
                 .contains { $0.deletingLastPathComponent().lastPathComponent == name }
     }
@@ -351,6 +355,15 @@ struct NewSessionSheet: View {
                     .popover(isPresented: $showingCalendar, arrowEdge: .bottom) {
                         MiniCalendar(selection: $day, marked: Set(model.days.map(\.id))) { showingCalendar = false }
                     }
+                }
+                GridRow {
+                    formLabel("类型")
+                    SegmentPicker(options: ImportContent.allCases.map { .init(title: $0.title, value: $0) },
+                                  selection: Binding(get: { content }, set: { pickedContent = $0 }))
+                        .fixedSize()
+                        .disabled(exists)
+                        .accessibilityLabel("项目类型")
+                        .help(exists ? "已有同名项目，沿用其类型" : "导入到这个项目时只导入这一类素材")
                 }
                 GridRow {
                     formLabel("事件")
@@ -382,13 +395,13 @@ struct NewSessionSheet: View {
             VStack(alignment: .leading, spacing: 12) {
                 Text("保存位置").font(Theme.Font.body.weight(.medium))
                 Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 12) {
-                    if model.importContent != .videos {
+                    if content != .videos {
                         GridRow {
                             formLabel("照片").gridColumnAlignment(.trailing)
                             destinationControl("照片", video: false)
                         }
                     }
-                    if model.importContent != .photos {
+                    if content != .photos {
                         GridRow {
                             formLabel("视频").gridColumnAlignment(.trailing)
                             destinationControl("视频", video: true)
@@ -417,6 +430,9 @@ struct NewSessionSheet: View {
         .frame(width: 460)
         .onAppear {
             day = ShootSession.dayKey(model.defaultSessionDay)
+            // 按选中的素材推测；没选时沿用最近一个项目的类型。
+            pickedContent = (prompt.importAfter ? ImportContent.guess(model.selectedFiles().map(\.kind)) : nil)
+                ?? model.sessions.max { $0.created < $1.created }?.contentType ?? .all
             if model.captureOneMode == .newSession { openInC1 = CaptureOneBridge.openDocumentNames() }
             eventFocused = true
         }
@@ -504,9 +520,9 @@ struct NewSessionSheet: View {
 
     private var previewsCaptureDate: Bool {
         let layouts: [(Bool, ImportFolderLayout, String)] = [
-            (model.importContent != .videos && model.captureOneMode != .newSession,
+            (content != .videos && model.captureOneMode != .newSession,
              model.photoFolderLayout, NameTemplate.current(.folder)),
-            (model.importContent != .photos, model.videoFolderLayout, NameTemplate.current(.video))
+            (content != .photos, model.videoFolderLayout, NameTemplate.current(.video))
         ]
         return layouts.contains { enabled, layout, template in
             enabled && (layout == .date || (layout == .custom &&
@@ -516,12 +532,12 @@ struct NewSessionSheet: View {
 
     private func create() {
         guard !blocked else { return }
-        if model.importContent != .videos, let photoRoot {
+        if content != .videos, let photoRoot {
             if model.captureOneMode == .newSession { model.sessionsFolder = photoRoot }
             else { model.destination = photoRoot }
         }
-        if model.importContent != .photos, let videoRoot { model.videoDestination = videoRoot }
-        model.createSession(day: day, event: cleanEvent)
+        if content != .photos, let videoRoot { model.videoDestination = videoRoot }
+        model.createSession(day: day, event: cleanEvent, content: content)
         model.newSessionPrompt = nil
         if prompt.importAfter, !model.grid.selected.isEmpty {
             Task { @MainActor in

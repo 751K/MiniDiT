@@ -110,13 +110,25 @@ extension AppModel {
         return URL(fileURLWithPath: NSString.path(withComponents: common), isDirectory: true)
     }
 
+    /// 照片和视频分别保存，各取一个共同文件夹；一个在另一个里面时只留外层的。照片在前。
+    static func importFolders(photos: [URL], videos: [URL]) -> [URL] {
+        let folders = [commonFolder(photos), commonFolder(videos)].compactMap { $0?.standardizedFileURL }
+        return folders.enumerated().filter { i, folder in
+            !folders.enumerated().contains { j, other in
+                j != i && (folder.path.hasPrefix(other.path + "/") || (folder.path == other.path && j < i))
+            }
+        }.map(\.element)
+    }
+
     /// 用选好的软件打开下载的文件夹，返回接在导入结果后面的说明。Bridge 和 DxO PhotoLab 打开文件夹时会定位到它。
-    func openFolder(_ folder: URL, in app: FolderApp) -> String? {
+    /// 访达打开全部文件夹；Bridge 和 DxO PhotoLab 只打开第一个（有照片时是照片文件夹）。
+    func openFolders(_ folders: [URL], in app: FolderApp) -> String? {
+        guard let folder = folders.first else { return nil }
         switch app {
         case .none:
             return nil
         case .finder:
-            NSWorkspace.shared.open(folder)
+            for f in folders { NSWorkspace.shared.open(f) }
             return "，已在访达中打开"
         case .bridge, .dxo:
             guard let kind = app.appKind, let appURL = AppInfo.find(kind).url else {

@@ -34,21 +34,20 @@ import SonyRemoteKit
         model.sessionRecordURL = root.appending(path: "projects.json")
         model.captureOneMode = .off; model.openAfterImport = .none
         model.sendToFCP = false; model.sendToResolve = false; model.deleteAfterImport = false
-        model.autoRefresh = false; model.onlyNew = false; model.importContent = .all
+        model.autoRefresh = false; model.onlyNew = false
         model.photoFolderLayout = .session; model.videoFolderLayout = .session; model.splitVideoByRoll = false
         model.destination = root.appending(path: "photos")
         model.videoDestination = root.appending(path: "videos")
         model.sourceKind = .card; model.cardRoot = card; model.connectedName = "项目检查卡"
         model.library = LocalCardLibrary(root: card)
         model.backupEnabled = true; model.backupFolder = nil
-        let existing = ShootSession(day: "20000101", name: "用户选定的项目")
+        let existing = ShootSession(day: "20000101", name: "用户选定的项目", content: .all)
         let other = ShootSession(day: "20000102", name: "另一项目")
         model.sessions = [existing, other]; model.currentSessionID = nil
         await model.loadAll()
         for mode in CaptureOneMode.allCases {
             model.captureOneMode = mode
-            for scope in ImportContent.allCases {
-                model.importContent = scope
+            do {
                 model.selectAll(in: Set(model.days.map(\.id)))
                 let selection = model.grid.selected
                 precondition(!selection.isEmpty)
@@ -64,7 +63,7 @@ import SonyRemoteKit
                 precondition(model.currentSessionJob() == nil, "自动导入也不能生成无项目任务")
             }
         }
-        model.importContent = .all; model.captureOneMode = .off
+        model.captureOneMode = .off
         model.selectAll(in: Set(model.days.map(\.id)))
         let selected = model.selectedFiles()
         precondition(selected.count == 2)

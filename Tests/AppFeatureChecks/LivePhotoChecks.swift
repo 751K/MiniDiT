@@ -260,7 +260,7 @@ private struct TimelineInputProbe: View {
         try fm.copyItem(at: source, to: movie)
         try fm.copyItem(at: cover, to: photos.appending(path: "DSC00001.JPG"))
         let model = AppModel(startServices: false, journalURL: root.appending(path: "context-journal.sqlite"))
-        model.autoRefresh = false; model.onlyNew = false; model.importContent = .all
+        model.autoRefresh = false; model.onlyNew = false
         model.sourceKind = .card; model.cardRoot = card; model.connectedName = "实况照片入口检查卡"
         model.library = LocalCardLibrary(root: card)
         await model.loadAll()

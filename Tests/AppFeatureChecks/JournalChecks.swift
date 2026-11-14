@@ -30,7 +30,7 @@ import SwiftUI
         model.captureOneMode = .off; model.openAfterImport = .none
         model.sendToFCP = false; model.sendToResolve = false
         model.importProxies = true; model.deleteAfterImport = false
-        model.importContent = .all; model.onlyNew = false
+        model.onlyNew = false
         model.showPhotos = true; model.showRaw = true; model.showVideo = true
         model.autoRefresh = false; model.mediaFilter = .init()
         model.destination = root.appending(path: "photos")
@@ -52,7 +52,7 @@ import SwiftUI
         model.sourceKind = .card; model.cardRoot = card; model.connectedName = "测试卡"
         model.library = LocalCardLibrary(root: card)
         await model.loadAll()
-        let project = ShootSession(day: "20260101", event: "跨天项目", name: "跨天项目")
+        let project = ShootSession(day: "20260101", event: "跨天项目", name: "跨天项目", content: .all)
         model.sessions = [project]; model.currentSessionID = project.id
         model.selectAll(in: Set(model.days.map(\.id)))
         precondition(model.selectedFiles().count == 2)

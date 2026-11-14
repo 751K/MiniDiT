@@ -151,9 +151,9 @@ import SwiftUI
         model.sessionRecordURL = root.appending(path: "projects.json")
         model.captureOneMode = .off; model.openAfterImport = .none; model.backupEnabled = false
         model.sendToFCP = false; model.sendToResolve = false; model.deleteAfterImport = false
-        model.importContent = .photos; model.onlyNew = false; model.autoRefresh = false; model.mediaFilter = .init()
+        model.onlyNew = false; model.autoRefresh = false; model.mediaFilter = .init()
         model.destination = root.appending(path: "work")
-        let project = ShootSession(day:"20261109", name:"混合机身")
+        let project = ShootSession(day:"20261109", name:"混合机身", content: .photos)
         model.sessions = [project]; model.currentSessionID = project.id
         await model.loadAll()
         model.selectAll(in:Set(model.days.map(\.id)))

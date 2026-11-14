@@ -24,7 +24,7 @@ swift test
 
 工作流程检查使用 `Tests/AppFeatureChecks/run.sh --workflow`，验证旧模式兼容、推荐设置、自定义命名保留和只切换流程不改现有选项。检查程序使用自己的偏好设置域，结束后恢复该域，不改已安装应用的设置。
 
-整理与导入偏好检查使用 `Tests/AppFeatureChecks/run.sh --organization`。检查程序创建自己的临时卡和偏好设置域，覆盖照片/视频独立目录、媒体类型选择、仅视频的下游计划、镜像备份内容校验、旧副本保留、跨日期项目、隐藏选择和路径预览。
+整理与导入偏好检查使用 `Tests/AppFeatureChecks/run.sh --organization`。检查程序创建自己的临时卡和偏好设置域，覆盖照片/视频独立目录、项目类型（含旧项目沿用原全局选择）、仅视频的下游计划、镜像备份内容校验、旧副本保留、跨日期项目、隐藏选择和路径预览。
 
 项目结果使用独立的 `SonyImport/import-journal.sqlite`，按文件增量提交，不重写原有 `history.json` / `sessions.json` 格式。
 

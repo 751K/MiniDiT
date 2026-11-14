@@ -225,9 +225,6 @@ private struct UsageSection: View {
                 SegmentPicker(options: UsageMode.allCases.map { .init(title: $0.title, value: $0) },
                              selection: Binding(get: { model.usageMode }, set: { if $0 != model.usageMode { pending = $0 } }))
             }
-            Picker("导入内容", selection: $model.importContent) {
-                ForEach(ImportContent.allCases) { Text($0.title).tag($0) }
-            }
             LabeledContent {
                 // 向导比设置窗口宽，放到主窗口里显示，并关掉设置窗口。
                 Button("打开…") {

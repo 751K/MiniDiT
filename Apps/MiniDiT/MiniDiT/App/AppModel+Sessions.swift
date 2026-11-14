@@ -7,7 +7,7 @@ enum ProjectMedia: String, CaseIterable, Identifiable {
 
     static func forPath(_ path: String) -> ProjectMedia {
         let ext = URL(filePath: path).pathExtension.lowercased()
-        return ["mp4", "mov", "mxf", "m4v"].contains(ext) ? .videos : .photos
+        return ["mp4", "mov", "mxf", "m4v", "mts", "avi"].contains(ext) ? .videos : .photos
     }
 }
 
@@ -22,6 +22,9 @@ struct ShootSession: Codable, Identifiable, Hashable {
     var name: String
     var created = Date()
     var files: [String] = []
+    /// 项目类型；旧版本建的项目没有，按 `ImportContent.legacy`。
+    var content: ImportContent?
+    var contentType: ImportContent { content ?? .legacy }
 
     var urls: [URL] { files.map { URL(filePath: $0) } }
     var photoFileCount: Int { files.filter { ProjectMedia.forPath($0) == .photos }.count }
@@ -87,19 +90,35 @@ extension AppModel {
 
     /// 新建会话并设为当前会话。同名的已经有了就直接选中它。
     @discardableResult
-    func createSession(day: String, event: String?) -> ShootSession {
+    func createSession(day: String, event: String?, content: ImportContent = .all) -> ShootSession {
         let name = ShootSession.name(day: day, event: event)
         rememberEvent(event)
         if let s = sessions.first(where: { $0.name == name }) {
             selectSession(s.id)
             return s
         }
-        let s = ShootSession(day: day, event: event, name: name)
+        let s = ShootSession(day: day, event: event, name: name, content: content)
         sessions.append(s)
         ShootSession.save(sessions, to: sessionRecordURL)
         selectSession(s.id)
         log.add("新建会话「\(name)」")
         return s
+    }
+
+    /// 改项目类型（已导入的文件不动，只影响之后导入哪些素材）。
+    func setContent(_ content: ImportContent, of id: UUID) {
+        guard let i = sessions.firstIndex(where: { $0.id == id }), sessions[i].contentType != content else { return }
+        sessions[i].content = content
+        ShootSession.save(sessions, to: sessionRecordURL)
+        log.add("项目「\(sessions[i].name)」类型改为\(content.title)")
+        if id == currentSessionID { contentChanged() }
+    }
+
+    /// 导入范围变了：重新整理网格，并保证这一类不会被格式开关全部藏起来。
+    func contentChanged() {
+        if importContent != .photos { showVideo = true }
+        if importContent != .videos, !showRaw && !showPhotos { showRaw = true; showPhotos = true }
+        rebuild()
     }
 
     /// 从列表里移除（不删文件）。

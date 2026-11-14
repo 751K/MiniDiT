@@ -102,8 +102,8 @@ struct FloatingBar: View {
                         }.disabled(model.videoDeliveryTask != nil)
                     }
                     if model.videoDeliveryTask != nil { ProgressView().controlSize(.small) }
-                    if let folder = AppModel.commonFolder(model.lastBatch) {
-                        secondaryButton("在访达中显示") { NSWorkspace.shared.open(folder) }
+                    if !model.lastFolders.isEmpty {
+                        secondaryButton("在访达中显示") { for folder in model.lastFolders { NSWorkspace.shared.open(folder) } }
                     }
                     Button { model.dismissResult() } label: { Image(systemName: "xmark").frame(height: 20) }
                     .glassButton().controlSize(.extraLarge)

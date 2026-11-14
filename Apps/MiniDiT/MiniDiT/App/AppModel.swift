@@ -111,16 +111,8 @@ final class AppModel {
     var sourceFilter: Int? = nil { didSet { rebuild() } }
     var showPhotos = true { didSet { rebuild() } }
     var showRaw = true { didSet { rebuild() } }
-    /// 导入范围与照片、视频的整理方式分别保存。
-    var importContent: ImportContent = ImportContent(rawValue: UserDefaults.standard.string(forKey: "importContent") ?? "")
-        ?? ((UserDefaults.standard.object(forKey: "showVideo") as? Bool) == false ? .photos : .all) {
-        didSet {
-            UserDefaults.standard.set(importContent.rawValue, forKey: "importContent")
-            if importContent != .photos { showVideo = true }
-            if importContent != .videos, !showRaw && !showPhotos { showRaw = true; showPhotos = true }
-            rebuild()
-        }
-    }
+    /// 导入范围跟着当前项目的类型走；没选项目时显示全部素材。
+    var importContent: ImportContent { currentSession?.contentType ?? .all }
     var showVideo = UserDefaults.standard.object(forKey: "showVideo") as? Bool ?? true {
         didSet { UserDefaults.standard.set(showVideo, forKey: "showVideo"); rebuild() }
     }
@@ -198,6 +190,8 @@ final class AppModel {
     var interrupted: Interrupted?
     var lastSummary: String?
     var lastBatch: [URL] = []
+    /// 上次导入的文件所在文件夹：照片和视频各一个（存在同一处时合成一个），「在访达中显示」用。
+    var lastFolders: [URL] = []
     var pendingCaptureOneSessions: [CaptureOneBridge.SessionTarget: [URL]] = [:]
     var retryingCaptureOne = false
     var importTask: Task<Void, Never>?
@@ -403,7 +397,7 @@ final class AppModel {
     var importJournal: ImportJournalStore
     var sessions: [ShootSession] = ShootSession.load()
     /// 当前会话：之后点「导入」都归到这里。
-    var currentSessionID: UUID?
+    var currentSessionID: UUID? { didSet { if currentSessionID != oldValue { contentChanged() } } }
     /// 右边正在浏览的会话（已导入到电脑上的文件）；nil = 浏览相机 / 存储卡。
     var browsingSession: UUID?
     /// 项目内容当前只看照片、只看视频，或 nil = 全部。

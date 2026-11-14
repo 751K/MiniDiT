@@ -129,8 +129,12 @@ struct SessionRow: View {
                 Button("选为导入目标") { model.selectSession(session.id) }
             }
             Button("查看已导入的文件") { model.browseSession(session.id) }
+            Picker("项目类型", selection: Binding(get: { session.contentType }, set: { model.setContent($0, of: session.id) })) {
+                ForEach(ImportContent.allCases) { Text($0.title).tag($0) }
+            }
+            .disabled(model.progress != nil && model.currentSessionID == session.id)
             Button("在访达中显示") { SessionBrowser.reveal(session) }
-                .disabled(SessionBrowser.folder(of: session) == nil)
+                .disabled(SessionBrowser.folders(of: session).isEmpty)
             Divider()
             Button("从列表中移除") { model.removeSession(session.id) }
         }
@@ -207,12 +211,15 @@ struct SessionBrowser: View {
     var onBack: (() -> Void)?
     @State private var showImportResults = false
 
-    static func folder(of s: ShootSession) -> URL? {
-        AppModel.commonFolder(s.urls.filter { FileManager.default.fileExists(atPath: $0.path) })
+    /// 照片和视频分开保存，各取一个文件夹；只看照片或视频时只取那一类。
+    static func folders(of s: ShootSession, media: ProjectMedia? = nil) -> [URL] {
+        let urls = s.urls.filter { FileManager.default.fileExists(atPath: $0.path) }
+        let pick = { (m: ProjectMedia) in media == nil || media == m ? urls.filter { ProjectMedia.forPath($0.path) == m } : [] }
+        return AppModel.importFolders(photos: pick(.photos), videos: pick(.videos))
     }
 
-    static func reveal(_ s: ShootSession) {
-        if let f = folder(of: s) { NSWorkspace.shared.open(f) }
+    static func reveal(_ s: ShootSession, media: ProjectMedia? = nil) {
+        for f in folders(of: s, media: media) { NSWorkspace.shared.open(f) }
     }
 
     private var subtitle: String {
@@ -292,11 +299,11 @@ struct SessionBrowser: View {
                 Button("选为导入目标") { model.selectSession(session.id) }.buttonStyle(.bordered)
             }
             Button("导入记录与备份") { showImportResults = true }.buttonStyle(.bordered)
-            Button("在访达中显示") { Self.reveal(session) }
+            Button("在访达中显示") { Self.reveal(session, media: media) }
             .buttonStyle(.bordered)
             .help("在访达中显示")
             .accessibilityLabel("在访达中显示")
-            .disabled(Self.folder(of: session) == nil)
+            .disabled(Self.folders(of: session, media: media).isEmpty)
             Slider(value: $model.thumbSize, in: 110...320)
                 .frame(width: 76)
                 .accessibilityLabel("缩略图大小")
@@ -314,7 +321,7 @@ private struct LocalFileCell: View {
     @State private var image: NSImage?
     @State private var missing = false
 
-    private var isVideo: Bool { ["mp4", "mov", "mxf"].contains(url.pathExtension.lowercased()) }
+    private var isVideo: Bool { ProjectMedia.forPath(url.path) == .videos }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {

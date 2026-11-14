@@ -17,7 +17,9 @@ import Observation
         try fm.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: root) }
         let model = AppModel(startServices: false, journalURL: root.appending(path: "journal.sqlite"))
-        model.captureOneMode = .off; model.importContent = .photos
+        model.captureOneMode = .off
+        let photoProject = ShootSession(day: "20261109", name: "磁盘检查", content: .photos)
+        model.sessions = [photoProject]; model.currentSessionID = photoProject.id
         let work = root.appending(path: "future-work"), backup = root.appending(path: "backup"), second = root.appending(path: "second")
         for path in [backup, second] { try fm.createDirectory(at: path, withIntermediateDirectories: true) }
         model.destination = work

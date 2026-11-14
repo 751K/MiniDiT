@@ -34,9 +34,7 @@ struct SetupSheet: View {
     }
 
     private var steps: [Step] {
-        Step.allCases.filter { s in
-            (s != .photos || model.importContent != .videos) && (s != .video || model.importContent != .photos)
-        }
+        Step.allCases
     }
     private var stepIndex: Int { steps.firstIndex(of: step) ?? 0 }
 
@@ -193,14 +191,6 @@ struct SetupSheet: View {
                     recommendedMode = nil
                 }
             }
-            Panel {
-                PanelRow(icon: .symbol("photo.on.rectangle"), title: "导入内容") {
-                    @Bindable var model = model
-                    Picker("导入内容", selection: $model.importContent) {
-                        ForEach(ImportContent.allCases) { Text($0.title).tag($0) }
-                    }.labelsHidden().fixedSize()
-                }
-            }
         }
     }
 
@@ -345,15 +335,10 @@ struct SetupSheet: View {
             SummaryRow(icon: .symbol(model.usageMode == .personal ? "person" : "person.3"),
                        label: "工作流程", value: model.usageMode.title) { go(.mode) }
             PanelDivider()
-            SummaryRow(icon: .symbol("photo.on.rectangle"), label: "导入内容", value: model.importContent.title) { go(.mode) }
-            if model.importContent != .videos {
-                PanelDivider()
-                SummaryRow(icon: photoIcon, label: "照片", value: photoTitle, detail: photoDetail) { go(.photos) }
-            }
-            if model.importContent != .photos {
-                PanelDivider()
-                SummaryRow(icon: .symbol("film"), label: "视频", value: videoTitle, detail: short(model.videoDestination)) { go(.video) }
-            }
+            PanelDivider()
+            SummaryRow(icon: photoIcon, label: "照片", value: photoTitle, detail: photoDetail) { go(.photos) }
+            PanelDivider()
+            SummaryRow(icon: .symbol("film"), label: "视频", value: videoTitle, detail: short(model.videoDestination)) { go(.video) }
             PanelDivider()
             SummaryRow(icon: backupOn ? .symbol("externaldrive.badge.checkmark") : .symbol("internaldrive"), label: "备份",
                        value: backupOn ? "同时备份" : "仅存储一份",

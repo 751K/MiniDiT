@@ -62,12 +62,14 @@ struct BrowseFilters: View {
                               selection: $model.onlyNew, fill: true)
                     .accessibilityLabel("显示范围")
             }
-            VStack(alignment: .leading, spacing: 4) {
-                Text("导入内容").font(Theme.Font.caption).foregroundStyle(.secondary)
-                SegmentPicker(options: ImportContent.allCases.map { .init(title: $0.title, value: $0) },
-                              selection: $model.importContent, fill: true)
-                    .disabled(model.progress != nil)
-                    .accessibilityLabel("导入内容")
+            if let session = model.currentSession {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("项目类型").font(Theme.Font.caption).foregroundStyle(.secondary)
+                    Text(session.contentType.title).font(Theme.Font.body)
+                        .frame(minHeight: 22)
+                        .help("“\(session.name)”只导入\(session.contentType.title)；可在侧栏右键菜单中更改")
+                }
+                .accessibilityElement(children: .combine)
             }
             if model.importContent != .videos {
                 VStack(alignment: .leading, spacing: 4) {

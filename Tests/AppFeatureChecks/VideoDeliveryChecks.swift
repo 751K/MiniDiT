@@ -76,7 +76,7 @@ import SonyRemoteKit
         model.sessionRecordURL = root.appending(path: "projects.json"); model.sessions = []
         model.captureOneMode = .off; model.openAfterImport = .none; model.deleteAfterImport = false
         model.sendToFCP = true; model.sendToResolve = true; model.sendToPremiere = true; model.sendToJianying = true; model.fcpLogProcessing = true; model.resolveColorSpace = true
-        model.autoRefresh = false; model.onlyNew = false; model.importContent = .videos; model.mediaFilter = .init()
+        model.autoRefresh = false; model.onlyNew = false; model.mediaFilter = .init()
         model.photoFolderLayout = .session; model.videoFolderLayout = .session; model.splitVideoByRoll = false
         model.destination = work; model.videoDestination = work; model.importProxies = true
         model.backupEnabled = false; model.sourceKind = .card; model.cardRoot = card; model.connectedName = "隔离检查卡"
@@ -87,7 +87,7 @@ import SonyRemoteKit
         model.videoDeliveryServices.jianyingRoot = jianyingRoot
         model.videoDeliveryServices.launchJianying = { jianyingLaunches += 1 }
         await model.loadAll()
-        let project = model.createSession(day: "20261110", event: "发送检查")
+        let project = model.createSession(day: "20261110", event: "发送检查", content: .videos)
         model.selectAll(in: Set(model.days.map(\.id))); precondition(model.selectedFiles().count == 2)
         model.beginImport(); precondition(model.importTask != nil)
         // These changes apply to the next import, not this task or any retry.

@@ -38,7 +38,7 @@ import SwiftUI
         model.sessionRecordURL = root.appending(path: "projects.json")
         model.sessions = []; model.captureOneMode = .off; model.openAfterImport = .none
         model.sendToFCP = false; model.sendToResolve = false; model.importProxies = true
-        model.autoRefresh = false; model.onlyNew = false; model.importContent = .all; model.mediaFilter = .init()
+        model.autoRefresh = false; model.onlyNew = false; model.mediaFilter = .init()
         model.photoFolderLayout = .session; model.videoFolderLayout = .session; model.splitVideoByRoll = false
         model.destination = work; model.videoDestination = root.appending(path: "video-work")
         model.backupFollowsOrganization = true; model.backupEnabled = true
@@ -197,7 +197,7 @@ import SwiftUI
         let cancelModel = AppModel(startServices: false, journalURL: root.appending(path: "cancel.sqlite"))
         cancelModel.sessionRecordURL = root.appending(path: "cancel-projects.json")
         cancelModel.sessions = []; cancelModel.captureOneMode = .off; cancelModel.openAfterImport = .none
-        cancelModel.autoRefresh = false; cancelModel.onlyNew = false; cancelModel.importContent = .photos
+        cancelModel.autoRefresh = false; cancelModel.onlyNew = false
         cancelModel.sendToFCP = false; cancelModel.sendToResolve = false
         cancelModel.destination = root.appending(path: "cancel-work"); cancelModel.photoFolderLayout = .session
         cancelModel.backupEnabled = true; cancelModel.backupFollowsOrganization = true
@@ -206,7 +206,7 @@ import SwiftUI
         cancelModel.sourceKind = .card; cancelModel.cardRoot = cancelCard; cancelModel.connectedName = "取消检查卡"
         cancelModel.library = LocalCardLibrary(root: cancelCard)
         await cancelModel.loadAll()
-        let cancelProject = cancelModel.createSession(day: "20261109", event: "取消")
+        let cancelProject = cancelModel.createSession(day: "20261109", event: "取消", content: .photos)
         cancelModel.selectAll(in: Set(cancelModel.days.map(\.id)))
         cancelModel.beginImport()
         for _ in 0..<3000 {

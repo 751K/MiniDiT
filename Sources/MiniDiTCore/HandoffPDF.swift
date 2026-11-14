@@ -11,7 +11,7 @@ public enum HandoffPDF {
         var row: HandoffReport.Row { rows.first! }
         var name: String { row.importItemFilename }
         var key: String { row.batchID + "|" + row.fileID }
-        var video: Bool { row.media == "video" || ["mp4", "mov", "mxf", "m4v"].contains(URL(filePath: name).pathExtension.lowercased()) }
+        var video: Bool { row.media == "video" || ["mp4", "mov", "mxf", "m4v", "mts", "avi"].contains(URL(filePath: name).pathExtension.lowercased()) }
         var roll: String { row.roll.isEmpty ? "未记录卷号" : row.roll }
         var candidates: [HandoffReport.Row] {
             rows.filter { !$0.historical && $0.availability == "accessible" && $0.assetKind != "metadata" }
