@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -11,10 +11,21 @@ export const metadata: Metadata = {
     locale: "zh_CN",
     type: "website",
   },
+  // 让支持的浏览器跟随系统的文字大小设置（字号都用 rem）。
+  other: { "text-scale": "scale" },
   icons: {
     icon: "favicon.svg",
     shortcut: "favicon.svg",
   },
+};
+
+// 告诉浏览器页面支持浅色和深色，首屏就用对应的底色，避免闪白。
+export const viewport: Viewport = {
+  colorScheme: "light dark",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
+    { media: "(prefers-color-scheme: dark)", color: "#121212" },
+  ],
 };
 
 export default function RootLayout({

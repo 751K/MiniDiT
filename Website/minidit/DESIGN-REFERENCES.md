@@ -19,6 +19,6 @@
 
 截图为在独立进程中展示的演示状态，不表示真实相机连接或生产素材的实际备份记录。沿用演示中的 Unsplash 照片，来源见 PHOTO-CREDITS.md。辅助进程使用 AppModel(startServices: false)，不启动相机连接、不修改已安装应用的设置。
 
-文件：public/images/feature-wireless-native-wide.png、feature-backup-native.png。移动端按可读尺寸裁切界面局部。页面图注标注“原生界面”。
+文件：public/images/feature-wireless-native-wide.webp、feature-backup-native.webp。移动端按可读尺寸裁切界面局部。页面图注标注“原生界面”。
 
-项目管理段落已改用 feature-project-native.png：直接渲染当前原生 ProjectSidebar 与 SessionBrowser，使用临时目录里的演示照片和视频。左侧展示项目列表、照片及视频分类和数量，右侧展示已导入的文件。文案聚焦跨日期、多来源持续归集、项目内分类浏览和离线查看本地素材；不将来源筛选或取原文件作为该段的主卖点。
+项目管理段落已改用 feature-project-native.webp：直接渲染当前原生 ProjectSidebar 与 SessionBrowser，使用临时目录里的演示照片和视频。左侧展示项目列表、照片及视频分类和数量，右侧展示已导入的文件。文案聚焦跨日期、多来源持续归集、项目内分类浏览和离线查看本地素材；不将来源筛选或取原文件作为该段的主卖点。

@@ -24,6 +24,9 @@ const shots = [...demoShots.map(shot => ({...shot, day: "11.7"})),
   {...demoShots[7], name: "C0008", day: "11.6"},
   {...demoShots[5], name: "DSC00204", day: "11.2"}];
 const projectNames = ["11.7-海边散步", "11.6-城市漫游"];
+// 项目类型在新建项目时选择，导入范围跟着当前项目走。
+const projectTypes: MediaScope[] = ["all", "all"];
+const scopeTitles: Record<MediaScope, string> = { all: "照片和视频", photos: "照片", videos: "视频" };
 const dates = [{id:"11.7",label:"11月7日",weekday:"周六"},{id:"11.6",label:"11月6日",weekday:"周五"},{id:"11.2",label:"11月2日",weekday:"周一"}];
 type MediaScope = "all" | "photos" | "videos";
 function countText(ids: number[]) {
@@ -67,7 +70,6 @@ export default function ProductDemo() {
   const [sourcesOpen,setSourcesOpen] = useState(false);
   const [slot,setSlot] = useState(0);
   const [onlyNew,setOnlyNew] = useState(false);
-  const [scope,setScope] = useState<MediaScope>("all");
   const [types,setTypes] = useState({raw:true,photo:true});
   const [thumbSize,setThumbSize] = useState(170);
   const [day,setDay] = useState("11.7");
@@ -87,10 +89,11 @@ export default function ProductDemo() {
   const [importing,setImporting] = useState(false);
   const [batch,setBatch] = useState<{ids:number[]; project:number; backup:boolean; proxies:number[]}|null>(null);
   const [result,setResult] = useState<string|null>(null);
-  const lightboxRef = useRef<HTMLDivElement>(null);
+  const lightboxRef = useRef<HTMLDialogElement>(null);
   const dropRef = useRef<HTMLButtonElement|null>(null);
   const importBarRef = useRef<HTMLDivElement>(null);
 
+  const scope=projectTypes[activeProject];
   function matches(id:number) {
     const shot=shots[id];
     if (id===8&&!refreshed) return false;
@@ -108,18 +111,20 @@ export default function ProductDemo() {
   const visible=projectView!==null?[...projectFiles[activeProject]].filter(id=>(projectView!=="photos"||!shots[id].video)&&(projectView!=="videos"||shots[id].video))
     :filtered.filter(id=>shots[id].day===day);
   const visibleKey=visible.join(",");
-  useEffect(()=>{
-    if(importing) return;
-    const shown=new Set(visibleKey.split(",").filter(Boolean).map(Number));
-    setSelected(current=>{const next=new Set([...current].filter(id=>shown.has(id)));return next.size===current.size?current:next;});
-  },[visibleKey,importing]);
+  // 可见范围变了：去掉看不到的选择（导入中不动）。在渲染时调整，不用 effect 再渲染一遍。
+  const [prunedKey,setPrunedKey]=useState(visibleKey);
+  if(!importing&&prunedKey!==visibleKey){
+    setPrunedKey(visibleKey);
+    const shown=new Set(visible);
+    if([...selected].some(id=>!shown.has(id))) setSelected(new Set([...selected].filter(id=>shown.has(id))));
+  }
   const picked=[...selected].filter(id=>visible.includes(id));
   const pickedSize=picked.reduce((n,id)=>n+shots[id].size,0);
   const fresh=visible.filter(id=>!copied.has(id));
   const allPicked=visible.length>0&&visible.every(id=>selected.has(id));
   const selectedVideo=source==="wifi"&&picked.some(id=>shots[id].video);
   const fileCount=picked.reduce((n,id)=>n+(shots[id].raw&&shots[id].photo&&types.raw&&types.photo?2:1),0);
-  const scopeFiltered=query!==""||mark!=="all"||onlyNew||scope!=="all"||!types.raw||!types.photo;
+  const scopeFiltered=query!==""||mark!=="all"||onlyNew||!types.raw||!types.photo;
 
   useEffect(()=>{
     if(!importing||!batch) return;
@@ -135,23 +140,10 @@ export default function ProductDemo() {
     return()=>clearTimeout(timer);
   },[importing,batch]);
 
+  // 原生模态框：焦点限制、Esc 关闭、关闭后焦点回到缩略图都由浏览器处理。
   useEffect(()=>{
-    if(preview===null) return;
-    const previous=document.body.style.overflow;
-    const focused=document.activeElement instanceof HTMLElement?document.activeElement:null;
-    document.body.style.overflow="hidden";
-    lightboxRef.current?.querySelector<HTMLElement>("button")?.focus();
-    const key=(event:KeyboardEvent)=>{
-      if(event.key==="Escape")setPreview(null);
-      if(event.key!=="Tab")return;
-      const elements=lightboxRef.current?.querySelectorAll<HTMLElement>("button:not([disabled]), input, video[controls]");
-      if(!elements?.length)return;
-      const first=elements[0],last=elements[elements.length-1];
-      if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}
-      else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}
-    };
-    window.addEventListener("keydown",key);
-    return()=>{document.body.style.overflow=previous;window.removeEventListener("keydown",key);focused?.focus();};
+    const dialog=lightboxRef.current;
+    if(preview!==null&&dialog&&!dialog.open){dialog.showModal();dialog.querySelector("button")?.focus();}
   },[preview]);
   useEffect(()=>{
     const close=(event:KeyboardEvent)=>{if(event.key==="Escape"){setOptionsOpen(false);setSourcesOpen(false);setPathsOpen(false);}};
@@ -166,7 +158,7 @@ export default function ProductDemo() {
     setImporting(true);setResult(null);setOptionsOpen(false);setPathsOpen(false);
   }
   function badge(id:number){const shot=shots[id];const showRaw=projectView!==null||types.raw,showPhoto=projectView!==null||types.photo;return shot.video?`视频 ${shot.duration}`:[shot.raw&&showRaw?"RAW":"",shot.photo&&showPhoto?"JPG":""].filter(Boolean).join("+");}
-  function clearFilters(){setQuery("");setMark("all");setOnlyNew(false);setScope("all");setTypes({raw:true,photo:true});}
+  function clearFilters(){setQuery("");setMark("all");setOnlyNew(false);setTypes({raw:true,photo:true});}
 
   return <>
     <figure className={styles.figure}>
@@ -176,7 +168,7 @@ export default function ProductDemo() {
           <div className={`${styles.window} ${dark?styles.dark:""}`} data-testid="product-demo">
             <aside className={styles.projects} aria-label="演示拍摄项目">
               <div className={styles.windowControls} aria-hidden="true"><i/><i/><i/></div>
-              <h3 className={styles.panelHeading}>拍摄项目</h3>
+              <div className={`${styles.panelHeading} ${styles.panelTitle}`}>拍摄项目</div>
               {projectNames.map((name,index)=>{
                 const files=[...projectFiles[index]],photos=files.filter(id=>!shots[id].video),videos=files.filter(id=>shots[id].video);
                 return <div className={styles.projectGroup} key={name}>
@@ -192,15 +184,15 @@ export default function ProductDemo() {
 
             <aside className={styles.controls} aria-label="演示设备与筛选">
               <div className={styles.sourceGroup}>
-                <div className={styles.panelHeading}><h3>设备</h3><button aria-label="重新读取演示素材" title="重新读取：发现一个新片段" onClick={()=>setRefreshed(true)} disabled={importing}><RefreshCw/></button><button aria-label="添加或切换演示设备" aria-expanded={sourcesOpen} onClick={()=>setSourcesOpen(!sourcesOpen)} disabled={importing}><Plus/></button></div>
+                <div className={styles.panelHeading}><span>设备</span><button aria-label="重新读取演示素材" title="重新读取：发现一个新片段" onClick={()=>setRefreshed(true)} disabled={importing}><RefreshCw/></button><button aria-label="添加或切换演示设备" aria-expanded={sourcesOpen} onClick={()=>setSourcesOpen(!sourcesOpen)} disabled={importing}><Plus/></button></div>
                 <button className={styles.deviceRow} onClick={()=>setProjectView(null)}><span className={styles.sourceIcon}>{source==="wifi"?<Camera/>:<HardDrive/>}</span><span className={styles.sourceText}><strong>{source==="wifi"?"α7 V":"SDXC"}</strong><span>{offline?"已断开，保留当前选择":source==="wifi"?"已连接 · Wi-Fi":"读卡器 · SDXC"}</span></span><small>{refreshed?13:12}</small></button>
                 {sourcesOpen&&<div className={styles.sourceList}>{([['wifi','α7 V · Wi-Fi'],['card','SDXC · 读卡器']] as const).map(([value,label])=><button key={value} aria-pressed={source===value} onClick={()=>{setSource(value);setSlot(0);setOffline(false);setSourcesOpen(false);setProjectView(null);}}>{value==="wifi"?<Camera/>:<HardDrive/>}<span>{label}</span>{source===value&&<Check/>}</button>)}</div>}
                 {source==="wifi"&&<SegmentControl options={[{value:0,label:"合并"},{value:1,label:"卡 1"},{value:2,label:"卡 2"}]} value={slot} label="演示设备卡槽" disabled={importing} onChange={value=>{setSlot(value);setProjectView(null);}}/>}
               </div>
               <div className={styles.filterPanel}>
-                <div className={styles.panelHeading}><h3>筛选</h3>{scopeFiltered&&<button className={styles.clearFilters} onClick={clearFilters} disabled={importing}>清除</button>}</div>
+                <div className={styles.panelHeading}><span>筛选</span>{scopeFiltered&&<button className={styles.clearFilters} onClick={clearFilters} disabled={importing}>清除</button>}</div>
                 <label className={styles.filterLabel}>显示</label><SegmentControl options={[{value:"all",label:"全部"},{value:"new",label:"未导入"}]} value={onlyNew?"new":"all"} label="演示显示范围" disabled={importing} onChange={value=>{setOnlyNew(value==="new");setProjectView(null);}}/>
-                <label className={styles.filterLabel}>导入内容</label><SegmentControl<MediaScope> options={[{value:"all",label:"照片和视频"},{value:"photos",label:"仅照片"},{value:"videos",label:"仅视频"}]} value={scope} label="演示导入内容" disabled={importing} onChange={value=>{setScope(value);setProjectView(null);}}/>
+                <div className={styles.filterLabel}>项目类型</div><div className={styles.projectType} title="新建项目时选择；导入时只取这一类素材">{scopeTitles[scope]}</div>
                 {scope!=="videos"&&<><label className={styles.filterLabel}>照片格式</label><div className={`${styles.segmentGroup} ${styles.multiSegment}`} role="group" aria-label="演示照片格式" style={{"--segment-count":2} as CSSProperties}>{([['raw','RAW'],['photo','JPG/HIF']] as const).map(([key,label])=><button key={key} className={types[key]?styles.segmentOn:""} aria-pressed={types[key]} onClick={()=>{setTypes(current=>({...current,[key]:!current[key]}));setProjectView(null);}} disabled={importing}>{label}</button>)}</div></>}
                 <div className={styles.searchRow}><label className={styles.search}><Search/><input value={query} onChange={event=>{setQuery(event.target.value);setProjectView(null);}} placeholder="搜索文件名或设备" aria-label="搜索演示素材" disabled={importing}/></label><label className={styles.markMenu}><Tag/><select value={mark} aria-label="按演示标记筛选" disabled={importing} onChange={event=>{setMark(event.target.value);setProjectView(null);}}><option value="all">标记</option><option value="marked">有标记</option>{[1,2,3,4,5].map(stars=><option key={stars} value={`stars:${stars}`}>至少 {stars} 星</option>)}<option value="shot">Shot Mark</option><option value="rejected">删除标记</option></select></label></div>
                 <div className={styles.dateHeading}>日期</div>
@@ -214,11 +206,11 @@ export default function ProductDemo() {
               {offline&&<div className={styles.offlineBanner} role="status"><RefreshCw/><strong>相机已断开</strong><span>已保留当前选择</span><button onClick={()=>setOffline(false)}>重新连接</button></div>}
               <div className={styles.library}>
                 <div className={styles.dayHeader}><strong>{projectView!==null?(projectView==="photos"?"照片":projectView==="videos"?"视频":"项目素材"):dates.find(date=>date.id===day)?.label}</strong>{projectView===null&&<button disabled={importing||!visible.length} onClick={selectDay}>{allPicked?"取消选择":"全选当前范围"}</button>}</div>
-                <div className={styles.grid} style={{"--thumb-size":`${thumbSize}px`} as CSSProperties}>{visible.map(id=>{
+                <div className={styles.grid} style={{"--thumb-size":`${thumbSize}px`} as CSSProperties}>{visible.map((id,position)=>{
                   const shot=shots[id],isSelected=selected.has(id);
                   return <div className={styles.cell} key={shot.name}>
                     <button draggable={!importing&&projectView===null} onDragStart={event=>{if(!isSelected){event.preventDefault();return;}event.dataTransfer.setData("application/x-minidit-demo","selection");event.dataTransfer.effectAllowed="copy";}} className={`${styles.thumbnail} ${isSelected?styles.thumbnailSelected:""}`} aria-label={`${shot.name}，${isSelected?"已选择，点击取消":"点击选择"}`} aria-pressed={isSelected} disabled={importing} onClick={()=>toggle(id)} onDoubleClick={()=>setPreview(id)} onKeyDown={event=>{if(event.key===" "){event.preventDefault();setPreview(id);}}}>
-                      <img src={`images/${shot.image}.jpg`} alt="" style={{objectPosition:shot.position}} loading="lazy"/>
+                      <img src={`images/thumbs/${shot.image}.webp`} alt="" width={480} height={320} style={{objectPosition:shot.position}} loading={position<6?undefined:"lazy"}/>
                       <span className={styles.formatBadge}>{badge(id)}</span>
                       {id===0||id===4||id===6?<span className={styles.markBadge}>{id===6?"◆ 2":id===0?"★★★★":"★★★"}</span>:null}
                       {shot.video&&<span className={styles.playIcon}>▶</span>}{isSelected&&<span className={styles.selectionCheck}><Check/></span>}
@@ -244,7 +236,10 @@ export default function ProductDemo() {
       </div>
       <figcaption className={styles.caption}><MousePointer2/><span>试试筛选素材，或将选中的素材拖入左侧项目。<span className={styles.mobileHint}>小屏可左右滑动查看完整界面。</span></span></figcaption>
     </figure>
-    {preview!==null&&<div ref={lightboxRef} className={styles.lightbox} role="dialog" aria-modal="true" aria-label={shots[preview].video?"视频预览演示":"照片预览演示"} onClick={()=>setPreview(null)}><button className={styles.closePreview} aria-label="关闭预览" onClick={()=>setPreview(null)}><X/></button><DemoPreview id={preview}/><div className={styles.previewBar}><span>{shots[preview].name} · 示例素材</span><button onClick={event=>{event.stopPropagation();toggle(preview);}}>{selected.has(preview)?<Check/>:<Plus/>}{selected.has(preview)?"已选择":"选择"}</button></div></div>}
+    <dialog ref={lightboxRef} className={styles.lightbox} aria-label={preview!==null&&shots[preview].video?"视频预览演示":"照片预览演示"}
+      onClose={()=>setPreview(null)} onClick={event=>{if(event.target===event.currentTarget)event.currentTarget.close();}}>
+      {preview!==null&&<><button type="button" className={styles.closePreview} aria-label="关闭预览" onClick={()=>lightboxRef.current?.close()}><X/></button><DemoPreview id={preview}/><div className={styles.previewBar}><span>{shots[preview].name} · 示例素材</span><button type="button" onClick={()=>toggle(preview)}>{selected.has(preview)?<Check/>:<Plus/>}{selected.has(preview)?"已选择":"选择"}</button></div></>}
+    </dialog>
   </>;
 }
 
