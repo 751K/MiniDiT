@@ -24,6 +24,8 @@ swift test
 
 大疆存储卡检查使用 `Tests/AppFeatureChecks/run.sh --dji-card`：在临时目录构造只有 `DCIM/DJI_001/` 的卡，验证识别、DNG 归为 RAW、.LRF 不单独列出而作为代理导入到 `Proxy/*.MP4`、按文件名取拍摄时间。文件内容是占位字节，不能代替真卡实测。
 
+尼康无线：`Sources/SonyRemoteKit/Nikon/NikonWiFi.swift`（探测、配对、打开标准 `PTPCameraLibrary`）和 `NikonBonjour.swift`（mDNS 配对状态），App 里由 `AppModel+Source.swift` 的 `openNikonIfNeeded` 在索尼流程之前分流。配对流程依据 libgphoto2 issue #1314（Nikon ZR 抓包），独立实现。`swift test --filter Nikon` 用 `FakeCamera`（可设 `ackGUID` / `ackName`）模拟配对、重连、已配对和被别的电脑占用的情况。
+
 大疆无线：协议层在 `Sources/SonyRemoteKit/DJI/`（`DUML` 帧与 CRC、`DJIManifest` 文件列表、`DJIDatalink` UDP 会话、`DJIBluetooth` 配对、`DJICameraLibrary` 实现 `CameraLibrary`），加入热点在 App 的 `Camera/DJIWiFi.swift`，连接流程在 `AppModel+DJI.swift`。协议资料和 Pocket 3 列表样本来自 osmosis / OsmoOffload（MIT，见 `THIRD_PARTY_NOTICES.md`）。`swift test --filter DJI` 覆盖帧编码（对照协议文档里的十六进制样例）、真实列表解析和模拟 Pocket 3 的端到端下载/续传；蓝牙、Wi-Fi 加入和真机行为只能实机验证，调试时看日志里以「大疆」开头的行。
 
 工作流程检查使用 `Tests/AppFeatureChecks/run.sh --workflow`，验证旧模式兼容、推荐设置、自定义命名保留和只切换流程不改现有选项。检查程序使用自己的偏好设置域，结束后恢复该域，不改已安装应用的设置。

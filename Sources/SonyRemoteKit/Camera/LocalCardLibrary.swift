@@ -149,6 +149,7 @@ public actor LocalCardLibrary: CameraLibrary {
         case "HIF", "HEIF", "HEIC": PTPObjectFormat.heif
         case "ARW": PTPObjectFormat.sonyARW
         case "DNG": PTPObjectFormat.dng
+        case "NEF", "NRW": PTPObjectFormat.undefined
         case "MP4": PTPObjectFormat.mp4
         case "MOV": PTPObjectFormat.mov
         default: nil

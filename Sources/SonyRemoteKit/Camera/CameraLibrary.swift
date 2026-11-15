@@ -51,7 +51,7 @@ public struct CameraContentItem: Identifiable, Hashable, Sendable {
             switch (filename as NSString).pathExtension.uppercased() {
             case "JPG", "JPEG": return .jpeg
             case "HIF", "HEIF", "HEIC": return .heif
-            case "ARW", "DNG": return .raw
+            case "ARW", "DNG", "NEF", "NRW": return .raw
             case "MP4", "MOV", "MTS", "AVI": return .video
             default: return .other
             }
@@ -181,8 +181,14 @@ public actor PTPCameraLibrary: CameraLibrary {
     private var infoCache: [UInt32: PTPObjectInfo] = [:]
     public nonisolated let connectionLost: AsyncStream<Void>
 
+    private let info: CameraDeviceInfo?
+    public var deviceInfo: CameraDeviceInfo? { get async { info } }
+
     /// - largeObjectReads: 用索尼 0x9211 分块下载（内容传输模式下可用，支持 ≥4GB）。
-    public init(client: PTPIPClient, largeObjectReads: Bool = false, onClose: @escaping @Sendable () async -> Void = {}) {
+    /// - deviceInfo: 连接时读到的型号和序列号（尼康等），没有时 nil。
+    public init(client: PTPIPClient, largeObjectReads: Bool = false, deviceInfo: CameraDeviceInfo? = nil,
+                onClose: @escaping @Sendable () async -> Void = {}) {
+        self.info = deviceInfo
         self.client = client
         self.largeObjectReads = largeObjectReads
         self.onClose = onClose

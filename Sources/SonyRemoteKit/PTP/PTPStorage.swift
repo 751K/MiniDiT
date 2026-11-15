@@ -15,6 +15,8 @@ public enum PTPObjectFormat {
     public static let heif: UInt16 = 0xB110
     public static let sonyARW: UInt16 = 0xB101
     public static let dng: UInt16 = 0x3811
+    /// 未定义格式：尼康 NEF 用它。
+    public static let undefined: UInt16 = 0x3000
     public static let mpo: UInt16 = 0xB301
     public static let mp4: UInt16 = 0xB982
     public static let mov: UInt16 = 0x300D

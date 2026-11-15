@@ -20,7 +20,7 @@ The full license texts ship with each source release. A shipped app must include
 ## Protocol references (no code copied)
 
 The protocol facts in `docs/PROTOCOL.md` were collected from:
-- libgphoto2 (LGPL-2.1+)
+- libgphoto2 (LGPL-2.1+), including issue #1314 for the Nikon Z Wi-Fi pairing handshake
 - ROCC (MIT)
 - sony-alpha-python (no license)
 - alpha2go (Apache-2.0)

@@ -43,6 +43,8 @@ public actor PTPIPClient {
     private let gate = AsyncGate()
 
     public private(set) var cameraName: String = ""
+    /// 相机在 Init_Command_Ack 里报的 GUID（尼康以 USB 厂商号 04b0 开头）。
+    public private(set) var cameraGUID: [UInt8] = []
     public nonisolated let events: AsyncStream<PTPEvent>
     private let eventContinuation: AsyncStream<PTPEvent>.Continuation
 
@@ -66,9 +68,10 @@ public actor PTPIPClient {
 
             let connectionNumber: UInt32
             switch try await cmd.receive(timeout: timeout) {
-            case let .initCommandAck(conn, _, name, _):
+            case let .initCommandAck(conn, guid, name, _):
                 connectionNumber = conn
                 cameraName = name
+                cameraGUID = guid
             case let .initFail(reason):
                 throw PTPIPTransportError.initFailed(reason: reason)
             case let other:

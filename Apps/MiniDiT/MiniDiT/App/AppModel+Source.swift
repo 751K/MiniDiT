@@ -190,6 +190,7 @@ extension AppModel {
     /// 打开相机的存储卡接口。返回是否用的远程传输（不改主来源的状态，同时连接第二台相机时也用它）。
     private func openLibrary(_ cam: FoundCamera, interactive: Bool = true) async throws -> (any CameraLibrary, remote: Bool) {
         let step: @Sendable (String) -> Void = { s in Task { @MainActor in self.status = s; self.log.add(s) } }
+        if let nikon = try await openNikonIfNeeded(cam, step: step) { return (nikon, false) }
         do {
             let tunnel = try await prepareTunnel(cam, interactive: interactive)
             let lib = try await SonyRemoteTransferLibrary.open(host: cam.host, identity: HostIdentityStore.identity,
@@ -203,6 +204,34 @@ extension AppModel {
             return (try await SonyContentsTransfer.openLibrary(host: cam.host, identity: HostIdentityStore.identity,
                                                                tunnel: tunnel, progress: step), false)
         }
+    }
+
+    /// 直连的相机先握一次手看 GUID：尼康走尼康的配对和标准 PTP，其他的照旧走索尼流程。
+    /// 已经知道是索尼的机型（上次读到的型号）不再多握这一次。
+    private func openNikonIfNeeded(_ cam: FoundCamera, step: @escaping @Sendable (String) -> Void) async throws -> (any CameraLibrary)? {
+        guard case .direct = cam.kind else { return nil }
+        let model = knownCameras.first { $0.fingerprint == cam.fingerprint }?.model ?? ""
+        if ["ILCE", "ILME", "ILCA", "ZV-", "DSC-"].contains(where: { model.hasPrefix($0) }) { return nil }
+        let isNikon: Bool
+        do {
+            isNikon = try await NikonWiFi.probe(host: cam.host, identity: HostIdentityStore.identity).nikon
+        } catch let e as NikonWiFi.Failure {
+            throw e
+        } catch {
+            return nil
+        }
+        guard isNikon else { return nil }
+        log.add("尼康相机：\(cam.host)")
+        try await Task.sleep(for: .milliseconds(500))
+        let needsPairing = await NikonBonjour.needsPairing()
+        log.add("尼康相机：mDNS 配对状态 \(needsPairing.map { $0 ? "未配对" : "已配对" } ?? "未知")")
+        return try await NikonWiFi.openLibrary(host: cam.host, identity: HostIdentityStore.identity, needsPairing: needsPairing,
+            showCode: { code in
+                Task { @MainActor in
+                    self.status = "配对码 \(code)：请确认与相机屏幕上显示的一致，然后在相机上确认配对。"
+                    self.log.add("尼康相机：配对码 \(code)")
+                }
+            }, progress: step)
     }
 
     private func prepareTunnel(_ cam: FoundCamera, interactive: Bool = true) async throws -> CameraSSHTunnel? {

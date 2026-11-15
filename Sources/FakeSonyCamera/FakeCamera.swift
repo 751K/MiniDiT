@@ -23,6 +23,9 @@ public final class FakeCamera: @unchecked Sendable {
     private var sockets: [PTPIPSocket] = []
     public private(set) var receivedGUID: [UInt8] = []
     public var rejectWithInitFail: UInt32? = nil
+    /// Init_Command_Ack 里报给客户端的 GUID 和名字（模拟尼康时改成 04b0 开头）。
+    public var ackGUID: [UInt8] = [UInt8](repeating: 0xAB, count: 16)
+    public var ackName = "ILCE-7M4"
     /// 收到这些操作码时不回复，用来模拟相机卡死。
     public var silentOperations: Set<UInt16> = []
 
@@ -84,8 +87,8 @@ public final class FakeCamera: @unchecked Sendable {
                     try await sock.send(.initFail(reason: reason))
                     return
                 }
-                try await sock.send(.initCommandAck(connectionNumber: 1, guid: [UInt8](repeating: 0xAB, count: 16),
-                                                    name: "ILCE-7M4", version: PTPIPPacket.protocolVersion))
+                let (guid, name) = lock.withLock { (ackGUID, ackName) }
+                try await sock.send(.initCommandAck(connectionNumber: 1, guid: guid, name: name, version: PTPIPPacket.protocolVersion))
                 try await commandLoop(sock)
             case .initEventRequest:
                 lock.withLock { eventSocket = sock }
