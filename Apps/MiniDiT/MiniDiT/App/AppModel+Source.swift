@@ -174,7 +174,7 @@ extension AppModel {
         status = ""
     }
 
-    private func attach(_ lib: any CameraLibrary, name: String, host: String?) {
+    func attach(_ lib: any CameraLibrary, name: String, host: String?) {
         library = lib
         connectedHost = host
         connectedName = name

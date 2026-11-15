@@ -82,11 +82,15 @@ struct ConnectView: View {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("连接相机").font(Theme.Font.headline)
                         Text("将相机与 Mac 连接至同一 Wi-Fi，并在相机上开启遥控拍摄。首次连接需要相机上的访问认证信息。")
+                        Text("大疆 Osmo Pocket 3 等相机：点“连接大疆相机”，Mac 会通过蓝牙找到相机并加入它的 Wi-Fi；首次连接需要在相机屏幕上点“允许”。连接期间 Mac 的 Wi-Fi 无法上网。")
                         Text("也可以直接插入读卡器，选择存储卡开始导入。")
                             .foregroundStyle(.secondary)
                     }
                     .font(Theme.Font.body).padding(20).frame(width: 340)
                 }
+            Button("连接大疆相机") { model.connectDJI() }
+                .disabled(model.phase != .idle)
+                .help("通过蓝牙找到大疆 Osmo 相机，并加入它的 Wi-Fi 导入素材")
             Button("通过 IP 连接…") { showingManualConnection.toggle() }
                 .popover(isPresented: $showingManualConnection) {
                     VStack(alignment: .leading, spacing: 12) {

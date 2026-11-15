@@ -322,7 +322,9 @@ struct FileImporter {
             for s in await card.sidecars(item.id) where s.kind == .metadata || proxies {
                 let name = s.url.lastPathComponent
                 // 「C0001M01.XML」去掉原来的「C0001」，换成片段最终的名字。
-                let rel = s.kind == .proxy ? "Proxy/" + base + "." + s.url.pathExtension
+                // 大疆的 .LRF 其实是 MP4，改成 .MP4 才能被 Resolve 认成代理。
+                let ext = s.url.pathExtension.uppercased() == "LRF" ? "MP4" : s.url.pathExtension
+                let rel = s.kind == .proxy ? "Proxy/" + base + "." + ext
                     : base + String(name.dropFirst(item.baseName.count))
                 stage(s.kind == .proxy ? "复制代理 \(name)" : "复制 \(name)")
                 do {

@@ -45,13 +45,13 @@ public struct CameraContentItem: Identifiable, Hashable, Sendable {
         switch format {
         case PTPObjectFormat.jpeg, PTPObjectFormat.mpo: return .jpeg
         case PTPObjectFormat.heif: return .heif
-        case PTPObjectFormat.sonyARW: return .raw
+        case PTPObjectFormat.sonyARW, PTPObjectFormat.dng: return .raw
         case PTPObjectFormat.mp4, PTPObjectFormat.mov, PTPObjectFormat.avi: return .video
         default:
             switch (filename as NSString).pathExtension.uppercased() {
             case "JPG", "JPEG": return .jpeg
             case "HIF", "HEIF", "HEIC": return .heif
-            case "ARW": return .raw
+            case "ARW", "DNG": return .raw
             case "MP4", "MOV", "MTS", "AVI": return .video
             default: return .other
             }

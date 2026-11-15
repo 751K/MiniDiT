@@ -4,7 +4,8 @@ import ImageIO
 import UniformTypeIdentifiers
 
 /// 读卡器 / 已挂载的存储卡：和 Wi-Fi 相机用同一套接口，上层不用区分来源。
-/// 照片在 DCIM/ 下，索尼视频在 PRIVATE/M4ROOT/CLIP/ 下（缩略图在 PRIVATE/M4ROOT/THMBNL/）。
+/// 照片在 DCIM/ 下，索尼视频在 PRIVATE/M4ROOT/CLIP/ 下（缩略图在 PRIVATE/M4ROOT/THMBNL/）；
+/// 大疆（Osmo Pocket 等）的视频、照片、DNG 和 .LRF 代理都在 DCIM/ 下。
 public actor LocalCardLibrary: CameraLibrary {
     private struct Entry {
         let url: URL
@@ -88,7 +89,7 @@ public actor LocalCardLibrary: CameraLibrary {
         return hs
     }
 
-    /// 相机记录的本地拍摄时间（yyyyMMdd'T'HHmmss）：照片读 EXIF，索尼视频读同名的 M01.XML。
+    /// 相机记录的本地拍摄时间（yyyyMMdd'T'HHmmss）：照片读 EXIF，索尼视频读同名的 M01.XML，都没有时看大疆的文件名。
     static func cameraClock(_ url: URL) -> String? {
         let ext = url.pathExtension.uppercased()
         var text: String?
@@ -103,17 +104,25 @@ public actor LocalCardLibrary: CameraLibrary {
                 text = String(s[r].suffix(19))
                 break
             }
-        } else {
-            guard let src = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
+        } else if let src = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
                   let props = CGImageSourceCopyPropertiesAtIndex(src, 0, [kCGImageSourceShouldCache: false] as CFDictionary) as? [CFString: Any],
-                  let exif = props[kCGImagePropertyExifDictionary] as? [CFString: Any] else { return nil }
+                  let exif = props[kCGImagePropertyExifDictionary] as? [CFString: Any] {
             text = (exif[kCGImagePropertyExifDateTimeOriginal] ?? exif[kCGImagePropertyExifDateTimeDigitized]) as? String
         }
+        // 大疆（Osmo Pocket 等）的视频没有 XML，文件名里就是相机的本地时间：DJI_20251115143000_0001_D.MP4
+        if text == nil { text = djiClock(url.lastPathComponent) }
         // 「2026:10:17 16:58:49」或「2026-10-17T16:58:49」→「20261017T165849」
         guard let t = text else { return nil }
         let digits = t.filter(\.isNumber)
         guard digits.count >= 14 else { return nil }
         return String(digits.prefix(8)) + "T" + String(digits.dropFirst(8).prefix(6))
+    }
+
+    /// 「DJI_20251115143000_0001_D.MP4」→「20251115T143000」；不是这种名字时 nil。
+    public static func djiClock(_ name: String) -> String? {
+        guard let r = name.range(of: #"^DJI_[0-9]{14}_"#, options: [.regularExpression, .caseInsensitive]) else { return nil }
+        let digits = name[r].dropFirst(4).prefix(14)
+        return String(digits.prefix(8)) + "T" + String(digits.suffix(6))
     }
 
     /// 同步遍历（FileManager 的枚举器不能在 async 上下文里迭代）。
@@ -139,6 +148,7 @@ public actor LocalCardLibrary: CameraLibrary {
         case "JPG", "JPEG": PTPObjectFormat.jpeg
         case "HIF", "HEIF", "HEIC": PTPObjectFormat.heif
         case "ARW": PTPObjectFormat.sonyARW
+        case "DNG": PTPObjectFormat.dng
         case "MP4": PTPObjectFormat.mp4
         case "MOV": PTPObjectFormat.mov
         default: nil
@@ -181,7 +191,8 @@ public actor LocalCardLibrary: CameraLibrary {
         return ClipInfo.sidecar(for: e.url).flatMap { try? Data(contentsOf: $0) } ?? ClipInfo.embeddedXML(inFile: e.url)
     }
 
-    /// 跟着视频片段一起导的文件：同名的 XML（放在片段旁边，名字不变）、代理（PRIVATE/M4ROOT/SUB/C0001S03.MP4）。
+    /// 跟着视频片段一起导的文件：同名的 XML（放在片段旁边，名字不变）、代理（PRIVATE/M4ROOT/SUB/C0001S03.MP4，
+    /// 大疆是原片旁边同名的 .LRF）。
     public struct Sidecar: Sendable {
         public enum Kind: Sendable { case metadata, proxy }
         public let kind: Kind
@@ -200,6 +211,14 @@ public actor LocalCardLibrary: CameraLibrary {
                return u.hasPrefix(prefix) && u.hasSuffix(".MP4") && u.dropFirst(prefix.count).dropLast(4).allSatisfy(\.isNumber)
            }) {
             out.append(Sidecar(kind: .proxy, url: sub.appending(path: proxy)))
+        } else {
+            // 大疆：原片旁边同名的 .LRF（低码率 MP4）。
+            let dir = e.url.deletingLastPathComponent()
+            let base = e.url.deletingPathExtension().lastPathComponent.uppercased()
+            if let names = try? FileManager.default.contentsOfDirectory(atPath: dir.path),
+               let lrf = names.first(where: { ($0 as NSString).deletingPathExtension.uppercased() == base && ($0 as NSString).pathExtension.uppercased() == "LRF" }) {
+                out.append(Sidecar(kind: .proxy, url: dir.appending(path: lrf)))
+            }
         }
         return out
     }

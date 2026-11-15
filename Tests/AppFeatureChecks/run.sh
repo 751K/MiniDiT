@@ -19,6 +19,7 @@ case " $* " in
   *" --project-import "*) FEATURE_SOURCE=ProjectImportChecks.swift ;;
   *" --organization "*) FEATURE_SOURCE=OrganizationChecks.swift ;;
   *" --workflow "*) FEATURE_SOURCE=WorkflowChecks.swift ;;
+  *" --dji-card "*) FEATURE_SOURCE=DJICardChecks.swift ;;
   *" --show-ui "*) FEATURE_SOURCE=FeaturePreview.swift ;;
   *) FEATURE_SOURCE=FeatureChecks.swift ;;
 esac

@@ -22,6 +22,10 @@ swift test
 
 浏览功能的 App 层检查在 `Tests/AppFeatureChecks/`：使用 `run.sh <临时测试卡路径>`，链接 Debug App 对象文件，验证刷新保留身份/选择/日期、全卡标记筛选、FCPXML 时间码及 Shot Mark 偏移、AVPlayer 播放/定位/释放。测试卡应包含 `FEATURE001.JPG`（4 星）、`FEATURE002.JPG`（无星）及 3 秒、25p 的 `PRIVATE/M4ROOT/CLIP/C0001.MP4`，配套 XML 起始 TC 为 `01:02:03:04`、第 25 帧有 Shot Mark。该检查会在测试卡中创建 `FEATURE003.JPG` 和 `feature-check.fcpxml`，只能对临时副本运行；加 `--show-ui` 可查看实际预览界面。检查使用独立偏好域，不读取相机账号、不写应用设置、不启动后台服务。
 
+大疆存储卡检查使用 `Tests/AppFeatureChecks/run.sh --dji-card`：在临时目录构造只有 `DCIM/DJI_001/` 的卡，验证识别、DNG 归为 RAW、.LRF 不单独列出而作为代理导入到 `Proxy/*.MP4`、按文件名取拍摄时间。文件内容是占位字节，不能代替真卡实测。
+
+大疆无线：协议层在 `Sources/SonyRemoteKit/DJI/`（`DUML` 帧与 CRC、`DJIManifest` 文件列表、`DJIDatalink` UDP 会话、`DJIBluetooth` 配对、`DJICameraLibrary` 实现 `CameraLibrary`），加入热点在 App 的 `Camera/DJIWiFi.swift`，连接流程在 `AppModel+DJI.swift`。协议资料和 Pocket 3 列表样本来自 osmosis / OsmoOffload（MIT，见 `THIRD_PARTY_NOTICES.md`）。`swift test --filter DJI` 覆盖帧编码（对照协议文档里的十六进制样例）、真实列表解析和模拟 Pocket 3 的端到端下载/续传；蓝牙、Wi-Fi 加入和真机行为只能实机验证，调试时看日志里以「大疆」开头的行。
+
 工作流程检查使用 `Tests/AppFeatureChecks/run.sh --workflow`，验证旧模式兼容、推荐设置、自定义命名保留和只切换流程不改现有选项。检查程序使用自己的偏好设置域，结束后恢复该域，不改已安装应用的设置。
 
 整理与导入偏好检查使用 `Tests/AppFeatureChecks/run.sh --organization`。检查程序创建自己的临时卡和偏好设置域，覆盖照片/视频独立目录、项目类型（含旧项目沿用原全局选择）、仅视频的下游计划、镜像备份内容校验、旧副本保留、跨日期项目、隐藏选择和路径预览。

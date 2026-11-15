@@ -185,6 +185,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = MiniDiT;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.photography";
 				INFOPLIST_KEY_NSAppleEventsUsageDescription = "下载完照片后让 Capture One 导入它们。";
+				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "需要使用蓝牙，才能找到大疆相机并打开它的 Wi-Fi。";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "MIT License";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "需要访问本地网络，才能找到并连接 Wi-Fi 上的相机。";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "将你选择导出的实况照片存入照片图库。";
@@ -216,6 +217,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = MiniDiT;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.photography";
 				INFOPLIST_KEY_NSAppleEventsUsageDescription = "下载完照片后让 Capture One 导入它们。";
+				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "需要使用蓝牙，才能找到大疆相机并打开它的 Wi-Fi。";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "MIT License";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "需要访问本地网络，才能找到并连接 Wi-Fi 上的相机。";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "将你选择导出的实况照片存入照片图库。";
