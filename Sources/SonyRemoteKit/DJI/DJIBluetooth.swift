@@ -256,14 +256,28 @@ public final class DJIBluetooth: NSObject, @unchecked Sendable {
         }
     }
 
-    static func model(advertisement: [String: Any], name: String) -> String? {
-        if let data = advertisement[CBAdvertisementDataManufacturerDataKey] as? Data, data.count >= 3 {
-            let company = UInt16(data[data.startIndex]) | UInt16(data[data.startIndex + 1]) << 8
+    /// 新格式广播（Pocket 4 Pro）里的产品类型：在厂商数据（去掉 2 字节公司 ID 后）第 10–11 字节，
+    /// 旧格式的机型字节此时是 0。
+    static let productTypes: [UInt16: String] = [218: "Osmo Pocket 4 Pro"]
+    /// 广播里没有厂商数据时（广播和扫描回应分两次到）按蓝牙名称认，长的前缀在前：「OsmoPocket4P」要先于「OsmoPocket4」。
+    static let nameModels: [(String, String)] = [("OsmoPocket4P", "Osmo Pocket 4 Pro"), ("OsmoPocket4", "Osmo Pocket 4"),
+                                                ("OsmoPocket3", "Osmo Pocket 3"), ("OsmoNano", "Osmo Nano"),
+                                                ("OsmoAction6", "Osmo Action 6"), ("OsmoAction5Pro", "Osmo Action 5 Pro"),
+                                                ("OsmoAction4", "Osmo Action 4"), ("XtraEdgePro", "Xtra Edge Pro")]
+
+    /// 认出大疆相机和机型。`resolved` = 机型是认出来的，不是只拿蓝牙名称或“大疆相机”顶替。
+    static func model(manufacturerData data: Data?, name: String) -> (name: String, resolved: Bool)? {
+        var isDJI = false
+        if let d = data.map(Array.init), d.count >= 3 {
+            let company = UInt16(d[0]) | UInt16(d[1]) << 8
             if companyIDs.contains(company) {
-                return models[data[data.startIndex + 2]] ?? (name.isEmpty ? "大疆相机" : name)
+                isDJI = true
+                if d.count >= 14, let m = productTypes[UInt16(d[12]) | UInt16(d[13]) << 8] { return (m, true) }
+                if let m = models[d[2]] { return (m, true) }
             }
         }
-        if namePrefixes.contains(where: { name.hasPrefix($0) }) { return name }
+        if let m = nameModels.first(where: { name.hasPrefix($0.0) })?.1 { return (m, true) }
+        if isDJI || namePrefixes.contains(where: { name.hasPrefix($0) }) { return (name.isEmpty ? "大疆相机" : name, false) }
         return nil
     }
 }
@@ -282,9 +296,10 @@ extension DJIBluetooth: CBCentralManagerDelegate, CBPeripheralDelegate {
     public func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral,
                                advertisementData: [String: Any], rssi RSSI: NSNumber) {
         let name = (advertisementData[CBAdvertisementDataLocalNameKey] as? String) ?? peripheral.name ?? ""
-        guard let model = Self.model(advertisement: advertisementData, name: name) else { return }
-        // 广播和扫描回应分两次到：已经认出机型的不要被只有名字的那次覆盖。
-        if let old = found[peripheral.identifier]?.1, old.model != old.name, model == name { return }
+        guard let (model, resolved) = Self.model(manufacturerData: advertisementData[CBAdvertisementDataManufacturerDataKey] as? Data,
+                                                 name: name) else { return }
+        // 广播和扫描回应分两次到：已经认出机型的不要被认不出的那次覆盖。
+        if !resolved, let old = found[peripheral.identifier]?.1, old.model != old.name, old.model != "大疆相机" { return }
         found[peripheral.identifier] = (peripheral, Found(id: peripheral.identifier, name: name.isEmpty ? model : name,
                                                           model: model, rssi: RSSI.intValue))
     }

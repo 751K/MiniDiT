@@ -118,4 +118,17 @@ import Testing
         #expect(h.count == 8 && h[0] == 48 && h[1] == 0x80 && h[6] == 0x05)
         #expect(h[7] == h[0..<7].reduce(0, ^))
     }
+
+    /// 机型识别：旧格式读公司 ID 后的机型字节；Pocket 4 Pro 的新格式机型字节是 0，产品类型 218 在去掉公司 ID 后的第 10–11 字节。
+    @Test func recognizesModelsFromAdvertisements() {
+        func adv(_ bytes: [UInt8]) -> Data { Data([0xAA, 0x08] + bytes) }
+        #expect(DJIBluetooth.model(manufacturerData: adv([0x20, 0, 0]), name: "")! == ("Osmo Pocket 3", true))
+        #expect(DJIBluetooth.model(manufacturerData: adv([0x21, 0, 0]), name: "")! == ("Osmo Pocket 4", true))
+        var pro = [UInt8](repeating: 0, count: 12); pro[5] = 0x01; pro[10] = 218
+        #expect(DJIBluetooth.model(manufacturerData: adv(pro), name: "")! == ("Osmo Pocket 4 Pro", true))
+        #expect(DJIBluetooth.model(manufacturerData: nil, name: "OsmoPocket4P-1A2B")! == ("Osmo Pocket 4 Pro", true))
+        #expect(DJIBluetooth.model(manufacturerData: nil, name: "OsmoPocket4-1A2B")! == ("Osmo Pocket 4", true))
+        #expect(DJIBluetooth.model(manufacturerData: adv([0x77, 0, 0]), name: "")! == ("大疆相机", false))
+        #expect(DJIBluetooth.model(manufacturerData: Data([0x4C, 0x00, 0x20]), name: "iPhone") == nil)
+    }
 }
