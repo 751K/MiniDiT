@@ -317,6 +317,26 @@ public actor SonyCamera: RemoteCamera {
         throw SonyPropertyError.readbackMismatch(code, requested: value, actual: last.current)
     }
 
+    // MARK: 存储卡内容（远程传输，和遥控共用这条连接）
+
+    private var contents: SonyRemoteTransferLibrary?
+
+    /// 用远程传输（0x923B–0x923E）读存储卡：遥控会话里也能用，不用切换模式。每次调用都会让列表重新读取。
+    public func contentLibrary() async throws -> SonyRemoteTransferLibrary {
+        if let c = contents { await c.refresh(); return c }
+        var available: [UInt32] = []
+        var failures: [String] = []
+        for slot: UInt32 in [1, 2] {
+            let r = try await client.transaction(SonyOperation.getCapturedDateList, [slot], requireOK: false)
+            if r.code == PTPResponse.ok { available.append(slot) }
+            else { failures.append("卡槽 \(slot)：\(PTPError(operation: SonyOperation.getCapturedDateList, code: r.code).localizedDescription)") }
+        }
+        guard !available.isEmpty else { throw SonyRemoteTransferError.cardsUnavailable(failures.joined(separator: "；")) }
+        let lib = SonyRemoteTransferLibrary(client: client, slots: available, notes: [], deviceInfo: nil)
+        contents = lib
+        return lib
+    }
+
     // MARK: 拍摄
 
     private func waitForStartup() async throws {

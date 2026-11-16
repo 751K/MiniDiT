@@ -31,7 +31,7 @@ import SonyRemoteKit
 
         let fake = Process()
         fake.executableURL = URL(filePath: args[i + 1])
-        fake.arguments = ["15740", "-bind", "127.0.0.1", "-no-remote"]
+        fake.arguments = ["15740", "-bind", "127.0.0.1"]
         fake.standardOutput = FileHandle(forWritingAtPath: "/dev/null")
         fake.standardError = FileHandle(forWritingAtPath: "/dev/null")
         try fake.run()
@@ -204,6 +204,29 @@ import SonyRemoteKit
         let info = try await call(["tether", "status"])
         precondition(info.json["info"]["battery"]["label"].string == "76%", "\(info.json["info"])")
         print("PASS: tether.capture waits for the file, copies it to outDir with the settings snapshot, refuses to overwrite an existing file; status carries camera info")
+
+        // 存储卡内容（远程传输，走联机这条连接）、下载、录一段并取回。
+        let files = try await call(["tether", "files", "--latest", "5"])
+        precondition(files.code == 0 && files.json["files"].array?.count == 5 && (files.json["total"].int ?? 0) > 5, "\(files.json)")
+        let first = files.json["files"].array![0]["filename"].string!
+        let dl = root.appending(path: "dl")
+        try fm.createDirectory(at: dl, withIntermediateDirectories: true)
+        let got1 = try await call(["tether", "download", "--names", first, "--out-dir", dl.path])
+        precondition(got1.code == 0 && fm.fileExists(atPath: dl.appending(path: first).path), "\(got1.json)")
+        let again = try await call(["tether", "download", "--names", first, "--out-dir", dl.path])
+        precondition(again.json["error"]["code"].string == "file_exists")
+        let missing = try await call(["tether", "download", "--names", "NOPE.JPG", "--out-dir", dl.path])
+        precondition(missing.json["error"]["code"].string == "not_found")
+        let clip = try await call(["tether", "record-clip", "--seconds", "1", "--out-dir", dl.path, "--timeout-seconds", "20"])
+        precondition(clip.code == 0, "\(clip.json)")
+        let clipFile = clip.json["files"].array![0]
+        let xmlPath = clipFile["xml"].string!
+        let xmlText = (try? String(contentsOfFile: xmlPath, encoding: .utf8)) ?? ""
+        precondition(clipFile["filename"].string?.hasSuffix(".MP4") == true && fm.fileExists(atPath: clipFile["path"].string!)
+                     && xmlPath.hasSuffix("M01.XML") && xmlText.contains("NonRealTimeMeta")
+                     && !fm.fileExists(atPath: dl.appending(path: "." + clipFile["filename"].string! + ".partial").path), "\(clip.json)")
+        precondition(!t2.status.isRecording && clipFile["durationSeconds"] == .number(1), "\(clipFile)")
+        print("PASS: tether.files lists the card over the tether connection, download refuses to overwrite and reports missing names, record_clip records, waits for the clip and fetches MP4 + M01.XML")
 
         let configured = try await call(["tether", "configure", "--live-view", "false", "--auto-import", "false"])
         precondition(configured.json["liveView"].bool == false && !model.tetherAutoImport)

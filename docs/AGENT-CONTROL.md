@@ -74,7 +74,7 @@ minidit call projects.select '{"id":"PROJECT_UUID"}'
 
 按客户端使用的配置格式填写。安装脚本默认将命令放在 `~/.local/bin/minidit`；配置文件中使用展开后的绝对路径。启动 MCP 服务不等于启动应用：agent 可先调用 `minidit_app_launch`，然后查询 `minidit_app_status`。
 
-MCP 暴露与 CLI 对应的 32 个工具，例如 `minidit_projects_list`、`minidit_assets_select`、`minidit_import_preview`、`minidit_import_start`。工具有参数 schema、只读/修改标记和结构化结果。连接、刷新、导入、取消均需通过状态查询观察完成情况；工具返回已接受请求，不代表传输已经完成。
+MCP 暴露与 CLI 对应的 35 个工具，例如 `minidit_projects_list`、`minidit_assets_select`、`minidit_import_preview`、`minidit_import_start`。工具有参数 schema、只读/修改标记和结构化结果。连接、刷新、导入、取消均需通过状态查询观察完成情况；工具返回已接受请求，不代表传输已经完成。
 
 协议依据：[stdio 传输](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)、[初始化流程](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle)、[工具定义与调用](https://modelcontextprotocol.io/specification/2025-11-25/server/tools)。
 
@@ -97,6 +97,8 @@ MCP 暴露与 CLI 对应的 32 个工具，例如 `minidit_projects_list`、`min
 | `tether.properties`、`tether.get` | 列出相机的全部属性；读取指定属性 |
 | `tether.set_properties` | 设置任意属性，逐项回读确认 |
 | `tether.capture` | 拍一张并等所有文件传完，返回路径和参数快照 |
+| `tether.files`、`tether.download` | 列出存储卡文件；按文件名下载（视频附 M01.XML） |
+| `tether.record_clip` | 录一段指定秒数的视频并取回 MP4 + XML |
 
 CLI 的方法可以写成分隔的命令，例如 `projects list`；下划线操作可以写成连字符，例如 `sources open-card`。完整方法也可通过 `minidit call METHOD 'JSON'` 调用。
 
@@ -152,7 +154,9 @@ minidit tether capture --out-dir /path/to/dir --timeout-seconds 60
 - 错误码：`unknown_property`、`invalid_value`（附可选值）、`not_writable`（区分“仅显示”和“未启用”）、`readback_mismatch`、`camera_busy`、`card_full`、`card_unavailable`、`camera_lost`、`capture_timeout`、`file_exists`。
 - `capture` 等到相机没有待传文件、新文件 0.6 秒不再变化才返回；结果含文件路径和字节数、`settings`（按下快门前的曝光、白平衡、Creative Look、文件格式等快照）。`outDir` 里已有同名文件时报 `file_exists`，一个都不复制；照片始终在联机缓存和存储卡上各有一份。开启自动导入时照片仍会按项目导入，脚本化拍摄可先 `tether configure --auto-import false`。
 - `tether.status` 的 `info` 里有镜头、焦距、电量、固件、两个卡槽剩余张数、曝光模式、照片存储位置、PriorityKey。
-- CLI 等待回复的时间：`capture` 330 秒、`set_properties` 90 秒、其余 10 秒。
+- `tether.files` / `download` / `record_clip` 用远程传输（0x923B–0x923E）读卡，走联机的同一条连接，不用切换模式。`files --latest N --slot 1|2` 新的在前；`download --names A,B --out-dir DIR [--slot N]` 两个卡槽有同名文件时默认卡槽 1；视频另写出 MP4 内嵌的 XML（`C0001M01.XML`，与卡上的 M01.XML 一字不差）。先写成隐藏的 `.partial` 再改名，已有同名文件报 `file_exists`。
+- `record_clip --seconds S [--out-dir DIR]`：开始录像 → 等 S 秒 → 停止 → 等新片段出现在卡上（`timeoutSeconds`，默认 120）→ 下载。α7 V 上开始和停止各有延迟，结果里的 `durationSeconds`（来自 XML）是实际时长，2 秒约为 1.5 秒。
+- CLI 等待回复的时间：`capture` 330 秒、`set_properties` 90 秒、`files` 120 秒、`download` 3600 秒、`record_clip` 录像秒数 + 超时 + 3600 秒、其余 10 秒。
 
 ## 本地接口与安装
 

@@ -188,6 +188,22 @@ final class TetherSession {
     // MARK: agent 接口用：任意属性、拍完等文件
 
     struct CaptureTimeout: Error { let received: [URL] }
+    struct RecordingTimeout: Error { let wanted: Bool }
+
+    /// 存储卡内容（远程传输，走同一条连接）。
+    func contentLibrary() async throws -> SonyRemoteTransferLibrary { try await camera.contentLibrary() }
+
+    /// 开始 / 停止录像，等相机报告的录像状态变过来（最多 timeout 秒）。
+    func setRecordingWaiting(_ on: Bool, timeout: TimeInterval = 8) async throws {
+        try await camera.setRecording(on)
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            await refresh()
+            if status.isRecording == on { return }
+            try await Task.sleep(for: .milliseconds(200))
+        }
+        throw RecordingTimeout(wanted: on)
+    }
 
     func properties() async throws -> [SonyPropertyDesc] { try await camera.allProperties() }
 

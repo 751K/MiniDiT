@@ -34,6 +34,14 @@ import FakeSonyCamera
         #expect(SonyPropertyCatalog.parse(0xD222, "card+pc", allowed: [1, 0x10, 0x11]) == 0x11)
         #expect(SonyPropertyCatalog.parse(0x500A, "MF", allowed: [1, 2, 0x8004]) == 1)
         #expect(SonyPropertyCatalog.parse(0xD289, "0x7", allowed: [6, 7, 1]) == 7)
+        // 白平衡微调（α7 V 实测：A2 = 200、G1 = 196）。
+        #expect(SonyPropertyCatalog.label(0xD21C, 200) == "A2" && SonyPropertyCatalog.label(0xD210, 196) == "G1")
+        #expect(SonyPropertyCatalog.label(0xD21C, 186) == "B1.5" && SonyPropertyCatalog.label(0xD210, 191) == "M0.25")
+        #expect(SonyPropertyCatalog.label(0xD21C, 192) == "0")
+        #expect(SonyPropertyCatalog.parse(0xD21C, "A2", allowed: []) == 200 && SonyPropertyCatalog.parse(0xD210, "M0.25", allowed: []) == 191)
+        #expect(SonyPropertyCatalog.parse(0xD210, "G7", allowed: []) == 220 && SonyPropertyCatalog.parse(0xD21C, "0", allowed: []) == 192)
+        #expect(SonyPropertyCatalog.parse(0xD253, "RAW+HEIF", allowed: [1, 4, 5]) == 4)
+        #expect(SonyPropertyCatalog.parse(0xD252, "ExFine", allowed: [1, 2, 3, 4]) == 1)
     }
 
     @Test func setVerifiedChecksAndReadsBack() async throws {

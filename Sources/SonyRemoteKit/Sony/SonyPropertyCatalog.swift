@@ -55,9 +55,22 @@ public enum SonyPropertyCatalog {
         0xD15E: [1: "sRGB", 2: "AdobeRGB"],
         0xD222: [0x01: "PC", 0x10: "Card", 0x11: "Card+PC"],
         0xD25A: [0: "Camera", 1: "PC"],
+        // α7 V 实测（改菜单前后对比）：RAW = 1、RAW+HEIF = 4；HEIF = 5 与 SDK 和 0xD269 一致。全局与分卡槽的属性同一套值。
+        // 压缩格式选 JPEG（0xD287 = 1）时的取值未测。
+        0xD253: fileType, 0xD28B: fileType, 0xD28C: fileType,
+        // 画质：实测「超精细」= 1、「精细」= 2、「标准」= 3（4 = 轻量，由排除法），和 SDK 的 CrImageQuality（1 = 轻量）正好相反。
+        0xD252: quality, 0xD28D: quality, 0xD28E: quality,
+        // 图像尺寸：实测 M = 2、S = 3，与 SDK 一致。
+        0xD203: [1: "L", 2: "M", 3: "S"], 0xD28F: [1: "L", 2: "M", 3: "S"], 0xD290: [1: "L", 2: "M", 3: "S"],
+        // RAW 压缩：实测「无损压缩」= 6、「压缩HQ」= 7、「压缩」= 1（α7 V 没有「未压缩」）。
+        0xD288: rawCompression, 0xD289: rawCompression, 0xD28A: rawCompression,
         // 传到电脑的格式（libgphoto2 表；α7 V 实测 4 = ARW + HIF、5 = 只有 HIF）。
         0xD269: [1: "RAW+JPEG", 2: "JPEG", 3: "RAW", 4: "RAW+HEIF", 5: "HEIF"],
     ]
+
+    static let fileType: [Int64: String] = [1: "RAW", 4: "RAW+HEIF", 5: "HEIF"]
+    static let quality: [Int64: String] = [1: "ExFine", 2: "Fine", 3: "Standard", 4: "Light"]
+    static let rawCompression: [Int64: String] = [6: "Lossless", 7: "CompressedHQ", 1: "Compressed"]
 
     /// 带符号整数参数（Creative Look 各项、曝光补偿以外的 ±n）。
     static let signedIntegers: Set<UInt16> = [0xD0FB, 0xD0FC, 0xD0FD, 0xD0FE, 0xD0FF, 0xD100, 0xD101, 0xD102]
@@ -71,6 +84,7 @@ public enum SonyPropertyCatalog {
         case 0x5010, 0xD224: return SonyFormat.exposureBias(v)
         case 0xD20F: return v > 0 ? "\(v)K" : nil
         case 0xD218: return v < 0 ? nil : "\(v)%"
+        case 0xD21C, 0xD210: return colorTuning(code, v)
         default: return signedIntegers.contains(code) ? (v > 0 ? "+\(v)" : "\(v)") : nil
         }
     }
@@ -100,11 +114,35 @@ public enum SonyPropertyCatalog {
             if let d = Double(key.replacingOccurrences(of: "ev", with: "")) {
                 return candidates.first { abs(Double(Int16(truncatingIfNeeded: $0)) / 1000 - d) < 0.05 }
             }
+        case 0xD21C, 0xD210:
+            if let v = parseColorTuning(code, key) { return v }
         default: break
         }
         // 3. 原始值。
         if key.hasPrefix("0x"), let v = Int64(key.dropFirst(2), radix: 16) { return v }
         return Int64(key.hasPrefix("+") ? String(key.dropFirst()) : key)
+    }
+
+    // 白平衡微调：0xD21C A–B、0xD210 G–M，中心 192，每格 4（α7 V 实测 A2 = 200、G1 = 196）。
+    // AB 的步进是 2（半格），GM 是 1（四分之一格）。A、G 为正。
+    static func colorTuning(_ code: UInt16, _ v: Int64) -> String {
+        let steps = Double(v - 192) / 4
+        if steps == 0 { return "0" }
+        let (pos, neg) = code == 0xD21C ? ("A", "B") : ("G", "M")
+        let n = abs(steps)
+        let text = n == n.rounded() ? String(Int(n)) : String(format: n * 2 == (n * 2).rounded() ? "%.1f" : "%.2f", n)
+        return (steps > 0 ? pos : neg) + text
+    }
+
+    static func parseColorTuning(_ code: UInt16, _ key: String) -> Int64? {
+        let (pos, neg) = code == 0xD21C ? ("a", "b") : ("g", "m")
+        guard let first = key.first else { return nil }
+        let sign: Double
+        switch String(first) { case pos: sign = 1; case neg: sign = -1; default: return key == "0" ? 192 : nil }
+        guard let n = Double(key.dropFirst()) else { return nil }
+        let units = sign * n * 4
+        guard units == units.rounded() else { return nil }
+        return 192 + Int64(units)
     }
 
     private static func normalize(_ s: String) -> String {

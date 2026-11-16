@@ -29,7 +29,8 @@ extension AppModel {
     /// 需要等相机回应的操作（回读确认、拍完等文件）走这里，其余照旧同步处理。
     func agentCallAsync(_ method: String, params p: AgentJSON = .object([:])) async throws -> AgentJSON {
         guard let tool = AgentTools.find(method) else { throw AgentControlError("unknown_method", "未知操作：\(method)") }
-        guard ["tether.properties", "tether.get", "tether.set_properties", "tether.capture"].contains(tool.method) else {
+        guard ["tether.properties", "tether.get", "tether.set_properties", "tether.capture",
+               "tether.files", "tether.download", "tether.record_clip"].contains(tool.method) else {
             return try agentCall(method, params: p)
         }
         try tool.validate(p)

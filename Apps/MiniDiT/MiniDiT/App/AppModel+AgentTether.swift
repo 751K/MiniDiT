@@ -278,9 +278,137 @@ extension AppModel {
                 "copies": .array(copies), "settings": .object(settings),
                 "autoImport": .bool(tetherAutoImport && currentSession != nil),
             ])
+        case "tether.files":
+            let lib = try await mapped { try await t.contentLibrary() }
+            let all = try await mapped { try await Self.cardFiles(lib, slot: p["slot"].int.map(UInt32.init)) }
+            let latest = p["latest"].int ?? 20
+            return .object(["total": .integer(all.count), "files": .array(all.prefix(latest).map(Self.cardFileJSON))])
+        case "tether.download":
+            let outDir = try Self.outDirectory(p["outDir"].string!)
+            let names = p["names"].array!.compactMap(\.string)
+            guard !names.isEmpty else { throw AgentControlError("invalid_params", "names 不能为空。") }
+            let lib = try await mapped { try await t.contentLibrary() }
+            let all = try await mapped { try await Self.cardFiles(lib, slot: nil) }
+            let want = UInt32(p["slot"].int ?? 1)
+            var picked: [CardFile] = []
+            for n in names {
+                let hits = all.filter { $0.item.filename.caseInsensitiveCompare(n) == .orderedSame }
+                guard let f = hits.first(where: { $0.slot == want }) ?? hits.first else {
+                    throw AgentControlError("not_found", "存储卡上没有 \(n)。")
+                }
+                picked.append(f)
+            }
+            return .object(["files": .array(try await Self.download(picked, from: lib, to: outDir))])
+        case "tether.record_clip":
+            let seconds = p["seconds"].int!
+            let outDir = try p["outDir"].string.map(Self.outDirectory)
+            let lib = try await mapped { try await t.contentLibrary() }
+            let before = Set(try await mapped { try await Self.cardFiles(lib, slot: nil) }.filter { $0.item.kind == .video }.map(\.key))
+            do {
+                try await t.setRecordingWaiting(true)
+                try await Task.sleep(for: .seconds(seconds))
+                try await t.setRecordingWaiting(false, timeout: 15)
+            } catch is TetherSession.RecordingTimeout {
+                try? await t.setRecordingWaiting(false, timeout: 15)
+                throw AgentControlError("record_failed", "相机没有进入或退出录像状态（检查是否插卡、录像设置是否可用）。")
+            } catch {
+                try? await t.setRecordingWaiting(false, timeout: 15)
+                throw Self.cameraError(error)
+            }
+            // 停止后片段要过一会儿才出现在卡的列表里。
+            let deadline = Date().addingTimeInterval(TimeInterval(p["timeoutSeconds"].int ?? 120))
+            var clips: [CardFile] = []
+            while Date() < deadline {
+                try await Task.sleep(for: .seconds(1))
+                guard let fresh = try? await Self.cardFiles(try await t.contentLibrary(), slot: nil) else { continue }
+                clips = fresh.filter { $0.item.kind == .video && !before.contains($0.key) }
+                if !clips.isEmpty { break }
+            }
+            guard !clips.isEmpty else { throw AgentControlError("record_timeout", "录像已停止，但存储卡上没有出现新的片段。") }
+            var downloaded: [AgentJSON] = []
+            if let outDir {
+                // 两个卡槽同时记录时文件名相同：只下载卡槽 1 的那份。
+                var seen = Set<String>()
+                let unique = clips.sorted { $0.slot < $1.slot }.filter { seen.insert($0.item.filename.uppercased()).inserted }
+                downloaded = try await Self.download(unique, from: try await t.contentLibrary(), to: outDir)
+            }
+            return .object(["clips": .array(clips.map(Self.cardFileJSON)), "files": .array(downloaded)])
         default:
             throw AgentControlError("unknown_method", "未知操作：\(method)")
         }
+    }
+
+    struct CardFile {
+        let item: CameraContentItem
+        let slot: UInt32
+        let path: String?
+        var key: String { "\(slot)|\(path ?? item.filename)|\(item.captureDateRaw)" }
+    }
+
+    /// 存储卡上的文件，新的在前。
+    static func cardFiles(_ lib: SonyRemoteTransferLibrary, slot: UInt32?) async throws -> [CardFile] {
+        var out: [CardFile] = []
+        for f in try await lib.folders() where slot == nil || f.id == slot {
+            for h in try await lib.handles(in: f) {
+                out.append(CardFile(item: try await lib.item(h), slot: f.id, path: await lib.sourcePath(h)))
+            }
+        }
+        return out.enumerated().sorted { a, b in
+            let x = a.element.item.captureDate ?? .distantPast, y = b.element.item.captureDate ?? .distantPast
+            return x != y ? x > y : a.offset < b.offset
+        }.map(\.element)
+    }
+
+    static func cardFileJSON(_ f: CardFile) -> AgentJSON {
+        .object(["id": .integer(f.item.id), "filename": .string(f.item.filename), "path": .optional(f.path),
+                 "bytes": .integer(f.item.size), "slot": .integer(f.slot), "kind": .string(String(describing: f.item.kind)),
+                 "capturedAt": .optional(f.item.captureDate.map { ISO8601DateFormatter().string(from: $0) }),
+                 "captureDateRaw": .string(f.item.captureDateRaw)])
+    }
+
+    static func outDirectory(_ text: String) throws -> URL {
+        let path = (text as NSString).expandingTildeInPath
+        guard path.hasPrefix("/") else { throw AgentControlError("invalid_params", "outDir 需要绝对路径。") }
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue else {
+            throw AgentControlError("invalid_path", "目录不存在：" + path)
+        }
+        return URL(filePath: path)
+    }
+
+    /// 下载到目录：先检查全部目标（含视频的 XML）都不存在；每个文件先写成隐藏的 .partial，完整后再改名。
+    static func download(_ files: [CardFile], from lib: SonyRemoteTransferLibrary, to dir: URL) async throws -> [AgentJSON] {
+        let fm = FileManager.default
+        func xmlName(_ f: CardFile) -> String { (f.item.filename as NSString).deletingPathExtension + "M01.XML" }
+        var targets = files.map { dir.appending(path: $0.item.filename) }
+        targets += files.filter { $0.item.kind == .video }.map { dir.appending(path: xmlName($0)) }
+        if let clash = targets.first(where: { fm.fileExists(atPath: $0.path) }) {
+            throw AgentControlError("file_exists", "目标目录里已有同名文件，未下载：" + clash.path)
+        }
+        var out: [AgentJSON] = []
+        for f in files {
+            let dst = dir.appending(path: f.item.filename)
+            let partial = dir.appending(path: ".\(f.item.filename).partial")
+            try? fm.removeItem(at: partial)
+            do {
+                try await lib.download(f.item, to: partial, from: 0) { _, _ in }
+                try fm.moveItem(at: partial, to: dst)
+            } catch {
+                try? fm.removeItem(at: partial)
+                throw cameraError(error)
+            }
+            var o: [String: AgentJSON] = ["path": .string(dst.path), "filename": .string(f.item.filename),
+                                          "bytes": .integer((try? dst.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)]
+            if f.item.kind == .video, let xml = await lib.clipXML(f.item.id) {
+                let x = dir.appending(path: xmlName(f))
+                // 实际时长：开始和停止录像各有约零点几秒的延迟，片段会比要求的短一点。
+                if let d = ClipInfo.parse(xml)?.duration { o["durationSeconds"] = .number(d) }
+                do { try xml.write(to: x, options: .withoutOverwriting); o["xml"] = .string(x.path) }
+                catch { throw AgentControlError("write_failed", "XML 写入失败：\(error.localizedDescription)") }
+            }
+            out.append(.object(o))
+        }
+        return out
     }
 
     /// 名字或编号 → 属性码；找不到时报 unknown_property。

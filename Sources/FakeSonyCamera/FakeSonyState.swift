@@ -28,6 +28,7 @@ public final class FakeSonyState: @unchecked Sendable {
     /// 0x9210 收到的功能模式。
     public private(set) var sessionMode: UInt32?
     private var contentsOn = false
+    private var clipCount = 0
     private var readyPolls = 0
     public let jpeg = Data([0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3, 4, 0xFF, 0xD9])
     /// 可替换成真实画面（命令行模拟器会生成真正的 JPEG）。
@@ -166,6 +167,16 @@ public final class FakeSonyState: @unchecked Sendable {
                     setValue(SonyProperty.movieRecordingState, 1)
                 case (SonyControl.movieRecord, SonyControl.up):
                     setValue(SonyProperty.movieRecordingState, 0)
+                    // 和真机一样：停止后卡上多一个片段（MP4 末尾内嵌 M01 XML）。
+                    if let card = remoteSlots[1] {
+                        clipCount += 1
+                        let name = String(format: "C%04d", 100 + clipCount)
+                        let xml = Data("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<NonRealTimeMeta xmlns=\"urn:schemas-professionalDisc:nonRealTimeMeta:ver.2.20\"><Duration value=\"25\"/><VideoFormat><VideoFrame videoCodec=\"HEVC\" captureFps=\"25p\" formatFps=\"25p\"/></VideoFormat></NonRealTimeMeta>\n".utf8)
+                        let f = FakeCard.Formatter.clipDate(clipCount)
+                        _ = card.add(PTPObjectInfo(format: PTPObjectFormat.mp4, size: 0, parent: 0, filename: name + ".MP4",
+                                                   captureDate: f, imageWidth: 3840, imageHeight: 2160),
+                                     data: Data(repeating: 0x43, count: 200_000) + xml)
+                    }
                 default: break
                 }
                 return .init()

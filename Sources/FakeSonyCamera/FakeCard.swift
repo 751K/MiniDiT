@@ -73,6 +73,11 @@ public final class FakeCard: @unchecked Sendable {
         return card
     }
 
+    enum Formatter {
+        /// 录像片段的拍摄时间：比样例卡上的内容都新。
+        static func clipDate(_ n: Int) -> String { String(format: "20261201T12%02d00", n % 60) }
+    }
+
     /// 远程传输视角：同名（不含扩展名）的文件合成一次拍摄，按创建时间排序。
     private func contents() -> [(content: SonyContent, handles: [UInt32])] {
         var groups: [String: [UInt32]] = [:]

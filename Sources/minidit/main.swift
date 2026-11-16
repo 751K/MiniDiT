@@ -24,7 +24,15 @@ func perform(_ method: String, _ params: AgentJSON) throws -> AgentJSON {
     }
     let path = ProcessInfo.processInfo.environment["MINIDIT_SOCKET_PATH"] ?? AgentSocket.path
     // 拍摄要等相机把文件传完；设置要等回读确认。
-    let timeout = tool.method == "tether.capture" ? 330 : tool.method == "tether.set_properties" ? 90 : 10
+    let timeout: Int
+    switch tool.method {
+    case "tether.capture": timeout = 330
+    case "tether.set_properties": timeout = 90
+    case "tether.download": timeout = 3600
+    case "tether.record_clip": timeout = (params["seconds"].int ?? 0) + (params["timeoutSeconds"].int ?? 120) + 3600
+    case "tether.files": timeout = 120
+    default: timeout = 10
+    }
     return try AgentSocket.request(.init(method: tool.method, params: params), path: path, timeout: timeout)
 }
 
