@@ -136,7 +136,8 @@ extension AppModel {
         o["info"] = .object(["lens": v(0xD07B), "focalLength": v(0xD00B), "battery": v(0xD218), "firmware": v(0xD040),
                              "slot1RemainingShots": v(0xD249), "slot2RemainingShots": v(0xD257),
                              "exposureProgram": v(0x500E), "storeDestination": v(0xD222), "priorityKey": v(0xD25A),
-                             "movieRecordingState": v(0xD21D)])
+                             "movieRecordingState": v(0xD21D),
+                             "shootingMode": .optional(pr[0x500E]?.intValue.flatMap(SonyPropertyCatalog.shootingMode)?.mode.rawValue)])
         o["settings"] = .array(s.settings.map { c in .object([
             "setting": .string(c.kind.rawValue), "title": .string(c.kind.title), "label": .string(c.valueText),
             "value": c.currentValue.map { .integer($0) } ?? .null, "editable": .bool(c.isEditable),
@@ -333,6 +334,8 @@ extension AppModel {
                 "copies": .array(copies), "settings": .object(settings),
                 "autoImport": .bool(tetherAutoImport && currentSession != nil),
             ])
+        case "tether.mode":
+            return try await agentTetherMode(t, p)
         case "tether.files":
             let lib = try await mapped { try await t.contentLibrary() }
             let all = try await mapped { try await Self.cardFiles(lib, slot: p["slot"].int.map(UInt32.init)) }
@@ -391,6 +394,43 @@ extension AppModel {
         default:
             throw AgentControlError("unknown_method", "未知操作：\(method)")
         }
+    }
+
+    /// 切换拍照 / 录像（曝光模式 0x500E 换到另一组）。曝光字母不给时沿用当前的（照片 M ↔ 录像 M）。
+    /// 曝光模式「仅显示」时说明由相机拨盘控制：先把 PriorityKey 改成 PC（记为改过，结束联机时改回）。
+    func agentTetherMode(_ t: TetherSession, _ p: AgentJSON) async throws -> AgentJSON {
+        let code = SonyProperty.exposureProgramMode
+        let all = Dictionary(try await mapped { try await t.properties() }.map { ($0.code, $0) }, uniquingKeysWith: { _, b in b })
+        guard let d = all[code], let current = d.intValue else { throw AgentControlError("unknown_property", "相机没有报告曝光模式。") }
+        let target = SonyPropertyCatalog.ShootingMode(rawValue: p["mode"].string!)!
+        let from = SonyPropertyCatalog.shootingMode(current)
+        guard let exposure = p["exposure"].string?.lowercased() ?? from?.exposure else {
+            throw AgentControlError("invalid_params", "当前曝光模式（\(SonyFormat.exposureProgram(current))）无法对应，请用 exposure 指定 auto、p、a、s 或 m。")
+        }
+        guard let value = SonyPropertyCatalog.exposureProgram(target, exposure: exposure, allowed: d.allowedValues) else {
+            throw AgentControlError("invalid_value", "相机不支持\(Self.modeTitle(target))的 \(exposure.uppercased()) 模式。")
+        }
+        var priorityChanged = false
+        if d.getSet == 1, d.isEnabled == 2, value != current {
+            guard let pk = all[SonyProperty.priorityMode], pk.isWritable, pk.intValue == 0 else {
+                throw AgentControlError("not_writable", "曝光模式由相机拨盘控制，且无法把 PriorityKey 改成 PC 优先。")
+            }
+            do { _ = try await t.setVerified(SonyProperty.priorityMode, .int(1), timeout: 5) } catch { throw Self.cameraError(error) }
+            priorityChanged = true
+        }
+        let result: SonyPropertyDesc
+        do { result = try await t.setVerified(code, .int(value), timeout: TimeInterval(p["timeoutSeconds"].int ?? 8)) }
+        catch { throw Self.cameraError(error) }
+        log.add("Agent 切换到\(Self.modeTitle(target))：\(SonyFormat.exposureProgram(value))")
+        return .object([
+            "mode": .string(target.rawValue), "exposure": .string(exposure),
+            "from": Self.valueJSON(code, .int(current)), "to": Self.valueJSON(code, result.current),
+            "priorityKeyChanged": .bool(priorityChanged),
+        ])
+    }
+
+    static func modeTitle(_ m: SonyPropertyCatalog.ShootingMode) -> String {
+        switch m { case .photo: "拍照"; case .movie: "录像"; case .sq: "S&Q" }
     }
 
     struct CardFile {

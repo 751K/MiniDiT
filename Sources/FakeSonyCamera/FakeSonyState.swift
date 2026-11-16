@@ -48,7 +48,11 @@ public final class FakeSonyState: @unchecked Sendable {
         p(SonyProperty.iso, .uint32, 0x00FF_FFFF, [0x00FF_FFFF, 100, 200, 400, 0x01FF_FFFF])
         p(SonyProperty.exposureBias, .int16, 0, [-1000, -300, 0, 300, 700])
         p(SonyProperty.whiteBalance, .uint16, 0x0002, [0x0002, 0x0004, 0x8010, 0x8012])
-        p(SonyProperty.exposureProgramMode, .uint32, 0x0000_0001, writable: false)
+        // 和 α7 V 一样：照片 P/A/S/M/智能自动 + 录像 P/A/S/M/智能自动；相机优先时仅显示（见 setValue）。
+        p(SonyProperty.exposureProgramMode, .uint32, 0x0000_0001,
+          [0x48000, 0x10002, 0x20003, 0x30004, 0x1, 0x78054, 0x78050, 0x78051, 0x78052, 0x78053,
+           0x9805D, 0x98059, 0x9805A, 0x9805B, 0x9805C])
+        setEnabled(SonyProperty.exposureProgramMode, 2)
         p(SonyProperty.focusMode, .uint16, 2, writable: false)
         p(SonyProperty.focusFound, .uint8, 1, writable: false)
         p(SonyProperty.objectInMemory, .uint16, 0, writable: false)
@@ -68,6 +72,14 @@ public final class FakeSonyState: @unchecked Sendable {
         guard let p = props[code] else { return }
         props[code] = SonyPropertyDesc(code: p.code, dataType: p.dataType, getSet: p.getSet, isEnabled: p.isEnabled,
                                        factoryDefault: p.factoryDefault, current: .int(v), form: p.form)
+        // PC 优先时曝光模式才能远程改。
+        if code == SonyProperty.priorityMode { setEnabled(SonyProperty.exposureProgramMode, v == 1 ? 1 : 2) }
+    }
+
+    private func setEnabled(_ code: UInt16, _ e: UInt8) {
+        guard let p = props[code] else { return }
+        props[code] = SonyPropertyDesc(code: p.code, dataType: p.dataType, getSet: p.getSet, isEnabled: e,
+                                       factoryDefault: p.factoryDefault, current: p.current, form: p.form)
     }
 
     public var controlLog: [(code: UInt16, value: UInt16)] { lock.withLock { controls } }
@@ -144,7 +156,7 @@ public final class FakeSonyState: @unchecked Sendable {
                 let bytes = [UInt8](dataOut ?? Data())
                 sets.append((c, bytes))
                 guard let p = props[c] else { return .init() }  // 未知属性（如 PriorityMode）照样返回 OK
-                guard p.getSet == 1 else { return .init(code: PTPResponse.accessDenied) }
+                guard p.getSet == 1, p.isEnabled == 1 else { return .init(code: PTPResponse.accessDenied) }
                 var r = PTPReader(bytes)
                 guard let v = try? PTPValue.read(p.dataType, from: &r).intValue else {
                     return .init(code: 0x201C)

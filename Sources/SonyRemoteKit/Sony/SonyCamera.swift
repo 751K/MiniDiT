@@ -115,10 +115,20 @@ public actor SonyCamera: RemoteCamera {
         try await refreshProperties(force: true)
         // 让 APP 优先控制（失败不影响后续）。记下原值，断开前改回去。
         let priorityBefore = props[SonyProperty.priorityMode]?.current
-        _ = try? await sendSet(SonyProperty.priorityMode, .int(1), type: .uint8)
-        try await refreshProperties(force: true)
-        if let before = priorityBefore, before != .none, let now = props[SonyProperty.priorityMode]?.current, now != before {
-            originalValues.append((SonyProperty.priorityMode, before))
+        if let before = priorityBefore, before != .int(1) {
+            _ = try? await sendSet(SonyProperty.priorityMode, .int(1), type: props[SonyProperty.priorityMode]?.dataType ?? .uint8)
+            // 相机要过一会儿才报告新值：最多等 1 秒，真的改动了才记下原值（断开时改回）。
+            for _ in 0..<10 {
+                try await refreshProperties(force: true)
+                if props[SonyProperty.priorityMode]?.current != before { break }
+                try await Task.sleep(for: .milliseconds(100))
+            }
+            if let now = props[SonyProperty.priorityMode]?.current, now != before {
+                originalValues.append((SonyProperty.priorityMode, before))
+            }
+        } else if priorityBefore == nil {
+            _ = try? await sendSet(SonyProperty.priorityMode, .int(1), type: .uint8)
+            try await refreshProperties(force: true)
         }
 
         // 照片若只存卡，就不会传给手机；改成「卡 + 主机」。
@@ -153,6 +163,10 @@ public actor SonyCamera: RemoteCamera {
     public func disconnect() async {
         eventTask?.cancel()
         if halfPressed { _ = try? await control(SonyControl.shutterHalfPress, SonyControl.up) }
+        // 连接时把优先权改成了 PC：断开前交还相机（导入和联机都经过这里），相机上的拨盘才能继续用。
+        if originalValues.contains(where: { $0.code == SonyProperty.priorityMode }) {
+            _ = await restoreChanged(only: [SonyProperty.priorityMode], timeout: 2)
+        }
         await client.shutdown()
         notify.finish()
     }

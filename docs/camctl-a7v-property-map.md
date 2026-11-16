@@ -11,7 +11,7 @@
 
 | 需求 | 属性码 | SDK 名称 | 现在 | 状态 | 备注 |
 |---|---|---|---|---|---|
-| 曝光模式 M | 0x500E | ExposureProgramMode | 1（M） | 🔒 | 当前由相机拨盘控制。0xD25A PriorityKeySettings 现为 0（相机优先），改成 1（PC 优先）后预计可写；可选值里还有一批 0x7805x / 0x9805x / 0xC809x，看起来是录像和 S&Q 的曝光模式 |
+| 曝光模式 M | 0x500E | ExposureProgramMode | 1（M） | ✅ | 相机优先（0xD25A = 0）时仅显示，PC 优先时可写。取值见下方「拍照 / 录像切换」 |
 | ISO | 0xD21E | IsoSensitivity | 100 | ✅ | 35 个选项，含 AUTO（0xFFFFFF） |
 | 快门 | 0xD20D | ShutterSpeed | 1/15 | ✅ | 56 个选项；另有 0xD19F ExtendedShutterSpeed（UINT64） |
 | 光圈 | 0x5007 | FNumber | F5.6 | 🔒 | 同曝光模式，需 PC 优先 |
@@ -68,7 +68,27 @@
 | 录像格式 | 0xD241 | Movie_File_Format | 11 | ❓ | {11, 8, 9, 14, 15} |
 | 分辨率 / 码率 | 0xD242 | Movie_Recording_Setting | 46 | ❓ | {46, 50, 54, 59, 64} |
 | 帧率 | 0xD286 | Movie_Recording_FrameRateSetting | 3 | ❓ | {3, 7, 1} |
-| 拍照 / 录像切换 | — | — | — | ❓ | 没有单独的切换属性；ExposureProgramMode 的可选值里有录像模式，PC 优先时或许能切 |
+| 拍照 / 录像切换 | 0x500E | ExposureProgramMode | — | ✅ | 没有单独的切换属性：把曝光模式改到另一组即可，见下方 |
+
+## 拍照 / 录像切换（2026-11-16 实测）
+
+曝光模式的值 = 模式组（高位）+ SDK 的 CrExposureProgram（低 16 位）。每组相机列出的顺序都是：智能自动、P、A、S、M。
+
+| 组 | 智能自动 | P | A | S | M | 状态 |
+|---|---|---|---|---|---|---|
+| 照片 | 0x48000 | 0x10002 | 0x20003 | 0x30004 | 0x1 | ✅ |
+| 录像 | 0x78054 | 0x78050 | 0x78051 | 0x78052 | 0x78053 | ✅ 拨杆拨到录像时读到 0x78053 |
+| S&Q | 0x9805D | 0x98059 | 0x9805A | 0x9805B | 0x9805C | ✅ 拨杆拨到 S&Q 时读到 0x9805C |
+| 未知 | 0xC8097 | 0xC8093 | 0xC8094 | 0xC8095 | 0xC8096 | ❓ |
+
+- 拨杆在录像时，PC 优先下写 1 能切到照片 M，再写 0x78053 切回；照片 P → 录像 A → 录像 M 也都成功，每次加回读约 0.3 秒。拨杆位置不影响远程切换。
+- 切到录像后，照片专用的属性（Creative Look、传到电脑的格式、DRO、色彩空间等）变为未启用或仅显示，录像专用的（防抖、时间码、录音、对焦图等）变为可写；切回后恢复。
+- 拨杆在录像、相机优先时，白平衡、ISO、快门读到的是录像那一套值（例如 ISO 800、色温 4600K），说明照片和录像各自记一套曝光设置。
+- MiniDiT：`tether mode --mode photo|movie|sq [--exposure auto|p|a|s|m]`，不给 exposure 时沿用当前字母；需要时先把 PriorityKey 改成 PC，结束联机时改回。
+
+### PriorityKey 的回读延迟
+
+连接时写入 PC 优先后，相机要过一会儿才报告新值。原先写完立刻读，读到的还是旧值，于是没记下原值，结束时也就没改回去，相机一直停在 PC 优先。现在最多等 1 秒；实测连接后 `changedProperties` 里有 PriorityKeySettings（原值 Camera），`tether stop` 后用 camctl 只读确认已回到 Camera。
 
 ## info 用到的
 

@@ -99,6 +99,7 @@ MCP 暴露与 CLI 对应的 35 个工具，例如 `minidit_projects_list`、`min
 | `tether.capture` | 拍一张并等所有文件传完，返回路径和参数快照 |
 | `tether.files`、`tether.download` | 列出存储卡文件；按文件名下载（视频附 M01.XML） |
 | `tether.record_clip` | 录一段指定秒数的视频并取回 MP4 + XML |
+| `tether.mode` | 切换拍照 / 录像 / S&Q（需要时先改成 PC 优先） |
 
 CLI 的方法可以写成分隔的命令，例如 `projects list`；下划线操作可以写成连字符，例如 `sources open-card`。完整方法也可通过 `minidit call METHOD 'JSON'` 调用。
 
@@ -127,6 +128,7 @@ minidit tether shoot
 minidit tether live-view --max-width 1024           # data 字段为 base64 JPEG
 minidit tether live-view --out-file /path/frame.jpg   # 原始帧写成文件，不覆盖
 minidit tether configure --auto-import false
+minidit tether mode --mode movie                     # 照片 M ↔ 录像 M；--exposure auto|p|a|s|m 可另选
 minidit tether stop --restore-settings true         # 先改回本次改过的属性再断开
 ```
 

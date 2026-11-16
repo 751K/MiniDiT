@@ -80,6 +80,13 @@ public enum SonyFormat {
         case 0x0007_8051: "动态影像 A"
         case 0x0007_8052: "动态影像 S"
         case 0x0007_8053: "动态影像 M"
+        case 0x0007_8054: "动态影像 智能自动"
+        // α7 V 实测（拨杆拨到 S&Q：M = 0x9805C）；0x8808x 是旧机型的值。
+        case 0x0009_8059: "S&Q P"
+        case 0x0009_805A: "S&Q A"
+        case 0x0009_805B: "S&Q S"
+        case 0x0009_805C: "S&Q M"
+        case 0x0009_805D: "S&Q 智能自动"
         case 0x0008_8084: "S&Q P"
         case 0x0008_8085: "S&Q A"
         case 0x0008_8086: "S&Q S"

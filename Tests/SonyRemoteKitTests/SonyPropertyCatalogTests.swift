@@ -52,8 +52,8 @@ import FakeSonyCamera
         let cam = try await SonyCamera.connect(host: "127.0.0.1", port: port, identity: .random(name: "Test"), startupDelay: 0)
         let d = try await cam.setVerified(SonyProperty.iso, .int(400))
         #expect(d.intValue == 400 && state.value(SonyProperty.iso) == 400)
-        await #expect(throws: SonyPropertyError.readOnly(SonyProperty.exposureProgramMode)) {
-            try await cam.setVerified(SonyProperty.exposureProgramMode, .int(2))
+        await #expect(throws: SonyPropertyError.readOnly(SonyProperty.focusMode)) {
+            try await cam.setVerified(SonyProperty.focusMode, .int(1))
         }
         await #expect(throws: SonyPropertyError.invalidValue(SonyProperty.fNumber, allowed: [280, 400, 560, 800, 1100])) {
             try await cam.setVerified(SonyProperty.fNumber, .int(630))
@@ -90,5 +90,17 @@ import FakeSonyCamera
         #expect(state.value(SonyProperty.iso) == 0x00FF_FFFF && state.value(SonyProperty.whiteBalance) == 2)
         #expect(await cam.changedProperties.isEmpty)
         await cam.disconnect()
+    }
+
+    @Test func shootingModeGroups() {
+        func mode(_ v: Int64) -> String? { SonyPropertyCatalog.shootingMode(v).map { "\($0.mode.rawValue) \($0.exposure)" } }
+        #expect(mode(0x78053) == "movie m" && mode(1) == "photo m" && mode(0x10002) == "photo p")
+        #expect(mode(0x9805C) == "sq m" && mode(0xC8096) == nil)
+        let a7v: [Int64] = [0x48000, 0x10002, 0x20003, 0x30004, 0x1, 0x78054, 0x78050, 0x78051, 0x78052, 0x78053]
+        #expect(SonyPropertyCatalog.exposureProgram(.photo, exposure: "P", allowed: a7v) == 0x10002)
+        #expect(SonyPropertyCatalog.exposureProgram(.photo, exposure: "p", allowed: [1, 2, 3, 4]) == 2)
+        #expect(SonyPropertyCatalog.exposureProgram(.movie, exposure: "auto", allowed: a7v) == 0x78054)
+        #expect(SonyPropertyCatalog.exposureProgram(.movie, exposure: "m", allowed: [1, 2]) == nil)
+        #expect(SonyPropertyCatalog.label(0x500E, 0x9805C) == "S&Q M" && SonyPropertyCatalog.label(0x500E, 0x78053) == "Movie M" && SonyPropertyCatalog.parse(0x500E, "Movie M", allowed: a7v) == 0x78053)
     }
 }

@@ -42,7 +42,11 @@ public enum SonyPropertyCatalog {
                  0x0007: "Flash", 0x8030: "UnderwaterAuto", 0x8012: "ColorTemp", 0x8020: "Custom1", 0x8021: "Custom2",
                  0x8022: "Custom3", 0x8023: "Custom"],
         0x500A: [1: "MF", 2: "AF-S", 0x8004: "AF-C", 0x8005: "AF-A", 0x8006: "DMF"],
-        0x500E: [1: "M", 2: "P", 3: "A", 4: "S"],
+        // 曝光模式：低 16 位与 SDK 的 CrExposureProgram 相同，高位是机身的模式组。α7 V 实测：拨杆在录像时 M = 0x78053，在 S&Q 时 M = 0x9805C。
+        0x500E: [1: "M", 2: "P", 3: "A", 4: "S",
+                 0x48000: "Auto", 0x10002: "P", 0x20003: "A", 0x30004: "S",
+                 0x78054: "Movie Auto", 0x78050: "Movie P", 0x78051: "Movie A", 0x78052: "Movie S", 0x78053: "Movie M",
+                 0x9805D: "S&Q Auto", 0x98059: "S&Q P", 0x9805A: "S&Q A", 0x9805B: "S&Q S", 0x9805C: "S&Q M"],
         0x5013: [1: "Single"],
         // Creative Look：1–12 按菜单顺序（SKAARHOJ 的 SDK 控制表 1 ST、2 PT、3 NT 与之吻合），257–262 为自定义外观 1–6（SDK 偏移 256）。
         0xD0FA: [1: "ST", 2: "PT", 3: "NT", 4: "VV", 5: "VV2", 6: "FL", 7: "IN", 8: "SH", 9: "BW", 10: "SE", 11: "FL2", 12: "FL3",
@@ -121,6 +125,31 @@ public enum SonyPropertyCatalog {
         // 3. 原始值。
         if key.hasPrefix("0x"), let v = Int64(key.dropFirst(2), radix: 16) { return v }
         return Int64(key.hasPrefix("+") ? String(key.dropFirst()) : key)
+    }
+
+    // MARK: 拍照 / 录像
+
+    public enum ShootingMode: String, Sendable, CaseIterable { case photo, movie, sq }
+
+    /// 各模式组里的曝光模式值（照片的 P/A/S 另收旧机型的 2/3/4）。
+    static let exposureGroups: [ShootingMode: [String: [Int64]]] = [
+        .photo: ["auto": [0x48000], "p": [0x10002, 2], "a": [0x20003, 3], "s": [0x30004, 4], "m": [1]],
+        .movie: ["auto": [0x78054], "p": [0x78050], "a": [0x78051], "s": [0x78052], "m": [0x78053]],
+        .sq: ["auto": [0x9805D], "p": [0x98059], "a": [0x9805A], "s": [0x9805B], "m": [0x9805C]],
+    ]
+
+    /// 曝光模式值 → (拍照 / 录像, 曝光字母 auto/p/a/s/m)。不认识的返回 nil。
+    public static func shootingMode(_ v: Int64) -> (mode: ShootingMode, exposure: String)? {
+        for (mode, group) in exposureGroups {
+            if let hit = group.first(where: { $0.value.contains(v) }) { return (mode, hit.key) }
+        }
+        return nil
+    }
+
+    /// 目标模式 + 曝光字母 → 相机可选值里对应的那个值。
+    public static func exposureProgram(_ mode: ShootingMode, exposure: String, allowed: [Int64]) -> Int64? {
+        guard let list = exposureGroups[mode]?[exposure.lowercased()] else { return nil }
+        return list.first { allowed.isEmpty || allowed.contains($0) }
     }
 
     // 白平衡微调：0xD21C A–B、0xD210 G–M，中心 192，每格 4（α7 V 实测 A2 = 200、G1 = 196）。

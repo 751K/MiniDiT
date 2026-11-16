@@ -201,9 +201,29 @@ import SonyRemoteKit
         precondition(unknown.code == 1 && unknown.json["error"]["code"].string == "unknown_property")
         let invalid = try await call(["tether", "set-properties", "--assignments", "FNumber=F6.3"])
         precondition(invalid.json["error"]["code"].string == "invalid_value" && invalid.json["error"]["message"].string?.contains("F5.6") == true, "\(invalid.json)")
-        let locked = try await call(["tether", "set-properties", "--assignments", "ISO=200,ExposureProgramMode=P"])
+        let locked = try await call(["tether", "set-properties", "--assignments", "ISO=200,FocusMode=MF"])
         precondition(locked.json["error"]["code"].string == "not_writable" && locked.json["error"]["message"].string?.contains("IsoSensitivity") == true, "\(locked.json)")
         print("PASS: tether.properties / get / set_properties: SDK names, readable values both ways, readback-confirmed writes, unknown / invalid (with options) / not-writable errors that list what already took effect")
+
+        // 拍照 / 录像切换：相机优先时曝光模式仅显示，tether.mode 先把 PriorityKey 改成 PC。
+        let inPhoto = try await call(["tether", "status"])
+        precondition(inPhoto.json["info"]["shootingMode"].string == "photo", "\(inPhoto.json["info"])")
+        _ = try await call(["tether", "set-properties", "--assignments", "PriorityKeySettings=Camera"])
+        let direct = try await call(["tether", "set-properties", "--assignments", "ExposureProgramMode=Movie M"])
+        precondition(direct.json["error"]["code"].string == "not_writable", "\(direct.json)")
+        let movie = try await call(["tether", "mode", "--mode", "movie"])
+        precondition(movie.code == 0 && movie.json["to"]["label"].string == "Movie M" && movie.json["from"]["label"].string == "M"
+                     && movie.json["priorityKeyChanged"].bool == true, "\(movie.json)")
+        try await wait("录像模式") { t2.properties[0x500E]?.intValue == 0x78053 }
+        let inMovie = try await call(["tether", "status"])
+        precondition(inMovie.json["info"]["shootingMode"].string == "movie" && inMovie.json["info"]["priorityKey"]["label"].string == "PC")
+        let sq = try await call(["tether", "mode", "--mode", "sq"])
+        precondition(sq.json["to"]["label"].string == "S&Q M", "\(sq.json)")
+        let photoP = try await call(["tether", "mode", "--mode", "photo", "--exposure", "p"])
+        precondition(photoP.json["to"]["raw"].int == 0x10002 && photoP.json["priorityKeyChanged"].bool == false, "\(photoP.json)")
+        let photoM = try await call(["tether", "mode", "--mode", "photo", "--exposure", "m"])
+        precondition(photoM.json["to"]["raw"].int == 1)
+        print("PASS: tether.mode switches photo / movie keeping or choosing the exposure letter, taking PC priority first when the dial has control")
 
         model.tetherAutoImport = false
         let out = root.appending(path: "out")
@@ -253,13 +273,13 @@ import SonyRemoteKit
         // 改过的属性：连接时的 PriorityKey，加上 set_properties 改的 ISO / 快门 / 光圈（tether.set 走的是界面那条路，不记录）。
         let changed = try await call(["tether", "status"])
         let changedNames = changed.json["changedProperties"].array?.compactMap { $0["name"].string } ?? []
-        precondition(changedNames == ["PriorityKeySettings", "IsoSensitivity", "ShutterSpeed", "FNumber"], "\(changed.json["changedProperties"])")
+        precondition(changedNames == ["PriorityKeySettings", "IsoSensitivity", "ShutterSpeed", "FNumber", "ExposureProgramMode"], "\(changed.json["changedProperties"])")
         let stopped = try await call(["tether", "stop", "--restore-settings", "true"])
         precondition(stopped.code == 0 && stopped.json["active"].bool == false && model.tether == nil, "\(stopped.json)")
         let restored = stopped.json["restored"].array ?? []
         // 后改的先还原；PriorityKey 最后交还相机。原值：ISO 200（MCP 设的）、1/250、F4.0、相机优先（说明界面那次结束联机已经交还过）。
-        precondition(restored.map { $0["name"].string ?? "" } == ["FNumber", "ShutterSpeed", "IsoSensitivity", "PriorityKeySettings"]
-                     && restored.map { $0["value"]["label"].string ?? "" } == ["F4.0", "1/250", "200", "Camera"]
+        precondition(restored.map { $0["name"].string ?? "" } == ["ExposureProgramMode", "FNumber", "ShutterSpeed", "IsoSensitivity", "PriorityKeySettings"]
+                     && restored.map { $0["value"]["label"].string ?? "" } == ["M", "F4.0", "1/250", "200", "Camera"]
                      && restored.allSatisfy { $0["ok"].bool == true }, "\(restored)")
         print("PASS: CLI configure turns off live view and auto-import; tether stop --restore-settings puts changed properties back newest-first and hands PriorityKey back to the camera")
 
@@ -272,14 +292,14 @@ import SonyRemoteKit
         let methods = lines.compactMap { $0["method"].string }
         precondition(methods.first == "tether.status" && methods.last == "tether.stop"
                      && ["tether.start", "tether.set", "tether.shoot", "tether.live_view", "tether.set_properties", "tether.capture",
-                         "tether.files", "tether.download", "tether.record_clip", "tether.configure"].allSatisfy(methods.contains), "\(methods)")
+                         "tether.files", "tether.download", "tether.record_clip", "tether.configure", "tether.mode"].allSatisfy(methods.contains), "\(methods)")
         precondition(lines.contains { $0["method"].string == "tether.shoot" && $0["ok"].bool == false && $0["error"]["code"].string == "not_tethering" })
         let setLine = lines.first { $0["method"].string == "tether.set_properties" && $0["ok"].bool == true }!
         precondition(setLine["params"]["assignments"].array?.count == 3 && setLine["result"]["results"].array?.count == 3
                      && setLine["durationMs"].int != nil && setLine["time"].string?.contains("T") == true, "\(setLine)")
         let image = lines.first { $0["method"].string == "tether.live_view" && $0["result"]["mimeType"].string == "image/jpeg" && $0["result"]["path"] == .null }!
         precondition(image["result"]["data"].string?.hasPrefix("<base64") == true, "\(image)")
-        precondition(lines.last!["result"]["restored"].array?.count == 4)
+        precondition(lines.last!["result"]["restored"].array?.count == 5)
         print("PASS: every tether command is appended to the JSONL log with params, duration and result or error code; live view images are not logged as base64")
     }
 
