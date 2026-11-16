@@ -244,3 +244,52 @@ public struct FocalFrameInfo: Sendable, Equatable {
         return FocalFrameInfo(version: UInt16(version), frames: frames)
     }
 }
+
+
+/// 跟焦位置 ↔ 对焦距离的换算表（0x9223 SDIO_GetLensInformation，type 2 = 米表）。
+/// α7 V 实测格式：头部 u32 偏移、u32 长度；表本身是 u16 版本（100）、u16 类型、u16 条数、2 字节保留，
+/// 然后每条 u32 跟焦位置 + u32 距离（厘米，0xFFFF = ∞），从近到远（位置从大到小）。
+public struct LensDistanceTable: Sendable, Equatable {
+    public struct Entry: Sendable, Equatable { public let position: Int64; public let centimeters: Int64 }
+    public let entries: [Entry]
+
+    public static func parse(_ data: Data) -> LensDistanceTable? {
+        let b = [UInt8](data)
+        func u32(_ i: Int) -> Int64? {
+            i + 4 <= b.count ? Int64(b[i]) | Int64(b[i + 1]) << 8 | Int64(b[i + 2]) << 16 | Int64(b[i + 3]) << 24 : nil
+        }
+        guard let offset = u32(0), let size = u32(4), offset >= 8, Int(offset + size) <= b.count, size >= 8 else { return nil }
+        let o = Int(offset)
+        let count = Int(b[o + 4]) | Int(b[o + 5]) << 8
+        guard count >= 2, o + 8 + count * 8 <= b.count else { return nil }
+        let entries = (0..<count).compactMap { i -> Entry? in
+            guard let p = u32(o + 8 + i * 8), let d = u32(o + 12 + i * 8) else { return nil }
+            return Entry(position: p, centimeters: d)
+        }.sorted { $0.position > $1.position }
+        return LensDistanceTable(entries: entries)
+    }
+
+    /// 某个跟焦位置的距离（米）：在相邻两条之间按 1 / 距离插值（对焦行程大致和它成正比，∞ 那一段也能自然过渡）。
+    public func meters(at position: Int64) -> Double? {
+        guard let first = entries.first, let last = entries.last else { return nil }
+        func inverse(_ e: Entry) -> Double { e.centimeters >= 0xFFFF ? 0 : 100 / Double(e.centimeters) }
+        let inv: Double
+        if position >= first.position { inv = inverse(first) }
+        else if position <= last.position { inv = inverse(last) }
+        else {
+            guard let (near, far) = zip(entries, entries.dropFirst()).first(where: { position <= $0.0.position && position >= $0.1.position })
+            else { return nil }
+            let t = Double(near.position - position) / Double(near.position - far.position)
+            inv = inverse(near) + (inverse(far) - inverse(near)) * t
+        }
+        return inv <= 0 ? .infinity : 1 / inv
+    }
+
+    /// 显示用：0.45 m、1.2 m、12 m、∞。
+    public static func text(_ meters: Double) -> String {
+        if meters.isInfinite { return "∞" }
+        if meters < 1 { return String(format: "%.2f m", meters) }
+        if meters < 10 { return String(format: "%.1f m", meters) }
+        return String(format: "%.0f m", meters)
+    }
+}

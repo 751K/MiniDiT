@@ -204,6 +204,17 @@ import FakeSonyCamera
         await cam.disconnect()
     }
 
+    @Test func lensDistanceTableFromA7V() throws {
+        let t = try #require(LensDistanceTable.parse(FakeSonyState.lensTable))
+        #expect(t.entries.count == 29 && t.entries.first?.centimeters == 25 && t.entries.last?.centimeters == 0xFFFF)
+        #expect(t.meters(at: 65535) == 0.25 && t.meters(at: 0) == .infinity)
+        #expect(t.meters(at: 0x7FFF) == 0.5)                       // 表里正好有：0x7FFF → 50 cm
+        let mid = try #require(t.meters(at: (0x9FFF + 0x7FFF) / 2))  // 40 cm 和 50 cm 之间
+        #expect(mid > 0.4 && mid < 0.5)
+        #expect(LensDistanceTable.text(0.453) == "0.45 m" && LensDistanceTable.text(1.24) == "1.2 m" && LensDistanceTable.text(12.4) == "12 m")
+        #expect(LensDistanceTable.text(.infinity) == "∞")
+    }
+
     @Test func focalFramesFromLiveViewDataset() {
         // FocalFrameInfo v1.04：版本 + 保留，空的保留数组，对焦框 1 个（广域）、人脸框 0、跟踪框 1 个（α7 V 实测的样子）。
         var f = [UInt8]()

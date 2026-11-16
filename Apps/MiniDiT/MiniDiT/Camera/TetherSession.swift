@@ -30,6 +30,9 @@ final class TetherSession {
     @ObservationIgnored var focusSending = false
     @ObservationIgnored var focusGeneration = 0
     @ObservationIgnored var pullTask: Task<Void, Never>?
+    /// 跟焦位置 ↔ 距离换算表（录像模式、镜头支持时从相机读一次）。
+    var distanceTable: LensDistanceTable?
+    @ObservationIgnored var distanceTableState = 0   // 0 未读、1 读取中、2 读过（成功或失败都不再重试，换模式后重置）
     /// 相机随取景送来的对焦框、人脸框、跟踪框。
     var focalFrames: FocalFrameInfo?
     /// 相机断开了（关机、离开网络）。缓存里已有的照片仍在。
@@ -164,7 +167,7 @@ final class TetherSession {
         if s != status { status = s }
         if let all = try? await camera.allProperties(refresh: false) {
             let map = Dictionary(all.map { ($0.code, $0) }, uniquingKeysWith: { _, b in b })
-            if map != properties { properties = map }
+            if map != properties { properties = map; updateDistanceTable() }
         }
         changed = await camera.changedProperties
     }
@@ -256,6 +259,8 @@ final class TetherSession {
     func properties() async throws -> [SonyPropertyDesc] { try await camera.allProperties() }
 
     func sendFocusPosition(_ v: Int64) async throws { try await camera.setFocusPosition(v) }
+    func lensInformationRaw(type: UInt32) async throws -> Data { try await camera.lensInformationRaw(type: type) }
+    func sendFocusMagnifier(ratio: Int64, x: Int?, y: Int?) async throws { try await camera.setFocusMagnifier(ratio: ratio, x: x, y: y) }
     func remoteTouch(x: Int, y: Int) async throws { try await camera.remoteTouch(x: x, y: y) }
     func cancelRemoteTouch() async throws { try await camera.cancelRemoteTouch() }
     func customWBButton(_ step: SonyCamera.CustomWBStep) async throws { try await camera.customWBButton(step) }

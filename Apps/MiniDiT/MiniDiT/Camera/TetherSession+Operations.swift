@@ -82,6 +82,58 @@ extension TetherSession {
         }
     }
 
+    /// 现在的对焦距离（录像模式用跟焦且相机给了换算表时才有）。
+    var focusDistanceText: String? {
+        guard focusControl?.setCode == 0xE088, let t = distanceTable, let v = focusShown, let m = t.meters(at: v) else { return nil }
+        return LensDistanceTable.text(m)
+    }
+
+    /// 换算表只在录像模式、0xE086 = 1 时可读：条件满足且还没读过就读一次，不满足时清掉（换镜头、换模式后重读）。
+    func updateDistanceTable() {
+        let usable = properties[0xE086]?.intValue == 1 && focusControl?.setCode == 0xE088
+        guard usable else {
+            if distanceTable != nil { distanceTable = nil }
+            distanceTableState = 0
+            return
+        }
+        guard distanceTableState == 0 else { return }
+        distanceTableState = 1
+        Task {
+            let data = try? await lensInformationRaw(type: 2)
+            distanceTable = data.flatMap(LensDistanceTable.parse)
+            distanceTableState = 2
+        }
+    }
+
+    // MARK: 放大对焦
+
+    /// 放大对焦现在的状态（不可改时为 nil）。
+    var magnifier: SonyCamera.FocusMagnifier? { SonyCamera.focusMagnifier(properties) }
+
+    static func ratioText(_ r: Int64) -> String { r % 10 == 0 ? "×\(r / 10)" : String(format: "×%.1f", Double(r) / 10) }
+
+    /// 打开（ratio > 0）或关闭放大。打开时以刚点过的位置为中心，没点过就用相机当前的位置。
+    func setMagnifier(_ ratio: Int64) {
+        guard !lost else { return }
+        let c = touchPoint.map(Self.touchCoordinates)
+        sendMagnifier(ratio, c?.x, c?.y)
+    }
+
+    /// 放大时点按取景画面：把点到的地方移到中间（画面上的偏移按倍率换算回整幅画面的 640×480 坐标）。
+    func panMagnifier(_ p: CGPoint) {
+        guard let m = magnifier, m.isOn else { return }
+        let zoom = max(Double(m.ratio) / 10, 1)
+        let x = Double(m.x) + (p.x - 0.5) * 640 / zoom, y = Double(m.y) + (p.y - 0.5) * 480 / zoom
+        sendMagnifier(m.ratio, Int(x.rounded()), Int(y.rounded()))
+    }
+
+    private func sendMagnifier(_ ratio: Int64, _ x: Int?, _ y: Int?) {
+        Task {
+            do { try await sendFocusMagnifier(ratio: ratio, x: x, y: y); await refresh() }
+            catch { message = AppModel.cameraError(error).message }
+        }
+    }
+
     func markFocus(_ name: String) { if let v = focusShown { focusMarks[name] = v } }
 
     /// 切到手动对焦（调焦前用）。
@@ -118,8 +170,13 @@ extension TetherSession {
         await refresh()
     }
 
-    /// 界面用：出错时显示在取景上。
+    /// 界面用：出错时显示在取景上。相机不接受远程触摸（例如 MF）但能放大时，改为在点到的地方放大。
     func touch(_ p: CGPoint) {
+        if properties[0xD284]?.intValue == 0, let m = magnifier {
+            let c = Self.touchCoordinates(p)
+            sendMagnifier(m.isOn ? m.ratio : (m.ratios.first { $0 > 10 } ?? 55), c.x, c.y)
+            return
+        }
         Task { do { _ = try await touchFocus(at: p) } catch { message = AppModel.cameraError(error).message } }
     }
 

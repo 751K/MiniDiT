@@ -339,6 +339,21 @@ extension AppModel {
             return try await agentTetherMode(t, p)
         case "tether.custom_wb":
             return try await agentCustomWB(t, p)
+        case "tether.lens_info":
+            let data: Data
+            do { data = try await t.lensInformationRaw(type: UInt32(p["type"].int ?? 2)) } catch { throw AppModel.cameraError(error) }
+            return .object(["bytes": .integer(data.count), "hex": .string(data.map { String(format: "%02x", $0) }.joined())])
+        case "tether.magnifier":
+            var all = try await t.freshProperties()
+            if let r = p["ratio"].int {
+                do { try await t.sendFocusMagnifier(ratio: Int64(r), x: p["x"].int, y: p["y"].int) } catch { throw AppModel.cameraError(error) }
+                try await Task.sleep(for: .milliseconds(500))
+                all = try await t.freshProperties()
+            }
+            guard let m = SonyCamera.focusMagnifier(all) else {
+                throw AgentControlError("magnifier_unavailable", "相机现在不能放大对焦（0xD254 不可写；通常要先切到 MF）。")
+            }
+            return .object(["ratio": .integer(m.ratio), "x": .integer(m.x), "y": .integer(m.y), "ratios": .array(m.ratios.map { .integer($0) })])
         case "tether.focus_position":
             var all = try await t.freshProperties()
             guard let c = SonyCamera.focusPositionControl(all) else {

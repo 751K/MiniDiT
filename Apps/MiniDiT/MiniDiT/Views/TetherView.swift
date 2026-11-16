@@ -44,6 +44,8 @@ struct TetherView: View {
     @State private var tempPreview: Int64?
     @State private var tempPending: Int64?
     @State private var scrollMonitor: Any?
+    /// 指针在取景画面上（MF 时滚轮调焦）。
+    @State private var overViewfinder = false
 
     var body: some View {
         HStack(spacing: 0) {
@@ -142,8 +144,13 @@ struct TetherView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onHover { overViewfinder = $0 }
         .overlay(alignment: .top) {
             HStack(alignment: .top, spacing: 8) {
+                if let m = session.magnifier, m.isOn {
+                    chip("放大 \(TetherSession.ratioText(m.ratio))", systemImage: "plus.magnifyingglass", color: .white)
+                        .help("点按画面移动放大区域，Esc 退出放大")
+                }
                 if session.focusLocked || session.status.isFocused {
                     chip(session.status.isFocused ? "已合焦" : "对焦中", systemImage: "scope",
                          color: session.status.isFocused ? .green : .yellow)
@@ -175,7 +182,8 @@ struct TetherView: View {
                 .contentShape(Rectangle())
                 .onTapGesture(coordinateSpace: .local) { loc in
                     guard geo.size.width > 0, geo.size.height > 0 else { return }
-                    session.touch(CGPoint(x: loc.x / geo.size.width, y: loc.y / geo.size.height))
+                    let p = CGPoint(x: loc.x / geo.size.width, y: loc.y / geo.size.height)
+                    if session.magnifier?.isOn == true { session.panMagnifier(p) } else { session.touch(p) }
                 }
                 .contextMenu {
                     Button("取消触摸对焦") { session.cancelTouch() }.disabled(!session.canCancelTouch)
@@ -202,7 +210,9 @@ struct TetherView: View {
                     .allowsHitTesting(false)
             }
         }
-        .help("点按画面对焦（按机身的触摸功能对焦或跟踪），Esc 或右键取消")
+        .help(session.magnifier?.isOn == true ? "点按画面移动放大区域，Esc 退出放大"
+              : session.isManualFocus ? "MF：滚轮调焦，点按画面在该处放大（拍照模式），Esc 退出放大"
+              : "点按画面对焦（按机身的触摸功能对焦或跟踪），Esc 或右键取消")
     }
 
     private var recordingChip: some View {
@@ -247,10 +257,12 @@ struct TetherView: View {
             barToggle(session.focusLocked, "scope", "锁定对焦：相当于半按快门（F）") { session.setFocusLock(!session.focusLocked) }
                 .keyboardShortcut("f", modifiers: [])
             // Esc 取消触摸对焦（看不见的按钮，只为快捷键）。
-            Button("取消触摸对焦") { session.cancelTouch() }
-                .keyboardShortcut(.escape, modifiers: [])
-                .frame(width: 0, height: 0).opacity(0).accessibilityHidden(true)
-                .disabled(!session.canCancelTouch)
+            Button("退出放大或取消触摸对焦") {
+                if session.magnifier?.isOn == true { session.setMagnifier(0) } else { session.cancelTouch() }
+            }
+            .keyboardShortcut(.escape, modifiers: [])
+            .frame(width: 0, height: 0).opacity(0).accessibilityHidden(true)
+            .disabled(!(session.canCancelTouch || session.magnifier?.isOn == true))
             recordButton.padding(.leading, 6)
             shutterButton.padding(.leading, 4)
         }
@@ -440,6 +452,14 @@ struct TetherView: View {
             // 没打开时：指针停在底部参数格上才调。
             let inTether = event.window?.title.contains(session.cameraName) == true
             let inPopover = event.window.map { String(describing: type(of: $0)).contains("Popover") } ?? false
+            // MF 时指针在取景画面上：滚轮调焦（向上 = 往近处，触控板按滑动量细调）。
+            if inTether, picking == nil, overViewfinder, session.isManualFocus,
+               let c = session.focusControl, let cur = session.focusShown {
+                let span = Double(c.range.upperBound - c.range.lowerBound)
+                let step = event.hasPreciseScrollingDeltas ? event.scrollingDeltaY * span / 4000 : event.scrollingDeltaY * span / 300
+                if step != 0 { session.moveFocus(to: cur + Int64(step.rounded())) }
+                return nil
+            }
             let kind: CameraSettingKind?
             if let k = picking, inTether || inPopover { kind = k }
             else if picking == nil, inTether { kind = hovered }
@@ -989,8 +1009,13 @@ private struct TetherSidebar: View {
                 collapsibleTitle("对焦")
                 if !isCollapsed("对焦") {
                     PanelCard {
-                        FocusSlider(range: c.range, value: shown, marks: session.focusMarks, enabled: !session.lost) {
+                        FocusSlider(range: c.range, value: shown, marks: session.focusMarks, distance: session.focusDistanceText,
+                                    enabled: !session.lost) {
                             session.moveFocus(to: $0)
+                        }
+                        if session.properties[0xD254] != nil {
+                            PanelDivider()
+                            magnifierRow
                         }
                         if !session.isManualFocus {
                             PanelDivider()
@@ -1024,6 +1049,20 @@ private struct TetherSidebar: View {
     }
 
     private static func secondsText(_ s: Double) -> String { s == 0 ? "即时" : "\(Int(s)) 秒" }
+
+    /// 放大对焦：关 / 各倍率（相机列出的，×1.0 不算）。录像模式下相机不让远程放大，这时整行变灰并说明。
+    private var magnifierRow: some View {
+        let m = session.magnifier
+        let ratios = (m?.ratios ?? []).filter { $0 > 10 }
+        return PanelRow("放大", enabled: m != nil && !session.lost) {
+            Picker("放大", selection: Binding(get: { m?.ratio ?? 0 }, set: { session.setMagnifier($0) })) {
+                Text("关").tag(Int64(0))
+                ForEach(ratios, id: \.self) { Text(TetherSession.ratioText($0)).tag($0) }
+            }
+            .pickerStyle(.segmented).labelsHidden().controlSize(.small).fixedSize()
+        }
+        .help(m == nil ? "相机现在不支持远程放大（α7 V 在拍照模式、MF 时可用）" : "放大取景画面检查焦点；放大时点按画面移动放大区域，Esc 退出")
+    }
 
     /// 对焦和驱动模式（驱动模式只在拍照时可用）。
     private var shootingCard: some View {
@@ -1171,6 +1210,8 @@ private struct FocusSlider: View {
     let range: ClosedRange<Int64>
     let value: Int64
     let marks: [String: Int64]
+    /// 对焦距离（相机给了换算表时才有）。
+    let distance: String?
     let enabled: Bool
     let move: (Int64) -> Void
 
@@ -1194,7 +1235,9 @@ private struct FocusSlider: View {
             .disabled(!enabled)
             .accessibilityLabel("对焦位置")
             HStack {
-                Text("近"); Spacer(); Text("远")
+                Text("近"); Spacer()
+                if let distance { Text(distance).monospacedDigit().foregroundStyle(.primary) }
+                Spacer(); Text("远")
             }
             .font(.system(size: 10)).foregroundStyle(.secondary)
         }

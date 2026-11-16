@@ -144,6 +144,11 @@ public final class FakeSonyState: @unchecked Sendable {
         }
         range(0xE088, 0, 63978, writable: true); range(0xE089, 27260, 63978, writable: false)
         range(0xE042, 0, 65535, writable: true); range(0xE043, 27592, 65535, writable: false)
+        // 镜头信息可用（0x9223 回的是 α7 V 实测的米表）；放大对焦 0xD254（拍照模式 + MF 时可写，和真机一样）。
+        p(0xE086, .uint8, 1, writable: false)
+        props[0xD254] = SonyPropertyDesc(code: 0xD254, dataType: .uint64, getSet: 1, isEnabled: 2, factoryDefault: .int(0),
+                                         current: .int(0x0140_00F0), form: .enumeration([0xFFFF_FFFF, 10 << 32 | 0xFFFF_FFFF,
+                                                                                         55 << 32 | 0xFFFF_FFFF, 110 << 32 | 0xFFFF_FFFF]))
         setEnabled(0xE001, 0)
         // 和 α7 V 一样默认「相机优先」；联机时改成 PC，结束时应改回。
         p(SonyProperty.priorityMode, .uint8, 0, [0, 1])
@@ -160,6 +165,14 @@ public final class FakeSonyState: @unchecked Sendable {
                                        factoryDefault: p.factoryDefault, current: .int(v), form: p.form)
         // PC 优先时曝光模式才能远程改。
         if code == SonyProperty.priorityMode { setEnabled(SonyProperty.exposureProgramMode, v == 1 ? 1 : 2) }
+        if code == SonyProperty.exposureProgramMode || code == SonyProperty.focusMode { updateMagnifierEnabled() }
+        if code == 0xD254 {
+            // 「当前位置」（低 4 字节全 1）换成实际位置；倍率 0 = 关。
+            let u = UInt64(bitPattern: v)
+            if u & 0xFFFF_FFFF == 0xFFFF_FFFF, let old = props[0xD254]?.intValue {
+                setCurrent(0xD254, Int64(bitPattern: (u >> 32) << 32 | UInt64(bitPattern: old) & 0xFFFF_FFFF))
+            }
+        }
         if code == SonyProperty.exposureProgramMode {
             let photo = SonyPropertyCatalog.shootingMode(v)?.mode == .photo
             for c: UInt16 in [0xD253, 0xD269, 0xD287, 0xD252, 0xD203, 0xD288, 0xD15E, 0xD201, 0x5013] { setEnabled(c, photo ? 1 : 0) }
@@ -186,6 +199,20 @@ public final class FakeSonyState: @unchecked Sendable {
             if let custom { setValue(0xD210, custom.gm) }
         }
     }
+
+    private func updateMagnifierEnabled() {
+        let photo = raw(SonyProperty.exposureProgramMode).flatMap(SonyPropertyCatalog.shootingMode)?.mode == .photo
+        setEnabled(0xD254, photo && raw(SonyProperty.focusMode) == 1 ? 1 : 2)
+    }
+
+    /// α7 V 上 0x9223（type 2）读到的原始数据：29 条，从 25 cm 到 ∞。
+    public static let lensTable: Data = {
+        let hex = "08000000f0000000640001001d000000ffff00001900000054d500001e000000ff9f000028000000ff7f000032000000aa6a00003c0000006d5b000046000000ff4f0000500000001c4700005a000000ff3f0000640000005535000078000000b62d00008c000000ff270000a00000008e230000b4000000ff1f0000c800000099190000fa000000551500002c010000491200005e010000ff0f000090010000380e0000c2010000cc0c0000f4010000aa0a00005802000024090000bc020000ff070000200300001c0700008403000066060000e803000044040000dc05000033030000d007000022020000b80b000000000000ffff0000"
+        return Data(stride(from: 0, to: hex.count, by: 2).map { i -> UInt8 in
+            let a = hex.index(hex.startIndex, offsetBy: i)
+            return UInt8(hex[a..<hex.index(a, offsetBy: 2)], radix: 16)!
+        })
+    }()
 
     /// 只改当前值（不触发联动）。
     private func setCurrent(_ code: UInt16, _ v: Int64) {
@@ -264,6 +291,9 @@ public final class FakeSonyState: @unchecked Sendable {
                 let ctl: [UInt16] = [SonyControl.shutterHalfPress, SonyControl.shutterFullPress, SonyControl.movieRecord]
                 w.u32(UInt32(ctl.count)); ctl.forEach { w.u16($0) }
                 return .init(data: w.data)
+            case 0x9223:
+                // 镜头信息（α7 V 实测的米表）。
+                return .init(data: FakeSonyState.lensTable)
             case SonyOperation.getAllExtDevicePropInfo:
                 // 进入传输模式后第 2 次轮询才报告就绪，用来测试等待逻辑。
                 if contentsOn {
@@ -294,7 +324,8 @@ public final class FakeSonyState: @unchecked Sendable {
                 guard let v = try? PTPValue.read(p.dataType, from: &r).intValue else {
                     return .init(code: 0x201C)
                 }
-                if case .enumeration(let allowed) = p.form, !allowed.contains(v) { return .init(code: 0x201C) }
+                // 放大对焦的可选值只列「当前位置」，真机也接受任意位置。
+                if c != 0xD254, case .enumeration(let allowed) = p.form, !allowed.contains(v) { return .init(code: 0x201C) }
                 setValue(c, v)
                 return .init()
             case SonyOperation.controlDevice:

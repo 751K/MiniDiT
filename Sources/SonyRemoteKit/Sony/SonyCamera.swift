@@ -438,6 +438,46 @@ public actor SonyCamera: RemoteCamera {
         propsFetchedAt = .distantPast
     }
 
+    // MARK: 镜头信息（跟焦位置 ↔ 距离换算表，0x9223）
+
+    /// 0x9223 SDIO_GetLensInformation 的原始数据集。type 1 = 英尺表、2 = 米表。录像模式且 0xE086 = 1 时可用。
+    public func lensInformationRaw(type: UInt32) async throws -> Data {
+        let r = try await client.transaction(0x9223, [type], requireOK: false)
+        guard r.code == PTPResponse.ok else { throw PTPError(operation: 0x9223, code: r.code) }
+        return r.data
+    }
+
+    // MARK: 放大对焦（0xD254 Focus_Magnifier_Setting）
+
+    /// 放大对焦的状态：倍率 ×10（0 = 关，10 = ×1.0，55 = ×5.5，110 = ×11），位置是 640×480 坐标。
+    public struct FocusMagnifier: Sendable, Equatable {
+        public let ratio: Int64
+        public let x: Int, y: Int
+        /// 相机列出的倍率（不含 0），从小到大。
+        public let ratios: [Int64]
+        public var isOn: Bool { ratio > 0 }
+    }
+
+    public static func focusMagnifier(_ props: [UInt16: SonyPropertyDesc]) -> FocusMagnifier? {
+        guard let d = props[0xD254], d.isWritable, let v = d.intValue else { return nil }
+        let u = UInt64(bitPattern: v)
+        let ratios = Array(Set(d.allowedValues.map { Int64(UInt64(bitPattern: $0) >> 32) }.filter { $0 > 0 })).sorted()
+        return FocusMagnifier(ratio: Int64(u >> 32), x: Int(u >> 16 & 0xFFFF), y: Int(u & 0xFFFF), ratios: ratios)
+    }
+
+    /// 设置放大倍率和位置（x、y 为 nil 时用相机当前的位置）。相机列出的可选值只有「当前位置」，
+    /// 但 SDK 规定低 4 字节就是位置，所以不按列表检查；也不记为「改过的设置」。MF 时才可用。
+    public func setFocusMagnifier(ratio: Int64, x: Int? = nil, y: Int? = nil) async throws {
+        try await refreshProperties(force: true)
+        guard let d = props[0xD254], d.isWritable else { throw SonyPropertyError.notEnabled(0xD254, displayOnly: props[0xD254]?.isEnabled == 2) }
+        let pos: UInt64
+        if let x, let y { pos = UInt64(min(max(x, 0), 639)) << 16 | UInt64(min(max(y, 0), 479)) } else { pos = 0xFFFF_FFFF }
+        let v = Int64(bitPattern: UInt64(max(ratio, 0)) << 32 | pos)
+        do { try await sendSet(0xD254, .int(v), type: d.dataType) }
+        catch let e as PTPError { throw SonyPropertyError.rejected(0xD254, response: e.code) }
+        propsFetchedAt = .distantPast
+    }
+
     // MARK: 远程触摸（点按取景画面对焦 / 跟踪）
 
     /// 远程触摸 0xD2E4：参数 UINT32 = x << 16 | y，取景画面映射到 640×480（SDK：x 0…639、y 0…479）。

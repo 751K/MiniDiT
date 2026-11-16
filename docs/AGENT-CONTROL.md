@@ -102,6 +102,8 @@ MCP 暴露与 CLI 对应的 35 个工具，例如 `minidit_projects_list`、`min
 | `tether.mode` | 切换拍照 / 录像 / S&Q（需要时先改成 PC 优先） |
 | `tether.custom_wb` | 远程取白：结果存进自定义 1–3，返回色温和 G–M |
 | `tether.focus_position` | 远程调焦：读镜头位置，或移到 / 在几秒内平滑拉到某个位置（值越大越近） |
+| `tether.magnifier` | 放大对焦：读或设倍率和位置（α7 V 拍照模式 + MF 时可用） |
+| `tether.lens_info` | 读镜头信息 0x9223 的原始数据（跟焦位置 ↔ 距离换算表） |
 | `tether.touch` | 远程触摸：在 640×480 坐标处按机身的触摸功能对焦或跟踪；`cancel=true` 取消 |
 
 CLI 的方法可以写成分隔的命令，例如 `projects list`；下划线操作可以写成连字符，例如 `sources open-card`。完整方法也可通过 `minidit call METHOD 'JSON'` 调用。
