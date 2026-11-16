@@ -90,14 +90,6 @@ private struct ImportSettings: View {
                     Text("Capture One 当前打开：\(d.name)").font(.caption).foregroundStyle(.secondary)
                 }
             }
-            Section {
-                // 和“导入完成后打开”同一种弹出菜单行。
-                Picker("同时存在 RAW 与 JPG/HIF 时", selection: $model.pairPolicy) {
-                    Text("全部导入").tag(PairPolicy.both)
-                    Text("仅导入 RAW").tag(PairPolicy.rawOnly)
-                    Text("仅导入 JPG/HIF").tag(PairPolicy.jpegOnly)
-                }
-            }
             PhotoLookSettings()
             Section("导入完成后") {
                 Toggle("删除存储卡上已校验的照片（仅限读卡器）", isOn: $model.deleteAfterImport)

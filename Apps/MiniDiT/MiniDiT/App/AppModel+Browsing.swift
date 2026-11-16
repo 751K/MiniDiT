@@ -7,15 +7,11 @@ extension AppModel {
         if !showRaw && !showPhotos { return "未选格式" }
         if !showRaw { return "JPG/HIF" }
         if !showPhotos { return "RAW" }
-        switch pairPolicy {
-        case .both: return "RAW + JPG/HIF"
-        case .rawOnly: return "配对优先 RAW"
-        case .jpegOnly: return "配对优先 JPG/HIF"
-        }
+        return "RAW + JPG/HIF"
     }
 
     var hasImportFilters: Bool {
-        mediaFilter.isActive || onlyNew || sourceFilter != nil || slotFilter != nil || !showRaw || !showPhotos
+        mediaFilter.isActive || onlyNew || sourceFilter != nil || slotFilter != nil
     }
 
     var importScopeSummary: String {
@@ -27,14 +23,12 @@ extension AppModel {
         return parts.joined(separator: " · ")
     }
 
-    /// 保留导入类型及配对偏好，只清除临时浏览筛选。
+    /// 保留导入类型和照片格式（两者都是偏好，不是临时筛选），只清除临时浏览筛选。
     func resetImportFilters() {
         mediaFilter = MediaFilter()
         onlyNew = false
         sourceFilter = nil
         slotFilter = nil
-        showRaw = true
-        showPhotos = true
     }
 
     func acceptsFilter(_ shot: Shot) -> Bool {

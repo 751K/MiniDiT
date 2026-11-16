@@ -153,12 +153,13 @@ extension AppModel {
         }
     }
 
-    /// 一次拍摄里，按当前筛选和配对规则实际要导入的文件。
+    /// 一次拍摄里，按当前筛选（含照片格式）实际要导入的文件。
     func importFiles(of shot: Shot) -> [UInt32] {
         // 缩略图、侧栏和 tooltip 会反复问同一个 shot；一次 rebuild 里只算一遍。
         if let cached = importFilesCache[shot.id] { return cached }
         // 先按筛选（卡槽、类型）去掉，再去重：选了「卡 2」时就用卡 2 上的那份；都显示时用卡 1 上的那份。
-        let files = ShotBuilder.files(of: shot, policy: pairPolicy, kindOf: { items[$0]?.kind },
+        // 导哪些格式只看主界面的「照片格式」（RAW、JPG/HIF），不再另有配对规则。
+        let files = ShotBuilder.files(of: shot, policy: .both, kindOf: { items[$0]?.kind },
                                       identity: { items[$0].map { "\($0.filename)|\($0.size)" } },
                                       include: { items[$0].map(kindAccepted) ?? false },
                                       preference: { items[$0].map { $0.storageID >> 16 } ?? 0 })
@@ -166,7 +167,7 @@ extension AppModel {
         return files
     }
 
-    /// 缩略图角标：只列筛选和配对规则留下的文件类型（只看 RAW 时显示「RAW」，不是「RAW+HIF」）。
+    /// 缩略图角标：只列筛选留下的文件类型（只看 RAW 时显示「RAW」，不是「RAW+HIF」）。
     func badge(of shot: Shot) -> String {
         if shot.isVideo, let d = clipInfos[shot.primary]?.durationText { return "视频 " + d }
         return Shot.badge(importFiles(of: shot).compactMap { items[$0]?.kind })

@@ -18,7 +18,8 @@ import SonyRemoteKit
         defaults.set(marker, forKey: "organizationCheckDomain")
         precondition(defaults.persistentDomain(forName: domain)?["organizationCheckDomain"] as? String == marker)
         for key in ["photoFolderLayout", "videoFolderLayout", "splitVideoByRoll", "importContent", "showVideo",
-                    "template.video", "template.folder", "template.backup", "backupFollowsOrganization"] {
+                    "template.video", "template.folder", "template.backup", "backupFollowsOrganization",
+                    "showRaw", "showPhotos", "pairPolicy"] {
             defaults.removeObject(forKey: key)
         }
 
@@ -36,6 +37,21 @@ import SonyRemoteKit
         precondition(ImportContent.guess([.raw, .video]) == .all && ImportContent.guess([.other]) == nil)
         precondition(!migrated.backupFollowsOrganization)
         defaults.removeObject(forKey: "template.backup")
+
+        // 照片格式：旧设置「仅导入 JPG/HIF」迁移成只选 JPG/HIF；之后的选择保存，「清除」筛选不改它。
+        for key in ["showRaw", "showPhotos"] { defaults.removeObject(forKey: key) }
+        defaults.set("jpegOnly", forKey: "pairPolicy")
+        let formats = AppModel(startServices: false)
+        precondition(!formats.showRaw && formats.showPhotos && formats.photoFormatSummary == "JPG/HIF")
+        formats.showRaw = true; formats.showPhotos = false
+        formats.resetImportFilters()
+        precondition(formats.showRaw && !formats.showPhotos && !formats.hasImportFilters)
+        let reopened = AppModel(startServices: false)
+        precondition(reopened.showRaw && !reopened.showPhotos, "照片格式要保留到下次打开")
+        for key in ["showRaw", "showPhotos", "pairPolicy"] { defaults.removeObject(forKey: key) }
+        let fresh = AppModel(startServices: false)
+        precondition(fresh.showRaw && fresh.showPhotos)
+        print("PASS: photo format choice migrates from the old RAW/JPG pairing setting, persists across launches and is not cleared with filters")
 
         let fm = FileManager.default
         let root = fm.temporaryDirectory.appending(path: "minidit-organization-" + UUID().uuidString)
@@ -172,7 +188,7 @@ import SonyRemoteKit
         model.mediaFilter.query = "does-not-exist"
         precondition(model.selectedFiles().isEmpty, "隐藏的选择不能继续参与导入")
         model.resetImportFilters()
-        precondition(model.importContent == .all && model.pairPolicy == .both)
+        precondition(model.importContent == .all && model.showRaw && model.showPhotos)
         model.selectAll(in: Set(model.days.map(\.id)))
         precondition(model.selectedFiles().count == 2)
         let beforeSelection = model.grid.selected

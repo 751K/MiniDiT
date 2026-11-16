@@ -109,8 +109,27 @@ final class AppModel {
     var slotFilter: UInt32? = nil { didSet { rebuild() } }        // nil = 全部卡槽
     /// 同时打开了几个来源时，只看其中一个（来源 id）；nil = 全部。
     var sourceFilter: Int? = nil { didSet { rebuild() } }
-    var showPhotos = true { didSet { rebuild() } }
-    var showRaw = true { didSet { rebuild() } }
+    /// 主界面「照片格式」：导哪些照片格式只看这里，选择会保留到下次打开。
+    var showPhotos = AppModel.savedPhotoFormat("showPhotos") {
+        didSet { UserDefaults.standard.set(showPhotos, forKey: "showPhotos"); rebuild() }
+    }
+    var showRaw = AppModel.savedPhotoFormat("showRaw") {
+        didSet { UserDefaults.standard.set(showRaw, forKey: "showRaw"); rebuild() }
+    }
+
+    /// 没存过时沿用旧设置「同时存在 RAW 与 JPG/HIF 时」：仅导入 JPG/HIF → 只选 JPG/HIF，仅导入 RAW → 只选 RAW。
+    static func savedPhotoFormat(_ key: String) -> Bool {
+        let d = UserDefaults.standard
+        if let v = d.object(forKey: key) as? Bool { return v }
+        let v: Bool
+        switch d.string(forKey: "pairPolicy") {
+        case "jpegOnly": v = key == "showPhotos"
+        case "rawOnly": v = key == "showRaw"
+        default: v = true
+        }
+        d.set(v, forKey: key)
+        return v
+    }
     /// 导入范围跟着当前项目的类型走；没选项目时显示全部素材。
     var importContent: ImportContent { currentSession?.contentType ?? .all }
     var showVideo = UserDefaults.standard.object(forKey: "showVideo") as? Bool ?? true {
@@ -369,10 +388,6 @@ final class AppModel {
         didSet { UserDefaults.standard.set(openAfterImport.rawValue, forKey: "openAfterImport") }
     }
 
-    var pairPolicy: PairPolicy = PairPolicy(rawValue: UserDefaults.standard.string(forKey: "pairPolicy") ?? "") ?? .both {
-        // 配对规则会改变每个 shot 要导入哪些文件，缓存必须跟着重建。
-        didSet { UserDefaults.standard.set(pairPolicy.rawValue, forKey: "pairPolicy"); rebuild() }
-    }
     var captureOneDocument: CaptureOneBridge.DocumentInfo?
 
     /// 新建会话放在哪个文件夹。
