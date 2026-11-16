@@ -18,6 +18,78 @@ extension TetherSession {
         }
     }
 
+    // MARK: 调焦（对焦位置、记忆点、拉焦）
+
+    /// 调焦用的属性组（相机不支持或当前不可用时为 nil）。
+    var focusControl: SonyCamera.FocusPositionControl? { SonyCamera.focusPositionControl(properties) }
+    /// 镜头现在的位置（相机回报）。
+    var focusCurrent: Int64? { focusControl.flatMap { properties[$0.currentCode]?.intValue } }
+    /// 界面显示的位置：拖动 / 拉焦时用目标值，否则用相机回报。
+    var focusShown: Int64? { focusTarget ?? focusCurrent }
+    /// 对焦模式是否手动（MF / DMF）：AF 时相机会自己再对焦，调焦不一定保持。
+    var isManualFocus: Bool { [1, 0x8006].contains(properties[SonyProperty.focusMode]?.intValue ?? -1) }
+
+    /// 移到 v。拖动时连续调用：同一时间只发一个，最新的值覆盖还没发的。
+    func moveFocus(to v: Int64, cancelPull: Bool = true) {
+        guard !lost, let c = focusControl else { return }
+        if cancelPull { pullTask?.cancel(); pullTask = nil }
+        let v = min(max(v, c.range.lowerBound), c.range.upperBound)
+        focusTarget = v
+        focusPending = v
+        guard !focusSending else { return }
+        focusSending = true
+        Task {
+            defer { focusSending = false }
+            while let next = focusPending {
+                focusPending = nil
+                do { try await sendFocusPosition(next) }
+                catch { message = AppModel.cameraError(error).message; focusTarget = nil; return }
+            }
+            settleFocusTarget()
+        }
+    }
+
+    /// 发完后等相机回报跟上再清掉目标值（最多 1.5 秒），免得滑块先跳回旧位置。
+    private func settleFocusTarget() {
+        focusGeneration += 1
+        let gen = focusGeneration
+        Task {
+            try? await Task.sleep(for: .milliseconds(400))
+            await refresh()
+            try? await Task.sleep(for: .milliseconds(1100))
+            if gen == focusGeneration, pullTask == nil { focusTarget = nil }
+        }
+    }
+
+    /// 平滑拉到 v：seconds 秒内分步走（缓入缓出，每秒约 12 步）；0 秒直接跳过去。
+    func pullFocus(to v: Int64, seconds: Double) {
+        guard !lost, let from = focusShown else { return }
+        pullTask?.cancel()
+        guard seconds > 0 else { moveFocus(to: v); return }
+        let steps = max(2, Int(seconds * 12))
+        pullTask = Task { [weak self] in
+            let start = Date()
+            for i in 1...steps {
+                guard !Task.isCancelled, let self else { return }
+                let t = Double(i) / Double(steps)
+                let eased = t < 0.5 ? 2 * t * t : 1 - pow(-2 * t + 2, 2) / 2
+                self.moveFocus(to: from + Int64((Double(v - from) * eased).rounded()), cancelPull: false)
+                let due = start.addingTimeInterval(seconds * t)
+                let wait = due.timeIntervalSinceNow
+                if wait > 0 { try? await Task.sleep(for: .seconds(wait)) }
+            }
+            self?.pullTask = nil
+        }
+    }
+
+    func markFocus(_ name: String) { if let v = focusShown { focusMarks[name] = v } }
+
+    /// 切到手动对焦（调焦前用）。
+    func switchToManualFocus() {
+        guard let d = properties[SonyProperty.focusMode], d.allowedValues.contains(1) else { return }
+        setProperty(SonyProperty.focusMode, 1)
+    }
+
     // MARK: 点按对焦（远程触摸）
 
     /// 取景画面上的位置（0…1）换成相机的 640×480 坐标：相机把整幅取景画面映射到这个范围。

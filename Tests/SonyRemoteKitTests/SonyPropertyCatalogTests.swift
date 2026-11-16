@@ -186,6 +186,24 @@ import FakeSonyCamera
         await cam.disconnect()
     }
 
+    @Test func focusPositionMovesWithoutRecordingAChange() async throws {
+        let state = FakeSonyState()
+        let fake = try FakeCamera { state.handle($0, $1, $2) }
+        let port = try await fake.start()
+        defer { fake.stop() }
+        let cam = try await SonyCamera.connect(host: "127.0.0.1", port: port, identity: .random(name: "Test"), startupDelay: 0)
+        let props = Dictionary(try await cam.allProperties().map { ($0.code, $0) }, uniquingKeysWith: { _, b in b })
+        let c = SonyCamera.focusPositionControl(props)
+        #expect(c?.setCode == 0xE088 && c?.currentCode == 0xE089 && c?.range == 0...63978)
+        try await cam.setFocusPosition(20000)
+        #expect(state.value(0xE089) == 20000 && state.value(0xE043) == 2048 + 20000 * (61971 - 2048) / 63978)
+        try await cam.setFocusPosition(99999)   // 超出范围夹到近端
+        #expect(state.value(0xE089) == 63978)
+        // 调焦不算「改过的设置」：结束联机时不把对焦拉回去。
+        #expect(await cam.changedProperties.allSatisfy { $0.code != 0xE088 })
+        await cam.disconnect()
+    }
+
     @Test func focalFramesFromLiveViewDataset() {
         // FocalFrameInfo v1.04：版本 + 保留，空的保留数组，对焦框 1 个（广域）、人脸框 0、跟踪框 1 个（α7 V 实测的样子）。
         var f = [UInt8]()

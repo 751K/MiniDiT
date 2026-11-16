@@ -339,6 +339,27 @@ extension AppModel {
             return try await agentTetherMode(t, p)
         case "tether.custom_wb":
             return try await agentCustomWB(t, p)
+        case "tether.focus_position":
+            var all = try await t.freshProperties()
+            guard let c = SonyCamera.focusPositionControl(all) else {
+                throw AgentControlError("focus_unavailable", "相机现在不能远程调焦（跟焦 0xE088 和绝对位置 0xE042 都不可写）。")
+            }
+            if let v = p["position"].int {
+                guard c.range.contains(Int64(v)) else {
+                    throw AgentControlError("invalid_value", "position 要在 \(c.range.lowerBound)–\(c.range.upperBound) 之间。")
+                }
+                let seconds = Double(p["seconds"].int ?? 0)
+                if seconds > 0 { t.pullFocus(to: Int64(v), seconds: seconds) } else {
+                    do { try await t.sendFocusPosition(Int64(v)) } catch { throw AppModel.cameraError(error) }
+                    try await Task.sleep(for: .milliseconds(600))
+                    all = try await t.freshProperties()
+                }
+            }
+            return .object(["setCode": .string(String(format: "0x%04X", c.setCode)), "currentCode": .string(String(format: "0x%04X", c.currentCode)),
+                            "min": .integer(c.range.lowerBound), "max": .integer(c.range.upperBound),
+                            "current": all[c.currentCode]?.intValue.map { .integer($0) } ?? .null,
+                            "manualFocus": .bool([1, 0x8006].contains(all[SonyProperty.focusMode]?.intValue ?? -1)),
+                            "pulling": .bool(t.pullTask != nil)])
         case "tether.touch":
             if p["cancel"].bool == true {
                 try await t.cancelTouchFocus()

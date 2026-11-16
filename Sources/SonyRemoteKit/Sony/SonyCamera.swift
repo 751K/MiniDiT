@@ -406,6 +406,38 @@ public actor SonyCamera: RemoteCamera {
         propsFetchedAt = .distantPast
     }
 
+    // MARK: 对焦位置（远程调焦、拉焦）
+
+    /// 用哪组属性调焦：优先跟焦 0xE088 / 0xE089（范围正好是镜头行程，适合录像），不可写时用绝对位置 0xE042 / 0xE043。
+    /// 两组都是值越大越近（α7 V 实测：小端是远处清楚，大端是近处清楚）。
+    public struct FocusPositionControl: Sendable, Equatable {
+        public let setCode: UInt16
+        public let currentCode: UInt16
+        public let range: ClosedRange<Int64>
+    }
+
+    public static func focusPositionControl(_ props: [UInt16: SonyPropertyDesc]) -> FocusPositionControl? {
+        for (set, current) in [(UInt16(0xE088), UInt16(0xE089)), (0xE042, 0xE043)] {
+            if let d = props[set], d.isWritable, case let .range(lo, hi, _) = d.form, hi > lo, props[current] != nil {
+                return FocusPositionControl(setCode: set, currentCode: current, range: lo...hi)
+            }
+        }
+        return nil
+    }
+
+    /// 把对焦移到 value（夹在范围里）。不等回读、不记为「改过的设置」：结束联机时不把对焦拉回去。
+    /// 拖动滑块或拉焦时会连续调用，由调用方保证一次只发一个。
+    public func setFocusPosition(_ value: Int64) async throws {
+        if props.isEmpty { try await refreshProperties(force: true) }
+        guard let c = Self.focusPositionControl(props), let d = props[c.setCode] else {
+            throw SonyPropertyError.notEnabled(0xE088, displayOnly: false)
+        }
+        let v = min(max(value, c.range.lowerBound), c.range.upperBound)
+        do { try await sendSet(c.setCode, .int(v), type: d.dataType) }
+        catch let e as PTPError { throw SonyPropertyError.rejected(c.setCode, response: e.code) }
+        propsFetchedAt = .distantPast
+    }
+
     // MARK: 远程触摸（点按取景画面对焦 / 跟踪）
 
     /// 远程触摸 0xD2E4：参数 UINT32 = x << 16 | y，取景画面映射到 640×480（SDK：x 0…639、y 0…479）。

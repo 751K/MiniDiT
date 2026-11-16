@@ -136,6 +136,14 @@ public final class FakeSonyState: @unchecked Sendable {
         // Log 拍摄（α7 V 的 0xE000：1 关、0x501 Flexible ISO）；打开时 Log 色域可改，图片配置文件不可用。
         p(0xE000, .uint16, 1, [1, 0x501])
         p(0xE001, .uint8, 1, [1, 2])
+        // 对焦位置（和 α7 V 一样，值越大越近）：跟焦 0xE088 / 0xE089 的范围是镜头行程 0…63978，
+        // 绝对位置 0xE042 / 0xE043 是 0…65535，镜头实际只走 2048…61971。
+        func range(_ code: UInt16, _ v: Int64, _ hi: Int64, writable: Bool) {
+            props[code] = SonyPropertyDesc(code: code, dataType: .uint16, getSet: writable ? 1 : 0, isEnabled: 1,
+                                           factoryDefault: .int(0), current: .int(v), form: .range(min: 0, max: hi, step: 1))
+        }
+        range(0xE088, 0, 63978, writable: true); range(0xE089, 27260, 63978, writable: false)
+        range(0xE042, 0, 65535, writable: true); range(0xE043, 27592, 65535, writable: false)
         setEnabled(0xE001, 0)
         // 和 α7 V 一样默认「相机优先」；联机时改成 PC，结束时应改回。
         p(SonyProperty.priorityMode, .uint8, 0, [0, 1])
@@ -156,6 +164,14 @@ public final class FakeSonyState: @unchecked Sendable {
             let photo = SonyPropertyCatalog.shootingMode(v)?.mode == .photo
             for c: UInt16 in [0xD253, 0xD269, 0xD287, 0xD252, 0xD203, 0xD288, 0xD15E, 0xD201, 0x5013] { setEnabled(c, photo ? 1 : 0) }
         }
+        // 调焦：跟焦和绝对位置两个刻度线性对应（α7 V 实测：跟焦 0 → 2048，63978 → 61971）。
+        if code == 0xE088 {
+            setCurrent(0xE089, v); setCurrent(0xE043, 2048 + v * (61971 - 2048) / 63978)
+        }
+        if code == 0xE042 {
+            let lens = min(max(v, 2048), 61971)
+            setCurrent(0xE043, lens); setCurrent(0xE089, (lens - 2048) * 63978 / (61971 - 2048))
+        }
         if code == 0xE000 {
             let log = v == 0x501
             setEnabled(0xE001, log ? 1 : 0)
@@ -169,6 +185,13 @@ public final class FakeSonyState: @unchecked Sendable {
             setValue(0xD20F, custom?.kelvin ?? (v == 0x8012 ? 5500 : 0))
             if let custom { setValue(0xD210, custom.gm) }
         }
+    }
+
+    /// 只改当前值（不触发联动）。
+    private func setCurrent(_ code: UInt16, _ v: Int64) {
+        guard let p = props[code] else { return }
+        props[code] = SonyPropertyDesc(code: p.code, dataType: p.dataType, getSet: p.getSet, isEnabled: p.isEnabled,
+                                       factoryDefault: p.factoryDefault, current: .int(v), form: p.form)
     }
 
     /// 锁内读值（handle 已持有锁）。

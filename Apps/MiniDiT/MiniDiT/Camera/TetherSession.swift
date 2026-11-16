@@ -22,6 +22,14 @@ final class TetherSession {
     var focusLocked = false
     /// 最近一次点按取景画面的位置（0…1，相对取景画面）；取消触摸或断开后为 nil。
     var touchPoint: CGPoint?
+    /// 调焦：正在拖动或拉焦时的目标位置（界面先显示它，相机回报跟上后清掉）。
+    var focusTarget: Int64?
+    /// 记下的对焦点（A、B），本次联机内有效。
+    var focusMarks: [String: Int64] = [:]
+    @ObservationIgnored var focusPending: Int64?
+    @ObservationIgnored var focusSending = false
+    @ObservationIgnored var focusGeneration = 0
+    @ObservationIgnored var pullTask: Task<Void, Never>?
     /// 相机随取景送来的对焦框、人脸框、跟踪框。
     var focalFrames: FocalFrameInfo?
     /// 相机断开了（关机、离开网络）。缓存里已有的照片仍在。
@@ -247,6 +255,7 @@ final class TetherSession {
 
     func properties() async throws -> [SonyPropertyDesc] { try await camera.allProperties() }
 
+    func sendFocusPosition(_ v: Int64) async throws { try await camera.setFocusPosition(v) }
     func remoteTouch(x: Int, y: Int) async throws { try await camera.remoteTouch(x: x, y: y) }
     func cancelRemoteTouch() async throws { try await camera.cancelRemoteTouch() }
     func customWBButton(_ step: SonyCamera.CustomWBStep) async throws { try await camera.customWBButton(step) }

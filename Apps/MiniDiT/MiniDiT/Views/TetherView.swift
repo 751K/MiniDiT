@@ -787,6 +787,7 @@ private struct TetherSidebar: View {
     @Bindable var session: TetherSession
     /// 收起的分组（标题，用换行分隔），下次打开联机窗口时沿用。
     @AppStorage("tetherCollapsedSections") private var collapsedSections = ""
+    @AppStorage("tetherPullSeconds") private var pullSeconds = 2.0
 
     var body: some View {
         VStack(spacing: 0) {
@@ -796,6 +797,7 @@ private struct TetherSidebar: View {
                     Hairline()
                     whiteBalanceCard.padding(.horizontal, 14).padding(.vertical, 12)
                     movieCard
+                    focusCard
                     shootingCard
                     lookCard
                     photoCard
@@ -979,6 +981,50 @@ private struct TetherSidebar: View {
         return propertySection("照片", rows)
     }
 
+    /// 调焦：近 ↔ 远滑块、两个记忆点和拉焦（相机能远程调焦时才显示）。
+    @ViewBuilder private var focusCard: some View {
+        if let c = session.focusControl, let shown = session.focusShown {
+            Hairline()
+            VStack(alignment: .leading, spacing: 4) {
+                collapsibleTitle("对焦")
+                if !isCollapsed("对焦") {
+                    PanelCard {
+                        FocusSlider(range: c.range, value: shown, marks: session.focusMarks, enabled: !session.lost) {
+                            session.moveFocus(to: $0)
+                        }
+                        if !session.isManualFocus {
+                            PanelDivider()
+                            PanelRow("自动对焦时相机会重新对焦") {
+                                Button("切到 MF") { session.switchToManualFocus() }
+                                    .controlSize(.small)
+                                    .disabled(session.properties[SonyProperty.focusMode]?.isWritable != true)
+                            }
+                        }
+                        ForEach(["A", "B"], id: \.self) { name in
+                            PanelDivider()
+                            PanelRow("记忆点 \(name)") {
+                                Button("记下") { session.markFocus(name) }
+                                    .help("把现在的对焦位置记为 \(name)")
+                                Button("拉过去") { session.pullFocus(to: session.focusMarks[name] ?? shown, seconds: pullSeconds) }
+                                    .disabled(session.focusMarks[name] == nil)
+                                    .help(pullSeconds == 0 ? "直接跳到 \(name)" : "用 \(Self.secondsText(pullSeconds))平滑拉到 \(name)")
+                            }
+                            .controlSize(.small)
+                        }
+                        PanelDivider()
+                        PanelRow("拉焦时长") {
+                            ValueMenu(text: Self.secondsText(pullSeconds), options: [0, 1, 2, 4, 8].map { (Int64($0), Self.secondsText(Double($0))) },
+                                      current: Int64(pullSeconds)) { pullSeconds = Double($0) }
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 14).padding(.vertical, 12)
+        }
+    }
+
+    private static func secondsText(_ s: Double) -> String { s == 0 ? "即时" : "\(Int(s)) 秒" }
+
     /// 对焦和驱动模式（驱动模式只在拍照时可用）。
     private var shootingCard: some View {
         propertySection("拍摄", [("对焦模式", 0x500A), ("驱动模式", 0x5013), ("点按画面", 0xD283)])
@@ -1117,6 +1163,42 @@ private struct PanelRow<Trailing: View>: View {
         .font(.system(size: 12))
         .frame(minHeight: 26)
         .opacity(enabled ? 1 : 0.5)
+    }
+}
+
+/// 调焦滑块：左近右远（相机的值越大越近，所以反过来画），记忆点 A / B 标在滑块上方。
+private struct FocusSlider: View {
+    let range: ClosedRange<Int64>
+    let value: Int64
+    let marks: [String: Int64]
+    let enabled: Bool
+    let move: (Int64) -> Void
+
+    private func fraction(_ v: Int64) -> Double {
+        Double(range.upperBound - v) / Double(range.upperBound - range.lowerBound)
+    }
+
+    var body: some View {
+        VStack(spacing: 2) {
+            GeometryReader { geo in
+                ForEach(marks.sorted { $0.key < $1.key }, id: \.key) { name, v in
+                    Text(name).font(.system(size: 9, weight: .semibold)).foregroundStyle(.secondary)
+                        .position(x: 8 + fraction(v) * (geo.size.width - 16), y: 5)
+                }
+            }
+            .frame(height: 10)
+            Slider(value: Binding(get: { fraction(value) }, set: { f in
+                move(range.upperBound - Int64((f * Double(range.upperBound - range.lowerBound)).rounded()))
+            }), in: 0...1)
+            .controlSize(.small)
+            .disabled(!enabled)
+            .accessibilityLabel("对焦位置")
+            HStack {
+                Text("近"); Spacer(); Text("远")
+            }
+            .font(.system(size: 10)).foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 4)
     }
 }
 
