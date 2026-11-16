@@ -62,4 +62,33 @@ import FakeSonyCamera
         #expect(SonyPropertyError.readOnly(1).code == "not_writable" && SonyPropertyError.rejected(1, response: 0x2019).code == "camera_busy")
         await cam.disconnect()
     }
+
+    @Test func restoresChangedPropertiesNewestFirst() async throws {
+        let state = FakeSonyState()
+        let fake = try FakeCamera { state.handle($0, $1, $2) }
+        let port = try await fake.start()
+        defer { fake.stop() }
+        let cam = try await SonyCamera.connect(host: "127.0.0.1", port: port, identity: .random(name: "Test"), startupDelay: 0)
+        // 连接时改成 PC 优先，原值（相机优先）记下来。
+        #expect(state.value(SonyProperty.priorityMode) == 1)
+        _ = try await cam.setVerified(SonyProperty.iso, .int(400))
+        _ = try await cam.setVerified(SonyProperty.iso, .int(200))
+        _ = try await cam.setVerified(SonyProperty.whiteBalance, .int(0x8012))
+        _ = try await cam.setVerified(SonyProperty.fNumber, .int(400))  // 本来就是 F4：不算改过
+        let changed = await cam.changedProperties
+        #expect(changed.map(\.code) == [SonyProperty.priorityMode, SonyProperty.iso, SonyProperty.whiteBalance])
+        #expect(changed[1].original == .int(0x00FF_FFFF))
+
+        let onlyPriority = await cam.restoreChanged(only: [SonyProperty.priorityMode])
+        #expect(onlyPriority.map(\.code) == [SonyProperty.priorityMode] && onlyPriority[0].error == nil)
+        #expect(state.value(SonyProperty.priorityMode) == 0 && state.value(SonyProperty.iso) == 200)
+
+        let start = state.setLog.count
+        let rest = await cam.restoreChanged()
+        #expect(rest.map(\.code) == [SonyProperty.whiteBalance, SonyProperty.iso] && rest.allSatisfy { $0.error == nil })
+        #expect(state.setLog[start...].map(\.code) == [SonyProperty.whiteBalance, SonyProperty.iso])
+        #expect(state.value(SonyProperty.iso) == 0x00FF_FFFF && state.value(SonyProperty.whiteBalance) == 2)
+        #expect(await cam.changedProperties.isEmpty)
+        await cam.disconnect()
+    }
 }

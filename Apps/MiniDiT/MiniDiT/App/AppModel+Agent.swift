@@ -16,11 +16,18 @@ extension AppModel {
         do {
             agentServer = try AgentSocketServer(path: path) { [weak self] request in
                 guard let self else { return .init(id: request.id, error: .init("app_closed", "MiniDiT 已关闭。")) }
+                let started = Date()
+                let response: AgentControlResponse
                 do {
                     guard request.version == 1 else { throw AgentControlError("unsupported_version", "不支持的本地接口版本。") }
-                    return .init(id: request.id, result: try await self.agentCallAsync(request.method, params: request.params))
-                } catch let error as AgentControlError { return .init(id: request.id, error: error) }
-                catch { return .init(id: request.id, error: .init("operation_failed", error.localizedDescription)) }
+                    response = .init(id: request.id, result: try await self.agentCallAsync(request.method, params: request.params))
+                } catch let error as AgentControlError { response = .init(id: request.id, error: error) }
+                catch { response = .init(id: request.id, error: .init("operation_failed", error.localizedDescription)) }
+                // 联机拍摄的每条命令和结果写一行 JSONL（CLI 和 MCP 都经过这里）。
+                if let method = AgentTools.find(request.method)?.method, method.hasPrefix("tether.") {
+                    TetherCommandLog.append(method: method, params: request.params, response: response, started: started)
+                }
+                return response
             }
             log.add("Agent 本地接口已启用（仅当前用户）")
         } catch { log.add("Agent 本地接口未启动：\(error.localizedDescription)") }
@@ -30,7 +37,7 @@ extension AppModel {
     func agentCallAsync(_ method: String, params p: AgentJSON = .object([:])) async throws -> AgentJSON {
         guard let tool = AgentTools.find(method) else { throw AgentControlError("unknown_method", "未知操作：\(method)") }
         guard ["tether.properties", "tether.get", "tether.set_properties", "tether.capture",
-               "tether.files", "tether.download", "tether.record_clip"].contains(tool.method) else {
+               "tether.files", "tether.download", "tether.record_clip", "tether.stop"].contains(tool.method) else {
             return try agentCall(method, params: p)
         }
         try tool.validate(p)

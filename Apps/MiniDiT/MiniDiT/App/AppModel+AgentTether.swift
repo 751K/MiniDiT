@@ -28,10 +28,6 @@ extension AppModel {
                 startTether(cam)
             }
             return tetherStatusJSON()
-        case "tether.stop":
-            guard tether != nil else { throw AgentControlError("not_tethering", "没有正在联机拍摄的相机。") }
-            stopTether()
-            return tetherStatusJSON()
         case "tether.configure":
             if let on = p["liveView"].bool {
                 guard let t = tether else { throw AgentControlError("not_tethering", "没有正在联机拍摄的相机。") }
@@ -85,6 +81,15 @@ extension AppModel {
             return .object(["accepted": .bool(true), "from": .string(s.valueText), "to": .string(option.label)])
         case "tether.live_view":
             guard t.liveViewOn else { throw AgentControlError("live_view_off", "实时取景已关闭，可用 tether.configure 打开。") }
+            if let out = p["outFile"].string {
+                // 存原始帧（相机送来的 JPEG，不缩小、不重新编码）。
+                guard let data = t.liveFrameData else { throw AgentControlError("no_frame", "还没有取景画面，请稍后重试。") }
+                let url = try Self.saveLiveFrame(data, to: out)
+                let size = Self.imageSize(data)
+                return .object(["path": .string(url.path), "bytes": .integer(data.count), "mimeType": .string("image/jpeg"),
+                                "width": .integer(size.width), "height": .integer(size.height),
+                                "savedAt": .string(ISO8601DateFormatter().string(from: .now))])
+            }
             guard let data = t.liveFrameData,
                   let jpeg = Self.agentJPEG(data, maxWidth: p["maxWidth"].int ?? 1024) else {
                 throw AgentControlError("no_frame", "还没有取景画面，请稍后重试。")
@@ -105,6 +110,7 @@ extension AppModel {
             "projectId": .optional(currentSession?.id.uuidString),
             "projectName": .optional(currentSession?.name),
             "importing": .bool(progress != nil),
+            "logPath": .string(TetherCommandLog.currentURL().path),
         ]
         guard let t = tether else { return .object(o) }
         let s = t.status
@@ -121,6 +127,9 @@ extension AppModel {
         o["shotCount"] = .integer(t.shotCount)
         o["liveView"] = .bool(t.liveViewOn)
         o["spoolPath"] = .string(t.spool.folder.path)
+        o["changedProperties"] = .array(t.changed.map { c in .object([
+            "code": .string(String(format: "0x%04X", c.code)), "name": .optional(SonyPropertyCatalog.name(c.code)),
+            "original": Self.valueJSON(c.code, c.original)]) })
         // info：镜头、电量、两个卡槽剩余张数、曝光模式、照片存储位置（相机没报告的项为 null）。
         let pr = t.properties
         func v(_ c: UInt16) -> AgentJSON { pr[c].map { Self.valueJSON(c, $0.current) } ?? .null }
@@ -149,6 +158,36 @@ extension AppModel {
         return .object(o)
     }
 
+    /// 取景帧写到 outFile：要绝对路径、所在目录已存在、文件不存在（不覆盖）；先写隐藏的临时文件再改名。
+    static func saveLiveFrame(_ data: Data, to text: String) throws -> URL {
+        let path = (text as NSString).expandingTildeInPath
+        guard path.hasPrefix("/") else { throw AgentControlError("invalid_params", "outFile 需要绝对路径。") }
+        let url = URL(filePath: path)
+        let dir = url.deletingLastPathComponent()
+        let fm = FileManager.default
+        var isDir: ObjCBool = false
+        guard fm.fileExists(atPath: dir.path, isDirectory: &isDir), isDir.boolValue else {
+            throw AgentControlError("invalid_path", "目录不存在：" + dir.path)
+        }
+        guard !fm.fileExists(atPath: url.path) else { throw AgentControlError("file_exists", "文件已存在，未覆盖：" + url.path) }
+        let partial = dir.appending(path: ".\(url.lastPathComponent).\(UUID().uuidString).partial")
+        do {
+            try data.write(to: partial)
+            try fm.moveItem(at: partial, to: url)  // 目标已存在时失败，不会覆盖
+        } catch {
+            try? fm.removeItem(at: partial)
+            if fm.fileExists(atPath: url.path) { throw AgentControlError("file_exists", "文件已存在，未覆盖：" + url.path) }
+            throw AgentControlError("write_failed", "写入失败：\(error.localizedDescription)")
+        }
+        return url
+    }
+
+    static func imageSize(_ data: Data) -> (width: Int, height: Int) {
+        guard let src = CGImageSourceCreateWithData(data as CFData, nil),
+              let p = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any] else { return (0, 0) }
+        return ((p[kCGImagePropertyPixelWidth] as? Int) ?? 0, (p[kCGImagePropertyPixelHeight] as? Int) ?? 0)
+    }
+
     /// 缩到给定宽度以内再编码成 JPEG，免得超过本地接口的单条消息上限。
     static func agentJPEG(_ data: Data, maxWidth: Int) -> (data: Data, width: Int, height: Int)? {
         guard let src = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
@@ -174,6 +213,22 @@ extension AppModel {
 
     func agentTetherAsync(_ method: String, _ p: AgentJSON) async throws -> AgentJSON {
         guard let t = tether else { throw AgentControlError("not_tethering", "没有正在联机拍摄的相机，请先调用 tether.start。") }
+        if method == "tether.stop" {
+            // 先按要求还原改过的设置，再断开（断开时 PriorityKey 总会交还相机）。
+            var restored: [AgentJSON] = []
+            if p["restoreSettings"].bool == true {
+                for r in await t.restoreChanged() {
+                    restored.append(.object([
+                        "code": .string(String(format: "0x%04X", r.code)), "name": .optional(SonyPropertyCatalog.name(r.code)),
+                        "value": Self.valueJSON(r.code, r.value), "ok": .bool(r.error == nil), "error": .optional(r.error)]))
+                }
+            }
+            guard tether === t else { throw AgentControlError("not_tethering", "联机拍摄已经结束。") }
+            stopTether()
+            var o = tetherStatusJSON().object!
+            o["restored"] = .array(restored)
+            return .object(o)
+        }
         guard !t.lost else { throw AgentControlError("camera_lost", "与相机的连接已断开。") }
         switch method {
         case "tether.properties":

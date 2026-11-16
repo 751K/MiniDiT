@@ -111,11 +111,15 @@ public actor SonyCamera: RemoteCamera {
         protocolVersion = info.version
         supportedCodes = info.codes
 
-        // 让 APP 优先控制（失败不影响后续）。
-        _ = try? await sendSet(SonyProperty.priorityMode, .int(1), type: .uint8)
-
         progress("正在读取相机设置…")
         try await refreshProperties(force: true)
+        // 让 APP 优先控制（失败不影响后续）。记下原值，断开前改回去。
+        let priorityBefore = props[SonyProperty.priorityMode]?.current
+        _ = try? await sendSet(SonyProperty.priorityMode, .int(1), type: .uint8)
+        try await refreshProperties(force: true)
+        if let before = priorityBefore, before != .none, let now = props[SonyProperty.priorityMode]?.current, now != before {
+            originalValues.append((SonyProperty.priorityMode, before))
+        }
 
         // 照片若只存卡，就不会传给手机；改成「卡 + 主机」。
         if let dest = props[SonyProperty.stillImageStoreDestination], dest.isWritable,
@@ -285,6 +289,40 @@ public actor SonyCamera: RemoteCamera {
     /// 设置前先检查是否可写、取值是否在可选范围内，失败时给出具体原因。
     @discardableResult
     public func setVerified(_ code: UInt16, _ value: PTPValue, timeout: TimeInterval = 3) async throws -> SonyPropertyDesc {
+        try await setVerified(code, value, timeout: timeout, record: true)
+    }
+
+    // MARK: 改回原值
+
+    /// 本次连接里改过的属性和第一次改之前的值，按改的先后排列（setVerified 和连接时的 PriorityMode）。
+    private var originalValues: [(code: UInt16, value: PTPValue)] = []
+
+    public var changedProperties: [(code: UInt16, original: PTPValue)] { originalValues.map { ($0.code, $0.value) } }
+
+    public struct RestoreResult: Sendable {
+        public let code: UInt16
+        public let value: PTPValue
+        /// nil = 已改回并回读确认。
+        public let error: String?
+    }
+
+    /// 把改过的属性逐项改回原值（后改的先还原：先还原色温再还原白平衡模式，最后才把优先权交还相机）。
+    /// only 不为 nil 时只还原其中的属性。改回成功的从记录里去掉，失败的保留。
+    public func restoreChanged(only: Set<UInt16>? = nil, timeout: TimeInterval = 5) async -> [RestoreResult] {
+        var out: [RestoreResult] = []
+        for (code, value) in originalValues.reversed() where only?.contains(code) ?? true {
+            do {
+                _ = try await setVerified(code, value, timeout: timeout, record: false)
+                originalValues.removeAll { $0.code == code }
+                out.append(.init(code: code, value: value, error: nil))
+            } catch {
+                out.append(.init(code: code, value: value, error: (error as? LocalizedError)?.errorDescription ?? String(describing: error)))
+            }
+        }
+        return out
+    }
+
+    private func setVerified(_ code: UInt16, _ value: PTPValue, timeout: TimeInterval, record: Bool) async throws -> SonyPropertyDesc {
         try await refreshProperties(force: true)
         guard let p = props[code] else { throw SonyPropertyError.unknown(code) }
         guard p.getSet == 1 else { throw SonyPropertyError.readOnly(code) }
@@ -299,6 +337,7 @@ public actor SonyCamera: RemoteCamera {
             }
         }
         if p.current == value { return p }
+        if record, !originalValues.contains(where: { $0.code == code }) { originalValues.append((code, p.current)) }
         do {
             try await sendSet(code, value, type: p.dataType)
         } catch let e as PTPError {

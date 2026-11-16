@@ -55,6 +55,8 @@ public final class FakeSonyState: @unchecked Sendable {
         p(SonyProperty.movieRecordingState, .uint8, 0, writable: false)
         p(SonyProperty.stillImageStoreDestination, .uint16, 0x0010, [0x0001, 0x0010, 0x0011])
         p(SonyProperty.contentsTransferEnabled, .uint8, 0, writable: false)
+        // 和 α7 V 一样默认「相机优先」；联机时改成 PC，结束时应改回。
+        p(SonyProperty.priorityMode, .uint8, 0, [0, 1])
         props[SonyProperty.batteryLevel] = SonyPropertyDesc(code: SonyProperty.batteryLevel, dataType: .int8, getSet: 0, isEnabled: 1,
                                                             factoryDefault: .int(-1), current: .int(76),
                                                             form: .range(min: -1, max: 100, step: 1))

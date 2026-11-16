@@ -70,7 +70,21 @@ final class TetherSession {
         tasks = []
         liveTask?.cancel()
         liveTask = nil
+        // 连接时把优先权改成了 PC：断开前交还给相机，相机上的拨盘才能继续用。
+        if !lost {
+            for r in await camera.restoreChanged(only: [SonyProperty.priorityMode]) {
+                log(r.error.map { "联机拍摄：PriorityKey 没能改回相机优先（\($0)）" } ?? "联机拍摄：PriorityKey 已改回相机优先")
+            }
+        }
         await camera.disconnect()
+    }
+
+    /// 把本次联机改过的属性改回原值（后改的先还原）。只还原经 setVerified 改过的属性和连接时改的 PriorityKey。
+    func restoreChanged() async -> [SonyCamera.RestoreResult] {
+        guard !lost else { return [] }
+        let results = await camera.restoreChanged()
+        await refresh()
+        return results
     }
 
     private func connectionLost() {
@@ -114,6 +128,8 @@ final class TetherSession {
 
     /// 最近一次读到的全部属性（状态里的镜头、卡剩余张数等从这里取）。
     @ObservationIgnored var properties: [UInt16: SonyPropertyDesc] = [:]
+    /// 本次联机改过的属性和原值（tether.stop 可按此还原）。
+    @ObservationIgnored var changed: [(code: UInt16, original: PTPValue)] = []
 
     func refresh() async {
         guard !lost, let s = try? await camera.refreshStatus() else { return }
@@ -121,6 +137,7 @@ final class TetherSession {
         if let all = try? await camera.allProperties(refresh: false) {
             properties = Dictionary(all.map { ($0.code, $0) }, uniquingKeysWith: { _, b in b })
         }
+        changed = await camera.changedProperties
     }
 
     func shoot() {

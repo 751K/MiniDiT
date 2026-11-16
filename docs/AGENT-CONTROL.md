@@ -93,7 +93,7 @@ MCP 暴露与 CLI 对应的 35 个工具，例如 `minidit_projects_list`、`min
 | `tether.start`、`tether.stop`、`tether.status` | 开始 / 结束索尼联机拍摄，查询联机状态 |
 | `tether.shoot`、`tether.focus`、`tether.record` | 拍摄、锁定或释放对焦、开始或停止录像 |
 | `tether.set`、`tether.configure` | 调整曝光参数；设置自动导入和实时取景 |
-| `tether.live_view` | 取一帧实时取景 JPEG（MCP 中为图片内容） |
+| `tether.live_view` | 取一帧实时取景 JPEG（MCP 中为图片内容），或把原始帧存成文件 |
 | `tether.properties`、`tether.get` | 列出相机的全部属性；读取指定属性 |
 | `tether.set_properties` | 设置任意属性，逐项回读确认 |
 | `tether.capture` | 拍一张并等所有文件传完，返回路径和参数快照 |
@@ -125,8 +125,9 @@ minidit tether status
 minidit tether set --setting iso --label 400        # 或 --value 原始值、--step 1（相对档位）
 minidit tether shoot
 minidit tether live-view --max-width 1024           # data 字段为 base64 JPEG
+minidit tether live-view --out-file /path/frame.jpg   # 原始帧写成文件，不覆盖
 minidit tether configure --auto-import false
-minidit tether stop
+minidit tether stop --restore-settings true         # 先改回本次改过的属性再断开
 ```
 
 - `tether.status` 返回拍摄模式、电量、对焦/录像状态、各参数的当前值和全部可选值（`value` 原始值、`label` 显示文字）、`shotCount`、`lastShot`（文件名、缓存路径、曝光、器材、是否已导入）、`autoImport`、`spoolPath`。
@@ -156,7 +157,27 @@ minidit tether capture --out-dir /path/to/dir --timeout-seconds 60
 - `tether.status` 的 `info` 里有镜头、焦距、电量、固件、两个卡槽剩余张数、曝光模式、照片存储位置、PriorityKey。
 - `tether.files` / `download` / `record_clip` 用远程传输（0x923B–0x923E）读卡，走联机的同一条连接，不用切换模式。`files --latest N --slot 1|2` 新的在前；`download --names A,B --out-dir DIR [--slot N]` 两个卡槽有同名文件时默认卡槽 1；视频另写出 MP4 内嵌的 XML（`C0001M01.XML`，与卡上的 M01.XML 一字不差）。先写成隐藏的 `.partial` 再改名，已有同名文件报 `file_exists`。
 - `record_clip --seconds S [--out-dir DIR]`：开始录像 → 等 S 秒 → 停止 → 等新片段出现在卡上（`timeoutSeconds`，默认 120）→ 下载。α7 V 上开始和停止各有延迟，结果里的 `durationSeconds`（来自 XML）是实际时长，2 秒约为 1.5 秒。
-- CLI 等待回复的时间：`capture` 330 秒、`set_properties` 90 秒、`files` 120 秒、`download` 3600 秒、`record_clip` 录像秒数 + 超时 + 3600 秒、其余 10 秒。
+- `live_view --out-file PATH`：把相机送来的那一帧 JPEG 原样写到文件（不缩小、不重新编码），只返回 `path`、`bytes`、`width`、`height`、`savedAt`。要绝对路径、目录已存在；文件已存在报 `file_exists`，先写隐藏临时文件再改名。
+- CLI 等待回复的时间：`capture` 330 秒、`set_properties` 90 秒、`files` 120 秒、`download` 3600 秒、`record_clip` 录像秒数 + 超时 + 3600 秒、`stop` 60 秒、其余 10 秒。
+
+### 还原相机设置
+
+- 连接时 MiniDiT 会尝试把 PriorityKey（0xD25A）改成 PC 优先，真的改动了才记下原值。结束联机时（`tether stop`、关闭联机窗口、断开来源）总会先把它改回原值，相机上的拨盘才能继续用。Wi-Fi 意外断开时没法写回，需要在相机菜单里改回，或者下次联机后再正常结束一次。
+- `tether.status` 的 `changedProperties` 列出本次联机改过的属性和原值：连接时改的 PriorityKey，加上 `set_properties` 改过的属性（同一属性只记第一次改之前的值）。`tether set`（界面那五项常用参数）不记录。
+- `tether stop --restore-settings true` 先把这些属性逐项改回原值并回读确认，后改的先还原（先还原色温再还原白平衡模式，PriorityKey 最后），结果在 `restored` 里逐项列出 `ok` / `error`，然后断开。改不回的项不会中断其余项。
+
+### 命令日志
+
+CLI 和 MCP 发来的每条 `tether.*` 命令都在应用里追加一行 JSON 到 `~/Library/Logs/MiniDiT/tether-YYYY-MM-DD.jsonl`（路径见 `tether.status` 的 `logPath`）：
+
+```json
+{"time":"2026-11-16T14:03:12.481+01:00","method":"tether.set_properties","params":{"assignments":["ISO=400"]},"durationMs":312,"ok":true,"result":{"results":[…]}}
+{"time":"…","method":"tether.capture","params":{},"durationMs":60012,"ok":false,"error":{"code":"capture_timeout","message":"…"}}
+```
+
+- 失败的命令也记录，带错误码和消息。
+- 取景图片不写 base64，只记长度；超过 30 项的列表只留前 30 项（`tether.properties` 的完整结果请直接看命令输出），超过 2000 字的字符串截断。
+- 只追加，按天分文件，不自动清理。
 
 ## 本地接口与安装
 

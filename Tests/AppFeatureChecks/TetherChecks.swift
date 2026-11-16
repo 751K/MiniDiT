@@ -28,6 +28,7 @@ import SonyRemoteKit
         ImportHistory.shared = ImportHistory(directory: root.appending(path: "history"))
         defer { ImportHistory.shared = oldHistory }
         TetherSpool.baseOverride = root.appending(path: "spool")
+        TetherCommandLog.directoryOverride = root.appending(path: "logs")
 
         let fake = Process()
         fake.executableURL = URL(filePath: args[i + 1])
@@ -171,6 +172,23 @@ import SonyRemoteKit
         precondition(after.json["shotCount"].int == 1 && after.json["lastShot"]["imported"].bool == true, "\(after.json)")
         print("PASS: MCP lists tether tools, live view comes back as image content (no base64 duplicated in structured result), set by label and shoot work, the shot is auto-imported")
 
+        // 取景帧存成文件：原始帧、不覆盖。
+        let framePath = root.appending(path: "frame.jpg")
+        let saved = try await call(["tether", "live-view", "--out-file", framePath.path])
+        let frameData = try Data(contentsOf: framePath)
+        precondition(saved.code == 0 && saved.json["path"].string == framePath.path && saved.json["data"] == .null
+                     && saved.json["bytes"].int == frameData.count && frameData.starts(with: [0xFF, 0xD8])
+                     && (saved.json["width"].int ?? 0) > 0, "\(saved.json)")
+        let savedAgain = try await call(["tether", "live-view", "--out-file", framePath.path])
+        let frameAfter = try Data(contentsOf: framePath)
+        precondition(savedAgain.json["error"]["code"].string == "file_exists" && frameAfter == frameData)
+        let relative = try await call(["tether", "live-view", "--out-file", "frame.jpg"])
+        precondition(relative.json["error"]["code"].string == "invalid_params")
+        let noDir = try await call(["tether", "live-view", "--out-file", root.appending(path: "nope/frame.jpg").path])
+        precondition(noDir.json["error"]["code"].string == "invalid_path")
+        precondition(!((try? fm.contentsOfDirectory(atPath: root.path)) ?? []).contains { $0.hasSuffix(".partial") })
+        print("PASS: tether.live_view --out-file saves the full camera frame, refuses to overwrite, rejects relative paths and missing folders")
+
         // 任意属性：列出、读取、设置（回读确认）、拍完等文件。
         let listed = try await call(["tether", "properties", "--query", "iso"])
         precondition(listed.code == 0 && listed.json["properties"].array?.contains { $0["name"].string == "IsoSensitivity" && $0["options"].array != nil } == true, "\(listed.json)")
@@ -232,9 +250,37 @@ import SonyRemoteKit
         precondition(configured.json["liveView"].bool == false && !model.tetherAutoImport)
         let off = try await call(["tether", "live-view"])
         precondition(off.json["error"]["code"].string == "live_view_off")
-        let stopped = try await call(["tether", "stop"])
-        precondition(stopped.code == 0 && stopped.json["active"].bool == false && model.tether == nil)
-        print("PASS: CLI configure turns off live view and auto-import; tether stop ends the session")
+        // 改过的属性：连接时的 PriorityKey，加上 set_properties 改的 ISO / 快门 / 光圈（tether.set 走的是界面那条路，不记录）。
+        let changed = try await call(["tether", "status"])
+        let changedNames = changed.json["changedProperties"].array?.compactMap { $0["name"].string } ?? []
+        precondition(changedNames == ["PriorityKeySettings", "IsoSensitivity", "ShutterSpeed", "FNumber"], "\(changed.json["changedProperties"])")
+        let stopped = try await call(["tether", "stop", "--restore-settings", "true"])
+        precondition(stopped.code == 0 && stopped.json["active"].bool == false && model.tether == nil, "\(stopped.json)")
+        let restored = stopped.json["restored"].array ?? []
+        // 后改的先还原；PriorityKey 最后交还相机。原值：ISO 200（MCP 设的）、1/250、F4.0、相机优先（说明界面那次结束联机已经交还过）。
+        precondition(restored.map { $0["name"].string ?? "" } == ["FNumber", "ShutterSpeed", "IsoSensitivity", "PriorityKeySettings"]
+                     && restored.map { $0["value"]["label"].string ?? "" } == ["F4.0", "1/250", "200", "Camera"]
+                     && restored.allSatisfy { $0["ok"].bool == true }, "\(restored)")
+        print("PASS: CLI configure turns off live view and auto-import; tether stop --restore-settings puts changed properties back newest-first and hands PriorityKey back to the camera")
+
+        // 命令日志：每条 tether.* 一行 JSON，含失败的命令；取景图片不写 base64。
+        let logURL = URL(filePath: changed.json["logPath"].string!)
+        precondition(logURL.path.hasPrefix(root.path), "日志要写到测试目录：\(logURL.path)")
+        let lines = try String(contentsOf: logURL, encoding: .utf8).split(separator: "\n").map {
+            try JSONDecoder().decode(AgentJSON.self, from: Data($0.utf8))
+        }
+        let methods = lines.compactMap { $0["method"].string }
+        precondition(methods.first == "tether.status" && methods.last == "tether.stop"
+                     && ["tether.start", "tether.set", "tether.shoot", "tether.live_view", "tether.set_properties", "tether.capture",
+                         "tether.files", "tether.download", "tether.record_clip", "tether.configure"].allSatisfy(methods.contains), "\(methods)")
+        precondition(lines.contains { $0["method"].string == "tether.shoot" && $0["ok"].bool == false && $0["error"]["code"].string == "not_tethering" })
+        let setLine = lines.first { $0["method"].string == "tether.set_properties" && $0["ok"].bool == true }!
+        precondition(setLine["params"]["assignments"].array?.count == 3 && setLine["result"]["results"].array?.count == 3
+                     && setLine["durationMs"].int != nil && setLine["time"].string?.contains("T") == true, "\(setLine)")
+        let image = lines.first { $0["method"].string == "tether.live_view" && $0["result"]["mimeType"].string == "image/jpeg" && $0["result"]["path"] == .null }!
+        precondition(image["result"]["data"].string?.hasPrefix("<base64") == true, "\(image)")
+        precondition(lines.last!["result"]["restored"].array?.count == 4)
+        print("PASS: every tether command is appended to the JSONL log with params, duration and result or error code; live view images are not logged as base64")
     }
 
     @MainActor static func state(_ t: TetherSession) -> [Int64] {
