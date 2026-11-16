@@ -37,7 +37,7 @@ extension AppModel {
     func agentCallAsync(_ method: String, params p: AgentJSON = .object([:])) async throws -> AgentJSON {
         guard let tool = AgentTools.find(method) else { throw AgentControlError("unknown_method", "未知操作：\(method)") }
         guard ["tether.properties", "tether.get", "tether.set_properties", "tether.capture",
-               "tether.files", "tether.download", "tether.record_clip", "tether.stop", "tether.mode", "tether.custom_wb"].contains(tool.method) else {
+               "tether.files", "tether.download", "tether.record_clip", "tether.stop", "tether.mode", "tether.custom_wb", "tether.touch"].contains(tool.method) else {
             return try agentCall(method, params: p)
         }
         try tool.validate(p)

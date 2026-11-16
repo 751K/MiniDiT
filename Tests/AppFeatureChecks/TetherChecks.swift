@@ -199,7 +199,7 @@ import SonyRemoteKit
         precondition(state(t2) == [400, 0x0001_01F4, 560])
         let unknown = try await call(["tether", "set-properties", "--assignments", "Nope=1"])
         precondition(unknown.code == 1 && unknown.json["error"]["code"].string == "unknown_property")
-        let invalid = try await call(["tether", "set-properties", "--assignments", "FNumber=F6.3"])
+        let invalid = try await call(["tether", "set-properties", "--assignments", "FNumber=F1.2"])
         precondition(invalid.json["error"]["code"].string == "invalid_value" && invalid.json["error"]["message"].string?.contains("F5.6") == true, "\(invalid.json)")
         let locked = try await call(["tether", "set-properties", "--assignments", "ISO=200,FocusMode=MF"])
         precondition(locked.json["error"]["code"].string == "not_writable" && locked.json["error"]["message"].string?.contains("IsoSensitivity") == true, "\(locked.json)")

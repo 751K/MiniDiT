@@ -18,6 +18,47 @@ extension TetherSession {
         }
     }
 
+    // MARK: 点按对焦（远程触摸）
+
+    /// 取景画面上的位置（0…1）换成相机的 640×480 坐标：相机把整幅取景画面映射到这个范围。
+    static func touchCoordinates(_ p: CGPoint) -> (x: Int, y: Int) {
+        (Int((min(max(p.x, 0), 1) * 639).rounded()), Int((min(max(p.y, 0), 1) * 479).rounded()))
+    }
+
+    /// 点按取景画面：相机按机身的触摸功能对焦或开始跟踪。相机报告不可用（0xD284 = 0）时直接说明原因。
+    func touchFocus(at p: CGPoint) async throws -> (x: Int, y: Int) {
+        guard !lost else { throw AgentControlError("not_connected", "相机已断开。") }
+        if properties[0xD284]?.intValue == 0 {
+            throw AgentControlError("touch_unavailable", "相机现在不接受远程触摸：请检查机身的「触摸操作」是否打开，以及对焦模式和对焦区域。")
+        }
+        let c = Self.touchCoordinates(p)
+        do { try await remoteTouch(x: c.x, y: c.y) } catch { throw AppModel.cameraError(error) }
+        touchPoint = p
+        await refresh()
+        return c
+    }
+
+    /// 取消触摸对焦 / 跟踪。
+    func cancelTouchFocus() async throws {
+        guard !lost else { throw AgentControlError("not_connected", "相机已断开。") }
+        do { try await cancelRemoteTouch() } catch { throw AppModel.cameraError(error) }
+        touchPoint = nil
+        await refresh()
+    }
+
+    /// 界面用：出错时显示在取景上。
+    func touch(_ p: CGPoint) {
+        Task { do { _ = try await touchFocus(at: p) } catch { message = AppModel.cameraError(error).message } }
+    }
+
+    /// 现在能否取消触摸：相机报告可取消（0xD285 = 1，在机身上点的也算），或刚在窗口里点过。
+    var canCancelTouch: Bool { !lost && (properties[0xD285]?.intValue == 1 || touchPoint != nil) }
+
+    func cancelTouch() {
+        guard canCancelTouch else { return }
+        Task { do { try await cancelTouchFocus() } catch { message = AppModel.cameraError(error).message } }
+    }
+
     // MARK: 拍照 / 录像 / S&Q
 
     struct ModeSwitch { let from: Int64; let to: Int64; let priorityChanged: Bool }

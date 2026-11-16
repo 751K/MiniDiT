@@ -126,6 +126,7 @@ func cli(_ arguments: [String]) throws {
         minidit tether status | shoot | stop [--restore-settings true]
         minidit tether set --setting iso --label 400   (or --value N / --step 1)
         minidit tether focus --locked true | tether record --on true
+        minidit tether touch --x 320 --y 240 | tether touch --cancel true   tap to focus (640×480)
         minidit tether live-view --max-width 1024      JPEG as base64 in "data"
         minidit tether live-view --out-file /abs/frame.jpg   save the full frame (never overwrites)
         minidit tether configure --auto-import true --live-view false

@@ -87,6 +87,7 @@ extension AppModel {
                 let url = try Self.saveLiveFrame(data, to: out)
                 let size = Self.imageSize(data)
                 return .object(["path": .string(url.path), "bytes": .integer(data.count), "mimeType": .string("image/jpeg"),
+                                "focalFrames": Self.focalFramesJSON(t.focalFrames),
                                 "width": .integer(size.width), "height": .integer(size.height),
                                 "savedAt": .string(ISO8601DateFormatter().string(from: .now))])
             }
@@ -95,7 +96,7 @@ extension AppModel {
                 throw AgentControlError("no_frame", "还没有取景画面，请稍后重试。")
             }
             return .object(["mimeType": .string("image/jpeg"), "width": .integer(jpeg.width), "height": .integer(jpeg.height),
-                            "data": .string(jpeg.data.base64EncodedString())])
+                            "data": .string(jpeg.data.base64EncodedString()), "focalFrames": Self.focalFramesJSON(t.focalFrames)])
         default:
             throw AgentControlError("unknown_method", "未知操作：\(method)")
         }
@@ -338,6 +339,17 @@ extension AppModel {
             return try await agentTetherMode(t, p)
         case "tether.custom_wb":
             return try await agentCustomWB(t, p)
+        case "tether.touch":
+            if p["cancel"].bool == true {
+                try await t.cancelTouchFocus()
+                return .object(["cancelled": .bool(true)])
+            }
+            guard let x = p["x"].int, let y = p["y"].int else { throw AgentControlError("invalid_params", "需要 x 和 y（640×480 坐标），或 cancel=true。") }
+            let c = try await t.touchFocus(at: CGPoint(x: Double(x) / 639, y: Double(y) / 479))
+            let all = try await t.freshProperties()
+            return .object(["x": .integer(c.x), "y": .integer(c.y),
+                            "function": AppModel.valueJSON(0xD283, all[0xD283]?.current ?? .int(0)),
+                            "focusFound": all[SonyProperty.focusFound].map { AppModel.valueJSON(SonyProperty.focusFound, $0.current) } ?? .null])
         case "tether.files":
             let lib = try await mapped { try await t.contentLibrary() }
             let all = try await mapped { try await Self.cardFiles(lib, slot: p["slot"].int.map(UInt32.init)) }
@@ -521,6 +533,16 @@ extension AppModel {
     }
 
     /// 相机层的错误 → agent 错误码：相机忙、存储卡满、连接断开、属性不可写、取值不合法分开。
+    /// 取景附带的对焦框（坐标 0…1，相对整幅取景画面）。
+    static func focalFramesJSON(_ info: FocalFrameInfo?) -> AgentJSON {
+        guard let info else { return .null }
+        func r(_ v: Double) -> AgentJSON { .number((v * 10000).rounded() / 10000) }
+        return .object(["version": .integer(info.version), "frames": .array(info.frames.map { f in
+            .object(["kind": .string(f.kind.rawValue), "type": .integer(f.type), "state": .integer(f.state),
+                     "cx": r(f.cx), "cy": r(f.cy), "w": r(f.w), "h": r(f.h)])
+        })])
+    }
+
     static func cameraError(_ error: Error) -> AgentControlError {
         switch error {
         case let e as AgentControlError: return e

@@ -20,6 +20,10 @@ final class TetherSession {
     var shooting = false
     var downloading = false
     var focusLocked = false
+    /// 最近一次点按取景画面的位置（0…1，相对取景画面）；取消触摸或断开后为 nil。
+    var touchPoint: CGPoint?
+    /// 相机随取景送来的对焦框、人脸框、跟踪框。
+    var focalFrames: FocalFrameInfo?
     /// 相机断开了（关机、离开网络）。缓存里已有的照片仍在。
     var lost = false
     var message: String?
@@ -102,6 +106,7 @@ final class TetherSession {
     private func connectionLost() {
         guard !lost else { return }
         lost = true
+        touchPoint = nil
         liveTask?.cancel()
         liveFrame = nil
         message = "与相机的连接已断开。已经拍下的照片保存在联机缓存中。"
@@ -122,6 +127,8 @@ final class TetherSession {
                     if let data = try await camera.liveViewFrame(), let image = NSImage(data: data) {
                         self?.liveFrame = image
                         self?.liveFrameData = data
+                        let frames = await camera.focalFrames
+                        if self?.focalFrames != frames { self?.focalFrames = frames }
                     }
                     failures = 0
                     try await Task.sleep(for: .milliseconds(50))
@@ -240,6 +247,8 @@ final class TetherSession {
 
     func properties() async throws -> [SonyPropertyDesc] { try await camera.allProperties() }
 
+    func remoteTouch(x: Int, y: Int) async throws { try await camera.remoteTouch(x: x, y: y) }
+    func cancelRemoteTouch() async throws { try await camera.cancelRemoteTouch() }
     func customWBButton(_ step: SonyCamera.CustomWBStep) async throws { try await camera.customWBButton(step) }
     func customWBCapture(_ value: PTPValue, type: PTPDataType) async throws { try await camera.customWBCapture(value, type: type) }
 
