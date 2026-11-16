@@ -26,6 +26,13 @@ struct MiniDiTApp: App {
                 Button("重新读取") { model.refreshSources() }
                     .keyboardShortcut("r", modifiers: .command)
                     .disabled(model.progress != nil || model.phase != .ready)
+                Divider()
+                Button(model.isTethering ? "显示联机拍摄窗口" : "联机拍摄") {
+                    if model.isTethering { model.tetherWindowRequest += 1 }
+                    else if let c = model.tetherCandidate { model.startTether(c) }
+                }
+                .keyboardShortcut("t", modifiers: [.command, .shift])
+                .disabled(!model.isTethering && (model.tetherCandidate == nil || model.progress != nil))
             }
             CommandMenu("选择") {
                 Button("选择全部新照片") { model.selectNew(in: Set(model.days.map(\.id))) }
@@ -56,6 +63,10 @@ struct MiniDiTApp: App {
                     .keyboardShortcut("-", modifiers: .command)
             }
         }
+        Window("联机拍摄", id: "tether") {
+            TetherWindow().environment(model)
+        }
+        .defaultSize(width: 1180, height: 760)
         Settings {
             SettingsView().environment(model)
         }
@@ -101,6 +112,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 struct RootView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.openWindow) private var openWindow
 
     private var lightroomTitle: String {
         switch model.lightroomPrompt {
@@ -121,6 +133,7 @@ struct RootView: View {
                 ConnectView()
             }
         }
+        .onChange(of: model.tetherWindowRequest) { _, _ in openWindow(id: "tether") }
         .sheet(item: $model.credentialRequest) { CredentialSheet(request: $0) }
         .sheet(item: $model.fingerprintRequest) { FingerprintSheet(request: $0) }
         .sheet(item: $model.sessionRequest) { SessionSheet(request: $0) }

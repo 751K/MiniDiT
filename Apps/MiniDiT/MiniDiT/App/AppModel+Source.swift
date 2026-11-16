@@ -234,7 +234,7 @@ extension AppModel {
             }, progress: step)
     }
 
-    private func prepareTunnel(_ cam: FoundCamera, interactive: Bool = true) async throws -> CameraSSHTunnel? {
+    func prepareTunnel(_ cam: FoundCamera, interactive: Bool = true) async throws -> CameraSSHTunnel? {
         guard case .ssh(let fingerprint) = cam.kind else { return nil }
         var creds = CredentialStore.load(fingerprint)
         if creds == nil {
@@ -310,6 +310,7 @@ extension AppModel {
     }
 
     func disconnect() {
+        endTetherCamera()
         importTask?.cancel()
         connectTask?.cancel()
         watchTask?.cancel()
@@ -642,6 +643,8 @@ extension AppModel {
     func ejectCard() {
         guard let root = cardRoot else { return }
         disconnect()
+        // 联机缓存不是真的存储卡，断开就好。
+        if isTetherSpool(root) { return }
         do {
             try NSWorkspace.shared.unmountAndEjectDevice(at: root)
             notice = "已推出 \(root.lastPathComponent)，可安全取出存储卡"

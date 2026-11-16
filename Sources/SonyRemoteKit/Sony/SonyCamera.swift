@@ -1,5 +1,45 @@
 import Foundation
 
+/// 设置任意属性时的错误，原因分得细一些，方便调用方（命令行、agent）判断该怎么办。
+public enum SonyPropertyError: Error, LocalizedError, Sendable, Equatable {
+    case unknown(UInt16)
+    case readOnly(UInt16)
+    case notEnabled(UInt16, displayOnly: Bool)
+    case invalidValue(UInt16, allowed: [Int64])
+    case outOfRange(UInt16, min: Int64, max: Int64, step: Int64)
+    case rejected(UInt16, response: UInt16)
+    case readbackMismatch(UInt16, requested: PTPValue, actual: PTPValue)
+
+    public var code: String {
+        switch self {
+        case .unknown: "unknown_property"
+        case .readOnly, .notEnabled: "not_writable"
+        case .invalidValue, .outOfRange: "invalid_value"
+        case .rejected(_, let r): r == PTPResponse.deviceBusy ? "camera_busy" : "rejected"
+        case .readbackMismatch: "readback_mismatch"
+        }
+    }
+
+    public var errorDescription: String? {
+        func n(_ c: UInt16) -> String { SonyPropertyCatalog.name(c).map { "\($0)（\(String(format: "0x%04X", c))）" } ?? String(format: "0x%04X", c) }
+        func v(_ c: UInt16, _ x: Int64) -> String { SonyPropertyCatalog.label(c, x) ?? "\(x)" }
+        switch self {
+        case .unknown(let c): return "相机没有报告属性 \(n(c))。"
+        case .readOnly(let c): return "\(n(c)) 是只读属性。"
+        case .notEnabled(let c, let display):
+            return display ? "\(n(c)) 当前仅显示、不能改（通常是被拍摄模式、拨盘或其他设置锁定）。" : "\(n(c)) 在当前设置下未启用。"
+        case .invalidValue(let c, let allowed):
+            return "\(n(c)) 不接受这个值。可选：" + allowed.prefix(60).map { v(c, $0) }.joined(separator: "、")
+        case let .outOfRange(c, lo, hi, step): return "\(n(c)) 的取值范围是 \(v(c, lo))–\(v(c, hi))，步进 \(step)。"
+        case let .rejected(c, r):
+            return r == PTPResponse.deviceBusy ? "相机忙，没有接受 \(n(c)) 的设置。" : "相机拒绝设置 \(n(c))（响应 \(String(format: "0x%04X", r))）。"
+        case let .readbackMismatch(c, req, act):
+            func s(_ p: PTPValue) -> String { if case .int(let x) = p { v(c, x) } else { p.description } }
+            return "设置 \(n(c)) 为 \(s(req)) 后读回的是 \(s(act))，相机没有采用这个值。"
+        }
+    }
+}
+
 public enum SonyCameraError: Error, LocalizedError, Sendable {
     case notSonyRemoteCapable
     case settingUnavailable(CameraSettingKind)
@@ -231,6 +271,50 @@ public actor SonyCamera: RemoteCamera {
         var w = PTPWriter()
         w.u16(value)
         try await client.transaction(SonyOperation.controlDevice, [UInt32(c)], dataOut: w.data)
+    }
+
+    // MARK: 任意属性（联机拍摄的 agent 接口用）
+
+    /// 相机报告的全部属性（按编号排序）。
+    public func allProperties(refresh: Bool = true) async throws -> [SonyPropertyDesc] {
+        if refresh { try await refreshProperties(force: true) }
+        return props.values.sorted { $0.code < $1.code }
+    }
+
+    /// 设置一个属性并回读确认：在 timeout 内读回的值等于请求值才算成功。
+    /// 设置前先检查是否可写、取值是否在可选范围内，失败时给出具体原因。
+    @discardableResult
+    public func setVerified(_ code: UInt16, _ value: PTPValue, timeout: TimeInterval = 3) async throws -> SonyPropertyDesc {
+        try await refreshProperties(force: true)
+        guard let p = props[code] else { throw SonyPropertyError.unknown(code) }
+        guard p.getSet == 1 else { throw SonyPropertyError.readOnly(code) }
+        guard p.isEnabled == 1 else { throw SonyPropertyError.notEnabled(code, displayOnly: p.isEnabled == 2) }
+        if case .int(let v) = value {
+            switch p.form {
+            case .enumeration(let list) where !list.isEmpty && !list.contains(v):
+                throw SonyPropertyError.invalidValue(code, allowed: list)
+            case let .range(lo, hi, step) where v < lo || v > hi || (step > 1 && (v - lo) % step != 0):
+                throw SonyPropertyError.outOfRange(code, min: lo, max: hi, step: step)
+            default: break
+            }
+        }
+        if p.current == value { return p }
+        do {
+            try await sendSet(code, value, type: p.dataType)
+        } catch let e as PTPError {
+            throw SonyPropertyError.rejected(code, response: e.code)
+        }
+        let deadline = Date().addingTimeInterval(timeout)
+        var last = p
+        while Date() < deadline {
+            try await Task.sleep(for: .milliseconds(100))
+            try await refreshProperties(force: true)
+            if let now = props[code] {
+                last = now
+                if now.current == value { return now }
+            }
+        }
+        throw SonyPropertyError.readbackMismatch(code, requested: value, actual: last.current)
     }
 
     // MARK: 拍摄

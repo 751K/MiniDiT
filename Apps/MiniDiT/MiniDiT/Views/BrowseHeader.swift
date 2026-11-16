@@ -20,6 +20,17 @@ struct BrowseHeader: View {
             }
             .lineLimit(1)
             Spacer(minLength: 8)
+            if model.isTethering || model.tetherCandidate != nil {
+                Button {
+                    if model.isTethering { model.tetherWindowRequest += 1 }
+                    else if let c = model.tetherCandidate { model.startTether(c) }
+                } label: {
+                    Label(model.isTethering ? "联机拍摄窗口" : "联机拍摄", systemImage: "camera.aperture")
+                }
+                .buttonStyle(.bordered).controlSize(.small)
+                .disabled(!model.isTethering && model.progress != nil)
+                .help(model.isTethering ? "显示联机拍摄窗口" : "断开当前导入连接，改为遥控这台相机拍摄，拍好的照片自动导入当前项目（⇧⌘T）")
+            }
             Slider(value: $model.thumbSize, in: 110...320)
                 .frame(width: 76)
                 .accessibilityLabel("缩略图大小")

@@ -28,8 +28,8 @@ public enum AgentSocket {
         var addr = try address(path)
         return withUnsafePointer(to: &addr) { p in p.withMemoryRebound(to: sockaddr.self, capacity: 1) { body($0, socklen_t(MemoryLayout<sockaddr_un>.size)) } }
     }
-    static func configure(_ fd: Int32) {
-        var timeout = timeval(tv_sec: 10, tv_usec: 0), one: Int32 = 1
+    static func configure(_ fd: Int32, timeout seconds: Int = 10) {
+        var timeout = timeval(tv_sec: seconds, tv_usec: 0), one: Int32 = 1
         setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
         setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
         setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, socklen_t(MemoryLayout<Int32>.size))
@@ -69,11 +69,12 @@ public enum AgentSocket {
     }
     static func failure(_ message: String) -> AgentControlError { .init("transport_error", message + ": " + String(cString: strerror(errno))) }
 
-    public static func request(_ request: AgentControlRequest, path: String = path) throws -> AgentJSON {
+    /// timeout：等应用回复的秒数。拍摄这类要等相机传完文件的操作需要更长。
+    public static func request(_ request: AgentControlRequest, path: String = path, timeout: Int = 10) throws -> AgentJSON {
         try secureDirectory((path as NSString).deletingLastPathComponent)
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { throw failure("无法打开本地控制连接") }
-        defer { close(fd) }; configure(fd)
+        defer { close(fd) }; configure(fd, timeout: timeout)
         guard try withAddress(path, { connect(fd, $0, $1) }) == 0 else {
             throw AgentControlError("app_not_running", "无法连接 MiniDiT，请先运行 minidit launch 或打开应用。")
         }
@@ -91,11 +92,11 @@ public final class AgentSocketServer: @unchecked Sendable {
     private let listener: Int32
     private let endpoint: String
     private let lock: Int32
-    private let handler: @MainActor @Sendable (AgentControlRequest) -> AgentControlResponse
+    private let handler: @MainActor @Sendable (AgentControlRequest) async -> AgentControlResponse
     private let workers = DispatchQueue(label: "com.kong.minidit.agent.requests", qos: .utility, attributes: .concurrent)
     private let slots = DispatchSemaphore(value: 8)
 
-    public init(path: String = AgentSocket.path, handler: @escaping @MainActor @Sendable (AgentControlRequest) -> AgentControlResponse) throws {
+    public init(path: String = AgentSocket.path, handler: @escaping @MainActor @Sendable (AgentControlRequest) async -> AgentControlResponse) throws {
         self.endpoint = path; self.handler = handler
         try AgentSocket.secureDirectory((path as NSString).deletingLastPathComponent)
         let lockFD = open(path + ".lock", O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, 0o600)

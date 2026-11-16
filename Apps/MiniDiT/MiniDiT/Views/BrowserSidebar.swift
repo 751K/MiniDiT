@@ -262,7 +262,7 @@ private struct SourceManagerRow: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(model.progress != nil)
-                    .help(source.isCard ? "推出 \(source.detail.replacingOccurrences(of: "读卡器 · ", with: ""))" : "断开此相机")
+                    .help(model.isTetherSource(source.id) ? "结束联机拍摄并关闭联机缓存" : source.isCard ? "推出 \(source.detail.replacingOccurrences(of: "读卡器 · ", with: ""))" : "断开此相机")
                     .accessibilityLabel(source.isCard ? "推出存储卡" : "断开相机")
                 }
             }
@@ -277,7 +277,7 @@ private struct SourceManagerRow: View {
         .contextMenu {
             SourceMenu(id: source.id, rename: rename)
             Divider()
-            Button(source.isCard ? "推出存储卡" : "断开相机", role: .destructive) {
+            Button(model.isTetherSource(source.id) ? "关闭联机缓存" : source.isCard ? "推出存储卡" : "断开相机", role: .destructive) {
                 if source.isCard, source.id != AppModel.primarySource { model.ejectExtra(source.id) }
                 else if source.isCard { model.ejectCard() }
                 else { model.removeSource(source.id) }

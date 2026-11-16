@@ -84,6 +84,7 @@ struct ConnectView: View {
                         Text("将相机与 Mac 连接至同一 Wi-Fi，并在相机上开启遥控拍摄。首次连接需要相机上的访问认证信息。")
                         Text("尼康 Z 系列：在相机“连接到电脑”中选择直接连接，Mac 加入相机的 Wi-Fi 后点“搜索相机”；首次连接时核对配对码并在相机上确认。")
                         Text("大疆 Osmo Pocket 3 等相机：点“连接大疆相机”，Mac 会通过蓝牙找到相机并加入它的 Wi-Fi；首次连接需要在相机屏幕上点“允许”。连接期间 Mac 的 Wi-Fi 无法上网。")
+                        Text("联机拍摄（索尼）：在相机上开启“电脑遥控”，然后在可用设备的相机上点右键选择“联机拍摄”，或连接后点浏览页顶部的“联机拍摄”。拍摄的照片会自动导入当前项目。")
                         Text("也可以直接插入读卡器，选择存储卡开始导入。")
                             .foregroundStyle(.secondary)
                     }
@@ -137,8 +138,11 @@ struct ConnectView: View {
         for cam in model.found {
             shown.insert(cam.fingerprint)
             let detail = cam.host + (cam.kind == .direct ? "" : " · 访问身份验证")
+            let knownModel = model.knownCameras.first { $0.fingerprint == cam.fingerprint }?.model ?? ""
+            let sony = knownModel.isEmpty || ["ILCE", "ILME", "ILCA", "ZV-", "DSC-"].contains { knownModel.hasPrefix($0) }
             out.append(.init(id: "f:" + cam.fingerprint, kind: .camera, name: cam.knownName ?? "相机", detail: detail,
-                             state: .online, action: busy ? nil : { model.connect(cam) }))
+                             state: .online, action: busy ? nil : { model.connect(cam) },
+                             tether: busy || !sony ? nil : { model.startTether(cam) }))
         }
         // 没识别出型号的直连相机（名字只是 IP）多半是同一台换了 IP，只列最近的一台。
         var unidentifiedShown = false
@@ -208,6 +212,8 @@ struct SourceTile: View {
         let detail: String
         let state: State
         let action: (() -> Void)?
+        /// 右键菜单里的「联机拍摄」（索尼 Wi-Fi 相机）。
+        var tether: (() -> Void)? = nil
     }
 
     let tile: Model
@@ -254,6 +260,12 @@ struct SourceTile: View {
         .buttonStyle(.plain)
         .disabled(tile.action == nil)
         .onHover { hover = $0 }
+        .contextMenu {
+            if let t = tile.tether {
+                Button("联机拍摄") { t() }
+                Button("导入素材") { tile.action?() }
+            }
+        }
         .accessibilityLabel("\(tile.name)，\(tile.detail)")
         .accessibilityHint(actionTitle)
     }

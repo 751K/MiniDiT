@@ -23,7 +23,9 @@ func perform(_ method: String, _ params: AgentJSON) throws -> AgentJSON {
         throw AgentControlError("launch_timeout", "应用已启动，但本地控制接口尚未就绪。")
     }
     let path = ProcessInfo.processInfo.environment["MINIDIT_SOCKET_PATH"] ?? AgentSocket.path
-    return try AgentSocket.request(.init(method: tool.method, params: params), path: path)
+    // 拍摄要等相机把文件传完；设置要等回读确认。
+    let timeout = tool.method == "tether.capture" ? 330 : tool.method == "tether.set_properties" ? 90 : 10
+    return try AgentSocket.request(.init(method: tool.method, params: params), path: path, timeout: timeout)
 }
 
 func rpcError(_ id: AgentJSON, code: Int, message: String) -> AgentJSON {
@@ -56,7 +58,7 @@ func serveMCP() {
             initialized = true
             result = .object(["protocolVersion": .string("2025-11-25"), "capabilities": .object(["tools": .object(["listChanged": .bool(false)])]),
                 "serverInfo": .object(["name": .string("MiniDiT"), "version": .string("1.0.0")]),
-                "instructions": .string("Use minidit_app_status to inspect state. Select/create a project, filter/list/select assets, then minidit_import_preview and minidit_import_start with the returned planId. Mutations are reflected in the local app. Credentials and fingerprint approval remain in the app. Source files are never deleted unless preview explicitly acknowledges the enabled deletion preference.")])
+                "instructions": .string("Use minidit_app_status to inspect state. Select/create a project, filter/list/select assets, then minidit_import_preview and minidit_import_start with the returned planId. Mutations are reflected in the local app. Credentials and fingerprint approval remain in the app. Source files are never deleted unless preview explicitly acknowledges the enabled deletion preference. Sony tethered shooting: minidit_tether_start, then poll minidit_tether_status; minidit_tether_set / minidit_tether_shoot / minidit_tether_live_view (returns an image). Shots auto-import into the selected project.")])
         case "ping": result = .object([:])
         case "tools/list":
             guard ready else { emit(rpcError(id, code: -32002, message: "Initialize first")); continue }
@@ -69,8 +71,16 @@ func serveMCP() {
             let args = params.object?["arguments"] ?? .object([:])
             do {
                 let value = try perform(tool.method, args)
-                result = .object(["content": .array([.object(["type": .string("text"), "text": .string(String(decoding: try value.data(), as: UTF8.self))])]),
-                    "structuredContent": value.object == nil ? .object(["result": value]) : value, "isError": .bool(false)])
+                if let image = value["data"].string, let mime = value["mimeType"].string, var meta = value.object {
+                    // 取景帧：图片内容给模型看，结构化结果里不再重复一遍 base64。
+                    meta["data"] = nil
+                    result = .object(["content": .array([.object(["type": .string("image"), "data": .string(image), "mimeType": .string(mime)]),
+                        .object(["type": .string("text"), "text": .string(String(decoding: try AgentJSON.object(meta).data(), as: UTF8.self))])]),
+                        "structuredContent": .object(meta), "isError": .bool(false)])
+                } else {
+                    result = .object(["content": .array([.object(["type": .string("text"), "text": .string(String(decoding: try value.data(), as: UTF8.self))])]),
+                        "structuredContent": value.object == nil ? .object(["result": value]) : value, "isError": .bool(false)])
+                }
             } catch {
                 let failure = (error as? AgentControlError) ?? AgentControlError("operation_failed", error.localizedDescription)
                 let value = (try? AgentJSON.encoded(failure)) ?? .null
@@ -102,6 +112,12 @@ func cli(_ arguments: [String]) throws {
         minidit imports list
         minidit imports get --id BATCH_UUID
         minidit import cancel | resume
+        minidit tether start [--host 192.168.1.23]   Sony tethered shooting (Wi-Fi PC Remote)
+        minidit tether status | shoot | stop
+        minidit tether set --setting iso --label 400   (or --value N / --step 1)
+        minidit tether focus --locked true | tether record --on true
+        minidit tether live-view --max-width 1024      JPEG as base64 in "data"
+        minidit tether configure --auto-import true --live-view false
         minidit tools                     JSON tool catalog and argument schemas
         minidit call METHOD '{"arg":"value"}'
         minidit mcp                       MCP stdio server (2025-11-25)

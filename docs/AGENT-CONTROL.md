@@ -74,7 +74,7 @@ minidit call projects.select '{"id":"PROJECT_UUID"}'
 
 按客户端使用的配置格式填写。安装脚本默认将命令放在 `~/.local/bin/minidit`；配置文件中使用展开后的绝对路径。启动 MCP 服务不等于启动应用：agent 可先调用 `minidit_app_launch`，然后查询 `minidit_app_status`。
 
-MCP 暴露与 CLI 对应的 19 个工具，例如 `minidit_projects_list`、`minidit_assets_select`、`minidit_import_preview`、`minidit_import_start`。工具有参数 schema、只读/修改标记和结构化结果。连接、刷新、导入、取消均需通过状态查询观察完成情况；工具返回已接受请求，不代表传输已经完成。
+MCP 暴露与 CLI 对应的 32 个工具，例如 `minidit_projects_list`、`minidit_assets_select`、`minidit_import_preview`、`minidit_import_start`。工具有参数 schema、只读/修改标记和结构化结果。连接、刷新、导入、取消均需通过状态查询观察完成情况；工具返回已接受请求，不代表传输已经完成。
 
 协议依据：[stdio 传输](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)、[初始化流程](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle)、[工具定义与调用](https://modelcontextprotocol.io/specification/2025-11-25/server/tools)。
 
@@ -90,6 +90,13 @@ MCP 暴露与 CLI 对应的 19 个工具，例如 `minidit_projects_list`、`min
 | `import.preview`、`import.start` | 预览和执行导入计划 |
 | `import.cancel`、`import.resume` | 取消当前任务或继续中断的任务 |
 | `imports.list`、`imports.get` | 查询批次摘要、逐文件及副本记录 |
+| `tether.start`、`tether.stop`、`tether.status` | 开始 / 结束索尼联机拍摄，查询联机状态 |
+| `tether.shoot`、`tether.focus`、`tether.record` | 拍摄、锁定或释放对焦、开始或停止录像 |
+| `tether.set`、`tether.configure` | 调整曝光参数；设置自动导入和实时取景 |
+| `tether.live_view` | 取一帧实时取景 JPEG（MCP 中为图片内容） |
+| `tether.properties`、`tether.get` | 列出相机的全部属性；读取指定属性 |
+| `tether.set_properties` | 设置任意属性，逐项回读确认 |
+| `tether.capture` | 拍一张并等所有文件传完，返回路径和参数快照 |
 
 CLI 的方法可以写成分隔的命令，例如 `projects list`；下划线操作可以写成连字符，例如 `sources open-card`。完整方法也可通过 `minidit call METHOD 'JSON'` 调用。
 
@@ -106,6 +113,47 @@ CLI 的方法可以写成分隔的命令，例如 `projects list`；下划线操
 - 相机首次账号、指纹或软件授权仍在应用中处理。`pendingInteraction` 指出需要处理的提示，不返回账号密码或钥匙串内容。
 - 第一版不提供删除项目、清空历史、清卡、补备份或任意执行脚本的工具；这些操作继续在应用中处理。
 
+## 联机拍摄
+
+索尼相机开启“电脑遥控”后，`tether start` 开始联机（不带 `--host` 时用当前连接的索尼 Wi-Fi 相机）。这会断开当前来源，主来源换成这次的联机缓存。连接是异步的，轮询 `tether status` 直到 `active=true`。
+
+```sh
+minidit tether start --host 192.168.1.23
+minidit tether status
+minidit tether set --setting iso --label 400        # 或 --value 原始值、--step 1（相对档位）
+minidit tether shoot
+minidit tether live-view --max-width 1024           # data 字段为 base64 JPEG
+minidit tether configure --auto-import false
+minidit tether stop
+```
+
+- `tether.status` 返回拍摄模式、电量、对焦/录像状态、各参数的当前值和全部可选值（`value` 原始值、`label` 显示文字）、`shotCount`、`lastShot`（文件名、缓存路径、曝光、器材、是否已导入）、`autoImport`、`spoolPath`。
+- `tether.set` 的 `value`、`label`、`step` 三选一；当前拍摄模式下由相机决定的参数返回 `setting_unavailable`，选项不存在返回 `invalid_value` 并列出可选值。
+- `tether.shoot`、`tether.set`、`tether.focus`、`tether.record` 返回 `accepted` 即结束；结果看 `tether.status`，导入进度看 `app.status.progress`。
+- 自动导入仍要求已选择项目：未选项目时照片留在联机缓存，选好项目后补导；不提供绕过项目的导入。
+- `tether.live_view` 在 MCP 中返回 `image` 内容块（agent 可直接看构图），结构化结果只含尺寸和类型。图像按 `maxWidth`（默认 1024，最大 1600）缩小后重新编码，保证不超过本地接口单条消息上限。
+- 相机断开时其他 `tether.*` 操作返回 `camera_lost`；没有联机时返回 `not_tethering`。
+- 录像只保存在相机存储卡上。
+
+### 任意属性与等待式拍摄
+
+除了上面五项常用参数，`tether.properties` 列出相机报告的全部属性（α7 V 约 426 项）：编号、SDK 名称（`CrDeviceProperty_*` 去掉前缀）、`state`（writable / displayOnly / disabled / readOnly）、当前值、可选值或范围。
+
+```sh
+minidit tether properties --query CreativeLook
+minidit tether get --names ISO,ShutterSpeed,Colortemp
+minidit tether set-properties --assignments WhiteBalance=ColorTemp,Colortemp=3200K,CreativeLook=ST,CreativeLook_Contrast=+3
+minidit tether capture --out-dir /path/to/dir --timeout-seconds 60
+```
+
+- 名称用 SDK 名称（不分大小写）或编号 `0xD20F`；别名：ISO、Shutter、Aperture、ColorTemp、ExposureMode、DriveMode、FocusMode。
+- 取值可用可读写法（`1/1000`、`F5.6`、`ISO 400`、`3200K`、`ST`、`+3`、`AWB`、`Custom1`、`MF`、`Off`），也可用原始值（十进制或 `0x…`）。可读写法只覆盖已核实的属性，见 [camctl-a7v-property-map.md](camctl-a7v-property-map.md)；其余用原始值。
+- `set_properties` 先解析全部赋值，有一项名称或写法不对就一项都不改；然后按顺序逐项设置并回读，超时（`timeoutSeconds`，默认 5 秒）未生效报 `readback_mismatch`。出错时消息里列出已经生效的项。
+- 错误码：`unknown_property`、`invalid_value`（附可选值）、`not_writable`（区分“仅显示”和“未启用”）、`readback_mismatch`、`camera_busy`、`card_full`、`card_unavailable`、`camera_lost`、`capture_timeout`、`file_exists`。
+- `capture` 等到相机没有待传文件、新文件 0.6 秒不再变化才返回；结果含文件路径和字节数、`settings`（按下快门前的曝光、白平衡、Creative Look、文件格式等快照）。`outDir` 里已有同名文件时报 `file_exists`，一个都不复制；照片始终在联机缓存和存储卡上各有一份。开启自动导入时照片仍会按项目导入，脚本化拍摄可先 `tether configure --auto-import false`。
+- `tether.status` 的 `info` 里有镜头、焦距、电量、固件、两个卡槽剩余张数、曝光模式、照片存储位置、PriorityKey。
+- CLI 等待回复的时间：`capture` 330 秒、`set_properties` 90 秒、其余 10 秒。
+
 ## 本地接口与安装
 
 CLI 使用当前用户专属的 Unix socket 连接应用：`/private/tmp/minidit-agent-<uid>/control.sock`。目录权限为 `0700`，socket 权限为 `0600`，双端检查对端用户 ID。接口不监听网络端口；同一系统账户下的进程可以调用。应用日志记录修改操作的名称。
@@ -119,7 +167,7 @@ sh Apps/MiniDiT/scripts/install-cli.sh .build/release/minidit
 
 若 `~/.local/bin` 不在 `PATH` 中，可直接使用完整路径，不必修改终端配置。
 
-相关源码：`Sources/minidit/main.swift`、`Sources/MiniDiTCore/AgentProtocol.swift`、`Sources/MiniDiTCore/AgentSocket.swift`、`Apps/MiniDiT/MiniDiT/App/AppModel+Agent.swift`。
+相关源码：`Sources/minidit/main.swift`、`Sources/MiniDiTCore/AgentProtocol.swift`、`Sources/MiniDiTCore/AgentSocket.swift`、`Apps/MiniDiT/MiniDiT/App/AppModel+Agent.swift`、`Apps/MiniDiT/MiniDiT/App/AppModel+AgentTether.swift`、`Sources/SonyRemoteKit/Sony/SonyPropertyCatalog.swift`（名称与可读写法）。
 
 隔离检查：
 
@@ -127,6 +175,8 @@ sh Apps/MiniDiT/scripts/install-cli.sh .build/release/minidit
 swift test --filter AgentProtocolTests
 swift build --product minidit
 sh Tests/AppFeatureChecks/run.sh --agent
+swift build --product fake-sony-camera
+sh Tests/AppFeatureChecks/run.sh --tether "$(swift build --show-bin-path)/fake-sony-camera" --cli "$(swift build --show-bin-path)/minidit"
 ```
 
 应用层检查使用独立偏好域、临时卡、临时项目和 socket；覆盖实际 CLI 启动导入、重试幂等性、计划失效、JSON 输出和 MCP 握手/工具调用。`MINIDIT_TEST_CLI` 可指定测试所用 CLI 路径；`MINIDIT_SOCKET_PATH` 仅供 CLI/MCP 连接隔离实例，应用默认地址不受其影响。

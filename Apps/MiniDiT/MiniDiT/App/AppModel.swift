@@ -479,6 +479,23 @@ final class AppModel {
     /// 加一 = 请求把主窗口打开到最前（由一直存在的菜单栏图标去调 openWindow）。
     var windowRequest = 0
 
+    // MARK: 联机拍摄（AppModel+Tether）
+
+    /// 正在联机拍摄的相机；它拍的照片放在联机缓存里，当作主来源（一张「存储卡」）。
+    var tether: TetherSession?
+    /// 上次联机的相机（断开后「重新连接」用）。
+    var lastTetherCamera: FoundCamera?
+    /// 加一 = 请求打开联机拍摄窗口。
+    var tetherWindowRequest = 0
+    /// 拍到新照片后自动导入当前项目。
+    var tetherAutoImport = UserDefaults.standard.object(forKey: "tetherAutoImport") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(tetherAutoImport, forKey: "tetherAutoImport") }
+    }
+    @ObservationIgnored var tetherNeedsReload = false
+    /// 已经自动导入过（或试过）的缓存文件名：导入失败的不反复重试，用户可以手动再导。
+    @ObservationIgnored var tetherAttempted: Set<String> = []
+    @ObservationIgnored var tetherTask: Task<Void, Never>?
+
     /// 最近用过的事件名（「3.15-公园」里的「公园」），新的在前。
     var recentContents: [String] = UserDefaults.standard.stringArray(forKey: "recentContents") ?? []
 

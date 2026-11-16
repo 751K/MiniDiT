@@ -26,6 +26,8 @@ swift test
 
 尼康无线：`Sources/SonyRemoteKit/Nikon/NikonWiFi.swift`（探测、配对、打开标准 `PTPCameraLibrary`）和 `NikonBonjour.swift`（mDNS 配对状态），App 里由 `AppModel+Source.swift` 的 `openNikonIfNeeded` 在索尼流程之前分流。配对流程依据 libgphoto2 issue #1314（Nikon ZR 抓包），独立实现。`swift test --filter Nikon` 用 `FakeCamera`（可设 `ackGUID` / `ackName`）模拟配对、重连、已配对和被别的电脑占用的情况。
 
+联机拍摄：`Apps/MiniDiT/MiniDiT/Camera/TetherSession.swift`（遥控、取景、下载到缓存 `TetherSpool`）、`App/AppModel+Tether.swift`（换主来源、自动导入）、`Views/TetherView.swift`（独立窗口 `tether`）。遥控协议在 `Sources/SonyRemoteKit/Sony/SonyCamera.swift`。`swift build --product fake-sony-camera` 后运行 `sh Tests/AppFeatureChecks/run.sh --tether $(swift build --show-bin-path)/fake-sony-camera`（模拟相机监听 127.0.0.1:15740，缓存写在临时目录）。
+
 大疆无线：协议层在 `Sources/SonyRemoteKit/DJI/`（`DUML` 帧与 CRC、`DJIManifest` 文件列表、`DJIDatalink` UDP 会话、`DJIBluetooth` 配对、`DJICameraLibrary` 实现 `CameraLibrary`），加入热点在 App 的 `Camera/DJIWiFi.swift`，连接流程在 `AppModel+DJI.swift`。协议资料和 Pocket 3 列表样本来自 osmosis / OsmoOffload（MIT，见 `THIRD_PARTY_NOTICES.md`）。`swift test --filter DJI` 覆盖帧编码（对照协议文档里的十六进制样例）、真实列表解析和模拟 Pocket 3 的端到端下载/续传；蓝牙、Wi-Fi 加入和真机行为只能实机验证，调试时看日志里以「大疆」开头的行。
 
 工作流程检查使用 `Tests/AppFeatureChecks/run.sh --workflow`，验证旧模式兼容、推荐设置、自定义命名保留和只切换流程不改现有选项。检查程序使用自己的偏好设置域，结束后恢复该域，不改已安装应用的设置。
@@ -142,3 +144,5 @@ docs/                           协议笔记、功能规划、功能清单、界
 使用 `sh Scripts/make-live-photo-fixtures.sh <新目录>`（需要 ffmpeg）生成纯合成测试素材，然后运行 `Tests/AppFeatureChecks/run.sh --live-photo <目录> --render --keep`。检查包括系统 Live Photo 识别、共享 ID、封面时间、AAC 音频、XMP 与内嵌 MP4 偏移、旋转、静音/短片/HLG、同名保留、途中取消与源文件散列不变。`--render` 输出明暗窗口到 `/tmp/minidit-live-ui`。在图形登录会话中追加 `--interaction` 可检查三个手柄的实际鼠标拖动。检查不会向照片图库写入内容。`--single <视频>` 可用自己的视频生成两种样例并验证原片未改动。
 
 已用本地真实 3840×2160 H.264 + PCM 视频完成两种导出，并通过 PHLivePhoto 的配对识别及原片散列检查。未自动向用户照片图库写入测试资产，iPhone/Android 及社交应用分享兼容仍需实机验证。更多范围见 [实况照片](LIVE-PHOTO.md)。
+
+camctl（相机控制命令行，目前只有只读摸底）：`Sources/camctl/main.swift`，读取逻辑在 `Sources/SonyRemoteKit/Sony/SonyPropertyDump.swift`。`camctl props --host IP [--user 用户名] [--raw-out 文件]` 以遥控模式连接，列出相机报告的全部属性（编号、类型、可写、当前值、可选值或范围，已知编号带名称和可读值），不发送任何设置或按键操作。解析中途停下时 `parseError` 说明位置，`--raw-out` 保存原始数据供离线核对。本机身份和 SSH 指纹存在 `~/Library/Application Support/camctl/`。测试：`swift test --filter SonyPropertyDump`。

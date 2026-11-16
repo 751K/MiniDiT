@@ -18,12 +18,23 @@ extension AppModel {
                 guard let self else { return .init(id: request.id, error: .init("app_closed", "MiniDiT 已关闭。")) }
                 do {
                     guard request.version == 1 else { throw AgentControlError("unsupported_version", "不支持的本地接口版本。") }
-                    return .init(id: request.id, result: try self.agentCall(request.method, params: request.params))
+                    return .init(id: request.id, result: try await self.agentCallAsync(request.method, params: request.params))
                 } catch let error as AgentControlError { return .init(id: request.id, error: error) }
                 catch { return .init(id: request.id, error: .init("operation_failed", error.localizedDescription)) }
             }
             log.add("Agent 本地接口已启用（仅当前用户）")
         } catch { log.add("Agent 本地接口未启动：\(error.localizedDescription)") }
+    }
+
+    /// 需要等相机回应的操作（回读确认、拍完等文件）走这里，其余照旧同步处理。
+    func agentCallAsync(_ method: String, params p: AgentJSON = .object([:])) async throws -> AgentJSON {
+        guard let tool = AgentTools.find(method) else { throw AgentControlError("unknown_method", "未知操作：\(method)") }
+        guard ["tether.properties", "tether.get", "tether.set_properties", "tether.capture"].contains(tool.method) else {
+            return try agentCall(method, params: p)
+        }
+        try tool.validate(p)
+        if !tool.readOnly { log.add("Agent 操作：\(tool.method)") }
+        return try await agentTetherAsync(tool.method, p)
     }
 
     func agentCall(_ method: String, params p: AgentJSON = .object([:])) throws -> AgentJSON {
@@ -172,6 +183,7 @@ extension AppModel {
             summary["offset"] = .integer(offset)
             summary["files"] = try .encoded(Array(batch.files.dropFirst(offset).prefix(limit)))
             return .object(summary)
+        case let m where m.hasPrefix("tether."): return try agentTether(m, p)
         default: throw AgentControlError("unknown_method", "此操作由 CLI 客户端处理。")
         }
     }
@@ -230,7 +242,7 @@ extension AppModel {
             "projectIds": .array(Set(batch.files.compactMap(\.projectID)).map { .string($0.uuidString) }),
             "reports": .array(batch.reports.map(AgentJSON.string)), "delivery": .object(batch.delivery.mapValues(AgentJSON.string))])
     }
-    private func agentIdle() throws {
+    func agentIdle() throws {
         guard progress == nil, importJournal.repairTask == nil, !isRefreshingSources, autoCountdown == nil else { throw AgentControlError("busy", "正在传输、刷新、补备份或等待自动导入。") }
     }
     private func agentReady() throws {
