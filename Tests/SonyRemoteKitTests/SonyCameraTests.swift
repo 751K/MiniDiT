@@ -32,7 +32,8 @@ import FakeSonyCamera
         #expect(text[.whiteBalance] == "AWB")
         #expect(s.modeText == "M 手动曝光")
         #expect(s.batteryText == "76%")
-        #expect(s.settings.first { $0.kind == .shutterSpeed }?.options.map(\.label) == ["1/250", "1/500", "1/1000", "1.8\"", "BULB"])
+        let shutterLabels = s.settings.first { $0.kind == .shutterSpeed }?.options.map(\.label) ?? []
+        #expect(shutterLabels.first == "30\"" && shutterLabels.contains("1.6\"") && shutterLabels.contains("1/250") && shutterLabels.suffix(2) == ["1/8000", "BULB"])
         #expect(await cam.displayName == "ILCE-7M4")
         await cam.disconnect()
     }
@@ -47,10 +48,10 @@ import FakeSonyCamera
         #expect(state.setLog.last.map { $0.data } == [0xE8, 0x03, 0x01, 0x00])
 
         try await cam.step(.aperture, by: 1)
-        #expect(state.value(SonyProperty.fNumber) == 560)
+        #expect(state.value(SonyProperty.fNumber) == 450)
         _ = try await cam.refreshStatus()
         try await cam.step(.aperture, by: -2)
-        #expect(state.value(SonyProperty.fNumber) == 280)
+        #expect(state.value(SonyProperty.fNumber) == 350)
 
         try await cam.set(.exposureCompensation, value: -300)
         #expect(state.value(SonyProperty.exposureBias) == -300)

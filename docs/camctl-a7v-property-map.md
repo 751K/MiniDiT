@@ -16,7 +16,7 @@
 | 快门 | 0xD20D | ShutterSpeed | 1/15 | ✅ | 56 个选项；另有 0xD19F ExtendedShutterSpeed（UINT64） |
 | 光圈 | 0x5007 | FNumber | F5.6 | 🔒 | 同曝光模式，需 PC 优先 |
 | 对焦模式 MF | 0x500A | FocusMode | 0x8004（AF-C） | ✅ | 可选值含 1（MF） |
-| 驱动模式单张 | 0x5013 | DriveMode | 1（单张） | ✅ | 139 个选项 |
+| 驱动模式单张 | 0x5013 | DriveMode | 1（单张） | ✅ | 139 个选项，全部能按 libgphoto2 的 sony3_capturemode 表解出（单张 1、连拍 4、自拍 9、连续包围 60、单拍包围 60、其他包围 5）。包围按位解出：高 16 位 4 = 连续包围、5 = 单拍包围；次低字节 0x83/85/87/89 = 3/5/7/9 张、0xC2 = 2 张；最低字节去掉 0x08（2 张的「−」）是档位，连续包围比单拍大 1。除单张外未逐项核对 |
 
 ## 白平衡
 
@@ -25,6 +25,7 @@
 | 白平衡模式 | 0x5005 | WhiteBalance | 2（AWB） | ✅ | 15 个选项：AWB 2、日光 4、色温 0x8012、自定义 1–3 0x8020–0x8022 等，和现有表吻合 |
 | 色温 2500–9900K / 100K | 0xD20F | Colortemp | — | ✅ | 范围正好 2500..9900 步进 100；白平衡不在“色温”时未启用 |
 | 白平衡微调 A–B / G–M | 0xD21C / 0xD210 | ColorTuningAB / ColorTuningGM | 192（0） | ✅ | 实测：A2 = 200、G1 = 196。中心 192，每格 4，A、G 为正；AB 步进 2（半格），GM 步进 1（四分之一格），范围 164..220 = ±7 格。写法 `ColorTuningAB=A2`、`ColorTuningGM=M0.25` |
+| 点按对焦（远程触摸） | 控制 0xD2E4 / 0xD2E5，状态 0xD283 / 0xD284 / 0xD285 | RemoteTouchOperation / CancelRemoteTouchOperation | 0xD284 = 1 | ✅ | 0xD2E4 经 0x9207 发 UINT32 = x << 16 \| y，整幅取景画面线性映射到 640×480：实测 (160, 120) 落在画面左上四分之一处，(480, 300) 落在对应物体上。触摸后 0xD285 由 0 变 1，0xD2E5（按下 + 松开）取消后回到 0。0xD283 触摸功能 {9, 8, 11, 10, 5, 1}，可写，和 SDK 的 CrFunctionOfTouchOperation 一致：11 时为触摸跟踪，9 时为触摸对焦（实测）；1 关、5 触摸 AE、8 / 10 为对应的「+ 触摸 AE」。AF-C 下触摸后 0xD213 仍为 1（不半按就不报合焦）。取景 JPEG 里不画对焦 / 跟踪框，但取景数据集头部 8–15 字节给出 FocalFrameInfo（α7 V 为 v1.04）：平时是一个「广域」对焦框（类型 3，中心 0.5 / 0.5，约 0.79 × 0.83）；触摸后变成一个跟踪框（类型 2），中心就是触摸点（(480, 300) → 0.748 / 0.625），会随目标移动（实测转动相机时从 0.19 移到 0.44）；半按时状态变 2（合焦），取消后回到广域框 |
 | 自定义白平衡 | 控制 0xD2DF / 0xD2E0 / 0xD2E1 | CustomWBCaptureStandby / Cancel / Capture | — | ✅ | 远程取白实测可用，流程见下方「自定义白平衡」。0xD135 CustomWB_Size_Setting 是取白框大小：1 S、2 M、3 L |
 
 ## Creative Look
@@ -62,12 +63,16 @@
 
 | 需求 | 属性码 | SDK 名称 | 现在 | 状态 | 备注 |
 |---|---|---|---|---|---|
-| 图片配置文件 | 0xD23F | PictureProfile | 0（关） | 🔒 | {0, 1–6, 10, 11}；拍照模式下只读 |
-| 伽马 S-Log3 | 0xD0E1 | PictureProfile_Gamma | — | ❓ | 现在未启用；SDK 里 S-Log3 = 771，线上值待确认 |
-| 色域 S-Gamut3(.Cine) | 0xD0E9 / 0xE001 | PictureProfile_ColorMode / MovieShootingModeColorGamut | — | ❓ | 0xD0E9 未启用；0xE001 相机列出但没报值 |
-| 录像格式 | 0xD241 | Movie_File_Format | 11 | ❓ | {11, 8, 9, 14, 15} |
-| 分辨率 / 码率 | 0xD242 | Movie_Recording_Setting | 46 | ❓ | {46, 50, 54, 59, 64} |
-| 帧率 | 0xD286 | Movie_Recording_FrameRateSetting | 3 | ❓ | {3, 7, 1} |
+| 图片配置文件 | 0xD23F | PictureProfile | 0（关） | ✅ | {0, 1–6, 10, 11, 0x41–0x44}（关、PP1–6、PP10、PP11、PP-LUT1–4），和 SDK 一致，没有 PP7–9。拍照模式下只读；录像模式下可写，但机身「Log 拍摄」打开时未启用（创意外观也未启用） |
+| 伽马 S-Log3 | 0xD0E1 | PictureProfile_Gamma | 1 | ✅ | 选了 PP1–11 时可写。{1 Movie, 2 Still, 3 S-Cinetone, 0x101–0x104 Cine1–4, 0x201 ITU709, 0x303 S-Log3, 0x401–0x404 HLG/HLG1–3}，和 SDK 一致，没有 S-Log2。实测把 PP1 改成 0x303 后机身显示 S-Log3。改的是该 PP 的内容 |
+| 色域 S-Gamut3(.Cine) | 0xD0E9 | PictureProfile_ColorMode | 1 | ✅ | 同上。{1–9} = Movie、Still、S-Cinetone、Cinema、Pro、ITU709 Matrix、黑白、S-Gamut3.Cine、S-Gamut3。实测 8 时机身显示 S-Gamut3.Cine。0xE001 相机列出但没报值 |
+| Log 拍摄 | 0xE000 / 0xE001 | MovieShootingMode / MovieShootingModeColorGamut | 0x501 | ✅ | α7 V 用 0xE000（不是 SDK 列的 0xE0E3 LogShootingMode）：{1 关, 0x501 Flexible ISO}，UINT16；0xE001 Log 色域 {1 S-Gamut3.Cine, 2 S-Gamut3}，Log 打开时可写。录像模式下可写，拍照模式下未启用。实测远程打开后机身显示 Log 拍摄已开，图片配置文件和创意外观随之变为未启用，Base Look、监看 LUT 变为可写。**扩展属性**：0x9209 不带参数时相机不报告 0xE000 起的属性，要带 (0, 1)；0x9205 设置它们时也要带第二个参数 1，否则回 OK 但不改（见 PROTOCOL.md） |
+| Base Look | 0xD03C | BaseLookValue | 257 | ✅ 读 | {1–3, 257–272}：高字节是类型（0 预设、1 用户），低字节是序号，257 = 用户 1（SDK 注释）。Log 拍摄打开时可写，关闭时仅显示。预设 1–3 的名称未核对 |
+| 监看 LUT | 0xD04D | MonitorLUTSetting | 2（开） | ✅ 读 | {1 关, 2 开}；和 Base Look 一样，只在 Log 拍摄时可写 |
+| S&Q 帧率 | 0xD052 | SQFrameRate | 120 | ✅ 读 | {120, 60, 30, 15, 8, 4, 2, 1}，取值就是帧数 |
+| 录像格式 | 0xD241 | Movie_File_Format | 11 | ✅ | {11, 8, 9, 14, 15}，和 SDK 枚举不同。逐个改值对照机身菜单核实：11 XAVC HS 4K、8 XAVC S 4K、9 XAVC S HD、14 XAVC S-I 4K、15 XAVC S-I HD。换格式时相机会把码率和帧率改成该格式可用的值（实测：9 → 50M 4:2:0 8bit；14 → 300M 4:2:2 10bit、30p；15 → 222M 4:2:2 10bit、60p），和机身显示一致 |
+| 分辨率 / 码率 | 0xD242 | Movie_Recording_Setting | 46 | ✅ 读 | {46, 50, 54, 59, 64} = 200M 4:2:2 10bit、150M 4:2:0 10bit、100M 4:2:2 10bit、75M 4:2:0 10bit、45M 4:2:0 10bit。与 SDK 2.00 的 CrRecordingSettingMovie 一致（46 时实测录到 4:2:2） |
+| 帧率 | 0xD286 | Movie_Recording_FrameRateSetting | 3 | ✅ 读 | {3, 7, 1} = 60p、24p、120p，与 SDK 一致（3 时实测 59.94p）。S&Q 用 0xD0D0（记录帧率）和 0xD0D1（录像设置），同一套枚举，未实测 |
 | 拍照 / 录像切换 | 0x500E | ExposureProgramMode | — | ✅ | 没有单独的切换属性：把曝光模式改到另一组即可，见下方 |
 
 ## 拍照 / 录像切换（2026-11-16 实测）

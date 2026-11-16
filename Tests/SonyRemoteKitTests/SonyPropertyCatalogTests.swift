@@ -55,10 +55,11 @@ import FakeSonyCamera
         await #expect(throws: SonyPropertyError.readOnly(SonyProperty.focusMode)) {
             try await cam.setVerified(SonyProperty.focusMode, .int(1))
         }
-        await #expect(throws: SonyPropertyError.invalidValue(SonyProperty.fNumber, allowed: [280, 400, 560, 800, 1100])) {
-            try await cam.setVerified(SonyProperty.fNumber, .int(630))
+        await #expect(throws: SonyPropertyError.invalidValue(SonyProperty.fNumber, allowed: [280, 320, 350, 400, 450, 500, 560, 630, 710, 800,
+                                                                                             900, 1000, 1100, 1300, 1400, 1600, 1800, 2000, 2200])) {
+            try await cam.setVerified(SonyProperty.fNumber, .int(120))
         }
-        await #expect(throws: SonyPropertyError.unknown(0xD0FA)) { try await cam.setVerified(0xD0FA, .int(1)) }
+        await #expect(throws: SonyPropertyError.unknown(0xD0E0)) { try await cam.setVerified(0xD0E0, .int(1)) }
         #expect(SonyPropertyError.readOnly(1).code == "not_writable" && SonyPropertyError.rejected(1, response: 0x2019).code == "camera_busy")
         await cam.disconnect()
     }
@@ -134,5 +135,97 @@ import FakeSonyCamera
         #expect(p[0xD270] == 0 && p[0xD20F] == 6300 && p[0xD210] == 188)
         #expect(state.customWBPosition == 0x0140_00F0 && state.customWBResult(slot: 3)?.kelvin == 6300 && state.customWBResult(slot: 1)?.kelvin == 7000)
         await cam.disconnect()
+    }
+
+    @Test func movieSettingLabels() {
+        #expect(SonyPropertyCatalog.label(0xD241, 11) == "XAVC HS 4K" && SonyPropertyCatalog.label(0xD241, 15) == "XAVC S-I HD")
+        // 实测：46 时录到 4K 59.94p 4:2:2 HEVC，3 时 59.94p。
+        #expect(SonyPropertyCatalog.label(0xD242, 46) == "200M 4:2:2 10bit")
+        #expect(SonyPropertyCatalog.label(0xD242, 1) == "60p 50M" && SonyPropertyCatalog.label(0xD242, 69) == "260M 4:2:2 10bit")
+        #expect(SonyPropertyCatalog.label(0xD286, 3) == "60p" && SonyPropertyCatalog.label(0xD0D0, 7) == "24p")
+        // α7 V 实测：PP1 的伽马 0x303、色彩模式 8 在机身上显示 S-Log3 / S-Gamut3.Cine。
+        #expect(SonyPropertyCatalog.label(0xD0E1, 0x303) == "S-Log3" && SonyPropertyCatalog.label(0xD0E9, 8) == "S-Gamut3.Cine")
+        #expect(SonyPropertyCatalog.label(0xD23F, 11) == "PP11" && SonyPropertyCatalog.label(0xD23F, 0x42) == "PP-LUT2")
+        #expect(SonyFormat.settingLabel(0xD23F, 0) == "关" && SonyFormat.settingLabel(0xD03C, 257) == "用户 1" && SonyFormat.settingLabel(0xD03C, 2) == "预设 2")
+        #expect(SonyPropertyCatalog.label(0xD03C, 0x0105) == "User5" && SonyPropertyCatalog.label(0xD052, 120) == "120fps")
+        #expect(SonyFormat.settingLabel(0xE000, 0x501) == "开（Flexible ISO）" && SonyPropertyCatalog.label(0xE001, 1) == "S-Gamut3.Cine")
+    }
+
+    @Test func remoteTouchSendsPositionAndCancels() async throws {
+        let state = FakeSonyState()
+        let fake = try FakeCamera { state.handle($0, $1, $2) }
+        let port = try await fake.start()
+        defer { fake.stop() }
+        let cam = try await SonyCamera.connect(host: "127.0.0.1", port: port, identity: .random(name: "Test"), startupDelay: 0)
+        func value(_ c: UInt16) async throws -> Int64? { try await cam.allProperties().first { $0.code == c }?.intValue }
+        try await cam.remoteTouch(x: 100, y: 400)
+        #expect(state.touchPosition == UInt32(100 << 16 | 400))
+        var cancel = try await value(0xD285), found = try await value(SonyProperty.focusFound)
+        #expect(cancel == 1 && found == 2)
+        try await cam.remoteTouch(x: 900, y: -5)   // 超出范围时夹到边上
+        #expect(state.touchPosition == UInt32(639 << 16))
+        try await cam.cancelRemoteTouch()
+        cancel = try await value(0xD285); found = try await value(SonyProperty.focusFound)
+        #expect(cancel == 0 && found == 1)
+        #expect(SonyFormat.settingLabel(0xD283, 11) == "触摸跟踪" && SonyPropertyCatalog.label(0xD283, 9) == "FocusNoAE")
+        await cam.disconnect()
+    }
+
+    @Test func extendedPropertiesReadAndWrite() async throws {
+        let state = FakeSonyState()
+        let fake = try FakeCamera { state.handle($0, $1, $2) }
+        let port = try await fake.start()
+        defer { fake.stop() }
+        let cam = try await SonyCamera.connect(host: "127.0.0.1", port: port, identity: .random(name: "Test"), startupDelay: 0)
+        // 0x9209 带扩展参数才读得到 0xE000；0x9205 带扩展参数才改得动（α7 V 实测）。
+        #expect(try await cam.allProperties().contains { $0.code == 0xE000 })
+        let d = try await cam.setVerified(0xE000, .int(0x501))
+        #expect(d.intValue == 0x501 && state.value(0xE000) == 0x501)
+        let gamut = try await cam.allProperties().first { $0.code == 0xE001 }
+        #expect(gamut?.isWritable == true)
+        await cam.disconnect()
+    }
+
+    @Test func focalFramesFromLiveViewDataset() {
+        // FocalFrameInfo v1.04：版本 + 保留，空的保留数组，对焦框 1 个（广域）、人脸框 0、跟踪框 1 个（α7 V 实测的样子）。
+        var f = [UInt8]()
+        func u16(_ v: Int) { f += [UInt8(v & 0xFF), UInt8(v >> 8 & 0xFF)] }
+        func u32(_ v: Int) { f += (0..<4).map { UInt8(v >> ($0 * 8) & 0xFF) } }
+        func pad(_ n: Int) { f += [UInt8](repeating: 0, count: n) }
+        func section(_ entries: [(t: Int, st: Int, x: Int, y: Int, h: Int, w: Int)]) {
+            u32(1000); u32(1000); u16(entries.count); pad(6)
+            for e in entries { u16(e.t); u16(e.st); pad(4); u32(e.x); u32(e.y); u32(e.h); u32(e.w) }
+        }
+        u16(104); pad(6); pad(40); u16(0); pad(6)
+        section([(3, 1, 500, 500, 829, 788)])
+        section([])
+        section([(2, 2, 748, 625, 94, 78)])
+        // 数据集头部：JPEG 偏移、长度，对焦框信息偏移、长度。
+        let jpeg: [UInt8] = [0xFF, 0xD8, 1, 2, 0xFF, 0xD9]
+        var w = PTPWriter()
+        w.u32(32); w.u32(UInt32(jpeg.count)); w.u32(UInt32(32 + jpeg.count)); w.u32(UInt32(f.count))
+        w.raw([UInt8](repeating: 0, count: 16)); w.raw(jpeg); w.raw(f)
+        let info = SonyDatasets.extractFocalFrames(w.data)
+        #expect(info?.version == 104 && info?.frames.count == 2)
+        #expect(info?.frames.first?.kind == .focus && info?.frames.first?.w == 0.788)
+        let t = info?.frames.last
+        #expect(t?.kind == .tracking && t?.focused == true && t?.cx == 0.748 && t?.cy == 0.625 && t?.h == 0.094)
+        #expect(SonyDatasets.extractLiveViewJPEG(w.data) == Data(jpeg))
+        // 头部没有对焦框信息时为 nil。
+        var plain = PTPWriter()
+        plain.u32(16); plain.u32(UInt32(jpeg.count)); plain.u32(0); plain.u32(0); plain.raw(jpeg)
+        #expect(SonyDatasets.extractFocalFrames(plain.data) == nil)
+    }
+
+    @Test func driveModeAndSidebarLabels() {
+        func drive(_ v: Int64) -> String? { SonyFormat.driveMode(v)?.label }
+        #expect(drive(1) == "单张拍摄" && drive(0x18015) == "连拍：中" && drive(0x38005) == "自拍 2 秒")
+        // 包围：libgphoto2 表里的连续 / 单拍、各档位、2 张的 + / −。
+        #expect(drive(0x48337) == "连续包围 0.3 EV 3 张" && drive(0x48911) == "连续包围 1.0 EV 9 张")
+        #expect(drive(0x4C23F) == "连续包围 0.3 EV 2 张 −" && drive(0x5C230) == "单拍包围 3.0 EV 2 张 +")
+        #expect(drive(0x58590) == "单拍包围 2.7 EV 5 张" && SonyFormat.driveMode(0x58590)?.sub == "2.7 EV")
+        #expect(drive(0x48336) == nil && drive(0x12345) == nil)
+        #expect(SonyFormat.settingLabel(0xD252, 1) == "超精细" && SonyFormat.settingLabel(0xD289, 7) == "压缩 HQ")
+        #expect(SonyFormat.settingLabel(0xD201, 0x1F) == "自动" && SonyFormat.settingLabel(0xD0FB, 3) == nil)
     }
 }

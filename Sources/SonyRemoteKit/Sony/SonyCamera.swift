@@ -65,6 +65,9 @@ public actor SonyCamera: RemoteCamera {
     private var connectedAt = Date()
     private var halfPressed = false
     private var liveViewPrepared = false
+    private var extendedPropsRejected = false
+    /// 最近一帧取景附带的对焦框信息（相机没给时为 nil）。
+    public private(set) var focalFrames: FocalFrameInfo?
     private var eventTask: Task<Void, Never>?
 
     public nonisolated let notifications: AsyncStream<CameraNotification>
@@ -175,7 +178,14 @@ public actor SonyCamera: RemoteCamera {
 
     private func refreshProperties(force: Bool = false) async throws {
         if !force && Date().timeIntervalSince(propsFetchedAt) < 0.25 { return }
-        let r = try await client.transaction(SonyOperation.getAllExtDevicePropInfo)
+        // 第二个参数 1 = 带上扩展属性（0xE000 起的 Log 拍摄、对焦位置等；α7 V 不带时不报告这些）。
+        // 相机不接受参数时退回不带参数的读法，以后不再带。
+        var r = try await client.transaction(SonyOperation.getAllExtDevicePropInfo, extendedPropsRejected ? [] : [0, 1], requireOK: false)
+        if r.code != PTPResponse.ok, !extendedPropsRejected {
+            extendedPropsRejected = true
+            r = try await client.transaction(SonyOperation.getAllExtDevicePropInfo)
+        }
+        guard r.code == PTPResponse.ok else { throw PTPError(operation: SonyOperation.getAllExtDevicePropInfo, code: r.code) }
         let parsed = SonyDatasets.parseAllProperties(r.data)
         if !parsed.isEmpty {
             props.merge(parsed) { _, new in new }
@@ -282,13 +292,15 @@ public actor SonyCamera: RemoteCamera {
     private func sendSet(_ c: UInt16, _ value: PTPValue, type: PTPDataType) async throws {
         var w = PTPWriter()
         value.write(type, to: &w)
-        try await client.transaction(SonyOperation.setExtDevicePropValue, [UInt32(c)], dataOut: w.data)
+        // 扩展属性（0xE000–0xEFFF）要带第二个参数 1（Flag of Device Property Option，Sony PTP 3 参考），否则相机回 OK 但不改。
+        try await client.transaction(SonyOperation.setExtDevicePropValue, c >= 0xE000 ? [UInt32(c), 1] : [UInt32(c)], dataOut: w.data)
     }
 
     private func control(_ c: UInt16, _ value: UInt16) async throws {
         var w = PTPWriter()
         w.u16(value)
-        try await client.transaction(SonyOperation.controlDevice, [UInt32(c)], dataOut: w.data)
+        // 扩展控制码（0xF000–0xFFFF）同样要带第二个参数 1。
+        try await client.transaction(SonyOperation.controlDevice, c >= 0xF000 ? [UInt32(c), 1] : [UInt32(c)], dataOut: w.data)
     }
 
     // MARK: 任意属性（联机拍摄的 agent 接口用）
@@ -394,6 +406,25 @@ public actor SonyCamera: RemoteCamera {
         propsFetchedAt = .distantPast
     }
 
+    // MARK: 远程触摸（点按取景画面对焦 / 跟踪）
+
+    /// 远程触摸 0xD2E4：参数 UINT32 = x << 16 | y，取景画面映射到 640×480（SDK：x 0…639、y 0…479）。
+    /// 相机按机身的触摸功能（0xD283：触摸对焦 / 触摸跟踪 / 触摸 AE）处理；0xD284 = 1 时才可用。
+    public func remoteTouch(x: Int, y: Int) async throws {
+        let cx = UInt32(min(max(x, 0), 639)), cy = UInt32(min(max(y, 0), 479))
+        var w = PTPWriter()
+        w.u32(cx << 16 | cy)
+        try await client.transaction(SonyOperation.controlDevice, [UInt32(0xD2E4)], dataOut: w.data)
+        propsFetchedAt = .distantPast
+    }
+
+    /// 取消远程触摸 0xD2E5（结束触摸跟踪、对焦点回到原来的设置）。0xD285 = 1 时才可用。
+    public func cancelRemoteTouch() async throws {
+        try await control(0xD2E5, SonyControl.down)
+        try await control(0xD2E5, SonyControl.up)
+        propsFetchedAt = .distantPast
+    }
+
     // MARK: 存储卡内容（远程传输，和遥控共用这条连接）
 
     private var contents: SonyRemoteTransferLibrary?
@@ -478,6 +509,7 @@ public actor SonyCamera: RemoteCamera {
         let r = try await client.transaction(PTPOperation.getObject, [SonyObjectHandle.liveView], requireOK: false)
         switch r.code {
         case PTPResponse.ok:
+            focalFrames = SonyDatasets.extractFocalFrames(r.data)
             return SonyDatasets.extractLiveViewJPEG(r.data)
         case PTPResponse.accessDenied, PTPResponse.deviceBusy:
             // 请求太快时相机会拒绝，稍等再取。

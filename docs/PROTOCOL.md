@@ -217,6 +217,15 @@ Standard opcodes used: 0x1001 GetDeviceInfo, 0x1002 OpenSession, 0x1003 CloseSes
 
 So **do not require a button code to be present in 0x9209** before sending 0x9207 to it.
 
+**Extended properties (0xE000–0xEFFF) and controls (0xF000–0xFFFF)**, per Sony's *Camera Control PTP 3 Reference*:
+- These need "Flag of Device Property Option" = 1.
+- It goes in parameter 2 of 0x9209 (parameter 1 is "only differences", 0 = all), parameter 2 of 0x9205, and parameter 2 of 0x9207.
+
+Verified on the α7 V (vendor code version 3.x, firmware 2.00):
+- **Reading:** a plain 0x9209 returns 426 properties. With (0, 1) it returns 488: the 62 properties that 0x9202 advertises but 0x9209 otherwise omits, for example 0xE000 MovieShootingMode (Log shooting) and 0xE042 / 0xE043 focus position.
+- **Writing:** 0x9205 on an 0xE*** code without parameter 2 = 1 answers OK, but the value doesn't change.
+- **Other single-property reads don't help:** 0x9203 answered OK with no data, and 0x9204 is not supported. Sending 0x1014 / 0x1015 broke the session.
+
 ### PTP datatype codes (GP `ptp.h` `PTP_DTC_*`, `ptp_unpack_DPV`)
 | Code | Type | Size |
 |---|---|---|
@@ -377,7 +386,7 @@ Mode 2 used UINT16 equivalents (low word). The physical dial normally wins; Prio
 
 4. Locate the JPEG. GP checks `data[off] == 0xFF && data[off+1] == 0xD8`, otherwise it scans for the first FFD8 and then for FFD9. Do not blind-scan from 0: GP issue #389 notes that the header itself can contain FF D8.
 
-There is no explicit start/stop live-view opcode in GP or SAP; the frames just exist while in shooting mode. Quality is set through 0xD26A. FocalFrameInfo: the first u16 is version ×100 (100 = 1.00, 101 = 1.01); the full structure is in SAP `_parse_focal_frame_info`.
+There is no explicit start/stop live-view opcode in GP or SAP; the frames just exist while in shooting mode. Quality is set through 0xD26A. FocalFrameInfo: the first u16 is version ×100 (100 = 1.00, 101 = 1.01); the full structure is in SAP `_parse_focal_frame_info`. Layout: version u16 + 6 reserved, 40 reserved, then a reserved array (u16 count + 6, count × 24). Then the focus, face (≥ 1.01) and tracking (≥ 1.01) sections. Each section is X denominator u32, Y denominator u32, u16 count + 6 reserved, then count × 24-byte entries: type u16, state u16 (1 not focused, 2 focused), priority u8 + 3 reserved, X u32, Y u32, H u32, W u32. X and Y are the centre; divide by the denominators to get 0…1. **Verified on the α7 V (v1.04):** the tracking frame follows the subject after a remote touch (0xD2E4). Parsed by `SonyDatasets.extractFocalFrames`.
 
 ---
 

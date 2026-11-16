@@ -104,6 +104,73 @@ public enum SonyFormat {
         }
     }
 
+    /// 联机窗口侧栏用的中文取值（和机身菜单的叫法一致）；没有中文写法的返回 nil，界面再用 SonyPropertyCatalog.label。
+    public static func settingLabel(_ code: UInt16, _ v: Int64) -> String? {
+        switch code {
+        case 0x5013: return driveMode(v)?.label
+        case 0xD201: return [1: "关", 0x1F: "自动", 0x11: "Lv1", 0x12: "Lv2", 0x13: "Lv3", 0x14: "Lv4", 0x15: "Lv5"][v]
+        case 0xD287: return [1: "JPEG", 2: "HEIF 4:2:2", 3: "HEIF 4:2:0"][v]
+        case 0xD252, 0xD28D, 0xD28E: return [1: "超精细", 2: "精细", 3: "标准", 4: "轻量"][v]
+        case 0xD288, 0xD289, 0xD28A: return [6: "无损压缩", 7: "压缩 HQ", 1: "压缩"][v]
+        case 0xD1A2: return [1: "关", 2: "自动", 3: "弱"][v]
+        case 0xD1A3, 0xD1A4: return [1: "关", 2: "自动"][v]
+        case 0xD135: return [1: "S", 2: "M", 3: "L"][v]
+        // 触摸功能（SDK CrFunctionOfTouchOperation；α7 V 列出 1、5、8–11，没有单独的触摸快门）。
+        case 0xD283: return [1: "关", 2: "触摸快门", 3: "触摸对焦", 4: "触摸跟踪", 5: "触摸 AE", 6: "触摸快门 + AE",
+                             7: "触摸快门", 8: "触摸对焦 + AE", 9: "触摸对焦", 10: "触摸跟踪 + AE", 11: "触摸跟踪"][v]
+        case 0xD23F: return v == 0 ? "关" : nil
+        case 0xD04D: return [1: "关", 2: "开"][v]
+        case 0xE000: return [1: "关", 0x501: "开（Flexible ISO）"][v]
+        case 0xD0E9: return v == 7 ? "黑白" : nil
+        case 0xD03C:
+            let i = v & 0xFF
+            switch v >> 8 { case 0: return "预设 \(i)"; case 1: return "用户 \(i)"; case 2: return "场景文件 \(i)"; default: return nil }
+        // 褪色、锐度、锐度范围、清晰度没有负值：不加「+」。
+        case 0xD0FE, 0xD100, 0xD101, 0xD102: return "\(v)"
+        default: return nil
+        }
+    }
+
+    /// 驱动模式（0x5013，UINT32）。取值表来自 libgphoto2 的 sony3_capturemode，包围档位按位解出：
+    /// 高 16 位是类别（1 连拍、3 自拍、4 连续包围、5 单拍包围 …）；包围时次低字节 0x83/85/87/89 = 3/5/7/9 张、0xC2 = 2 张，
+    /// 最低字节去掉 0x08（2 张时的「−」）后是档位，连续包围比单拍包围大 1。
+    /// group 是菜单里的分组，sub 是包围的档位子菜单。
+    public static func driveMode(_ v: Int64) -> (group: String, sub: String?, label: String)? {
+        let named: [Int64: (String, String)] = [
+            0x0000_0001: ("单张拍摄", "单张拍摄"),
+            0x0001_0002: ("连拍", "连拍：高"), 0x0001_8010: ("连拍", "连拍：高+"), 0x0001_8011: ("连拍", "连拍：高（实时）"),
+            0x0001_8012: ("连拍", "连拍：低"), 0x0001_8013: ("连拍", "连拍"), 0x0001_8014: ("连拍", "连拍：速度优先"),
+            0x0001_8015: ("连拍", "连拍：中"), 0x0001_8016: ("连拍", "连拍：中（实时）"), 0x0001_8017: ("连拍", "连拍：低（实时）"),
+            0x0002_0003: ("其他", "延时拍摄"),
+            0x0003_8005: ("自拍", "自拍 2 秒"), 0x0003_8003: ("自拍", "自拍 5 秒"), 0x0003_8004: ("自拍", "自拍 10 秒"),
+            0x0008_800E: ("自拍", "连续自拍 2 秒 3 张"), 0x0008_800F: ("自拍", "连续自拍 2 秒 5 张"),
+            0x0008_800C: ("自拍", "连续自拍 5 秒 3 张"), 0x0008_800D: ("自拍", "连续自拍 5 秒 5 张"),
+            0x0008_8008: ("自拍", "连续自拍 10 秒 3 张"), 0x0008_8009: ("自拍", "连续自拍 10 秒 5 张"),
+            0x0007_8006: ("自拍", "自拍像 1 人"), 0x0007_8007: ("自拍", "自拍像 2 人"),
+            0x0006_8018: ("其他包围", "白平衡包围：低"), 0x0006_8028: ("其他包围", "白平衡包围：高"),
+            0x0007_8019: ("其他包围", "DRO 包围：低"), 0x0007_8029: ("其他包围", "DRO 包围：高"),
+            0x0007_801A: ("其他包围", "LPF 包围"), 0x000A_8040: ("其他包围", "对焦包围"),
+            0x0009_8030: ("连拍", "点连拍：低"), 0x0009_8031: ("连拍", "点连拍：中"), 0x0009_8032: ("连拍", "点连拍：高"),
+            0x0007_800A: ("其他", "遥控器"), 0x0007_800B: ("其他", "反光镜预升"),
+        ]
+        if let n = named[v] { return (n.0, nil, n.1) }
+        let kind = v >> 16, count = (v >> 8) & 0xFF, low = v & 0xFF
+        guard kind == 4 || kind == 5 else { return nil }
+        let steps: [Int64: String] = [0x36: "0.3", 0x56: "0.5", 0x76: "0.7", 0x10: "1.0", 0x40: "1.3", 0x60: "1.5",
+                                      0x80: "1.7", 0x20: "2.0", 0x50: "2.3", 0x70: "2.5", 0x90: "2.7", 0x30: "3.0"]
+        guard let ev = steps[(low & ~0x08) - (kind == 4 ? 1 : 0)] else { return nil }
+        let pics: String
+        switch count {
+        case 0x83, 0x85, 0x87, 0x89:
+            guard low & 0x08 == 0 else { return nil }
+            pics = "\(count & 0x0F) 张"
+        case 0xC2: pics = low & 0x08 == 0 ? "2 张 +" : "2 张 −"
+        default: return nil
+        }
+        let group = kind == 4 ? "连续包围" : "单拍包围"
+        return (group, "\(ev) EV", "\(group) \(ev) EV \(pics)")
+    }
+
     public static func format(_ kind: CameraSettingKind, _ v: Int64) -> String {
         switch kind {
         case .shutterSpeed: shutterSpeed(v)

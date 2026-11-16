@@ -57,6 +57,23 @@ public enum SonyPropertyCatalog {
         0xD1A3: [1: "Off", 2: "Auto"],
         0xD1A4: [1: "Off", 2: "Auto"],
         0xD15E: [1: "sRGB", 2: "AdobeRGB"],
+        // 取白框大小（libgphoto2 / SDK：1 S、2 M、3 L）。
+        0xD135: [1: "S", 2: "M", 3: "L"],
+        // 图片配置文件：和 SDK 的 CrPictureProfile 一致（α7 V 列出 0、1–6、10、11、0x41–0x44，没有 PP7–9）。
+        0xD23F: pictureProfile,
+        // 伽马、色彩模式：和 SDK 一致，α7 V 实测 0x303 = S-Log3、8 = S-Gamut3.Cine（改 PP1 后对照机身菜单）。没有 S-Log2。
+        0xD0E1: [1: "Movie", 2: "Still", 3: "S-Cinetone", 0x101: "Cine1", 0x102: "Cine2", 0x103: "Cine3", 0x104: "Cine4",
+                 0x201: "ITU709", 0x202: "ITU709(800%)", 0x302: "S-Log2", 0x303: "S-Log3",
+                 0x401: "HLG", 0x402: "HLG1", 0x403: "HLG2", 0x404: "HLG3"],
+        0xD0E9: [1: "Movie", 2: "Still", 3: "S-Cinetone", 4: "Cinema", 5: "Pro", 6: "ITU709 Matrix", 7: "Black&White",
+                 8: "S-Gamut3.Cine", 9: "S-Gamut3", 10: "BT.2020", 11: "709", 12: "S-Gamut", 13: "709tone"],
+        0xD04D: [1: "Off", 2: "On"],
+        // Log 拍摄（α7 V 用 0xE000 MovieShootingMode，只在 0x9209 带扩展参数时报告）：1 关、0x501 Flexible ISO（SDK CrLogShootingMode）。
+        0xE000: [1: "Off", 0x501: "FlexibleISO"],
+        0xE001: [1: "S-Gamut3.Cine", 2: "S-Gamut3"],
+        // 触摸功能（SDK CrFunctionOfTouchOperation，从 1 开始）。α7 V 列出 {9, 8, 11, 10, 5, 1}，当时是 11。
+        0xD283: [1: "Off", 2: "Shutter", 3: "Focus", 4: "Tracking", 5: "AE", 6: "ShutterAE", 7: "ShutterNoAE",
+                 8: "FocusAE", 9: "FocusNoAE", 10: "TrackingAE", 11: "TrackingNoAE"],
         0xD222: [0x01: "PC", 0x10: "Card", 0x11: "Card+PC"],
         0xD25A: [0: "Camera", 1: "PC"],
         // α7 V 实测（改菜单前后对比）：RAW = 1、RAW+HEIF = 4；HEIF = 5 与 SDK 和 0xD269 一致。全局与分卡槽的属性同一套值。
@@ -70,7 +87,44 @@ public enum SonyPropertyCatalog {
         0xD288: rawCompression, 0xD289: rawCompression, 0xD28A: rawCompression,
         // 传到电脑的格式（libgphoto2 表；α7 V 实测 4 = ARW + HIF、5 = 只有 HIF）。
         0xD269: [1: "RAW+JPEG", 2: "JPEG", 3: "RAW", 4: "RAW+HEIF", 5: "HEIF"],
+        // 录像格式：α7 V 的取值和 SDK 的 CrFileFormatMovie 不同。逐个改值对照机身菜单核实：
+        // 11 XAVC HS 4K、8 XAVC S 4K、9 XAVC S HD、14 XAVC S-I 4K、15 XAVC S-I HD。
+        0xD241: [11: "XAVC HS 4K", 8: "XAVC S 4K", 9: "XAVC S HD", 14: "XAVC S-I 4K", 15: "XAVC S-I HD"],
+        // 录像设置（码率 / 采样 / 位深）：和 SDK 的 CrRecordingSettingMovie 一致（实测 46 时录到 4K 59.94p 4:2:2 HEVC = 200M 4:2:2 10bit）。
+        0xD242: movieRecordingSetting,
+        // 录像帧率：和 SDK 的 CrRecordingFrameRateSettingMovie 一致（实测 3 时录到 59.94p）。NTSC 地区 60p 即 59.94p。
+        0xD286: movieFrameRate,
+        // S&Q 的记录帧率、录像设置：SDK 里和录像用同一套枚举。
+        0xD0D0: movieFrameRate,
+        0xD0D1: movieRecordingSetting,
     ]
+
+    static let movieFrameRate: [Int64: String] = [1: "120p", 2: "100p", 3: "60p", 4: "50p", 5: "30p", 6: "25p", 7: "24p",
+                                                   8: "23.98p", 9: "29.97p", 10: "59.94p", 0x16: "24.00p", 0x17: "119.88p"]
+
+    /// SDK 2.00 的 CrRecordingSettingMovie，按枚举顺序从 1 开始。
+    static let movieRecordingSetting: [Int64: String] = {
+        let names = [
+            "60p 50M", "30p 50M", "24p 50M", "50p 50M", "25p 50M", "60i 24M", "50i 24M", "60i 17M", "50i 17M", "60p 28M",
+            "50p 28M", "24p 24M", "25p 24M", "24p 17M", "25p 17M", "120p 50M 720", "100p 50M 720", "30p 16M", "25p 16M", "30p 6M 720",
+            "25p 6M 720", "60p 28M", "50p 28M", "60p 25M", "50p 25M", "30p 16M", "25p 16M", "120p 100M", "100p 100M", "120p 60M",
+            "100p 60M", "30p 100M", "25p 100M", "24p 100M", "30p 60M", "25p 60M", "24p 60M",
+            "600M 4:2:2 10bit", "500M 4:2:2 10bit", "400M 4:2:0 10bit", "300M 4:2:2 10bit", "280M 4:2:2 10bit", "250M 4:2:2 10bit",
+            "240M 4:2:2 10bit", "222M 4:2:2 10bit", "200M 4:2:2 10bit", "200M 4:2:0 10bit", "200M 4:2:0 8bit", "185M 4:2:2 10bit",
+            "150M 4:2:0 10bit", "150M 4:2:0 8bit", "140M 4:2:2 10bit", "111M 4:2:2 10bit", "100M 4:2:2 10bit", "100M 4:2:0 10bit",
+            "100M 4:2:0 8bit", "93M 4:2:2 10bit", "89M 4:2:2 10bit", "75M 4:2:0 10bit", "60M 4:2:0 8bit", "50M 4:2:2 10bit",
+            "50M 4:2:0 10bit", "50M 4:2:0 8bit", "45M 4:2:0 10bit", "30M 4:2:0 10bit", "25M 4:2:0 8bit", "16M 4:2:0 8bit",
+            "520M 4:2:2 10bit", "260M 4:2:2 10bit",
+        ]
+        return Dictionary(uniqueKeysWithValues: names.enumerated().map { (Int64($0.offset + 1), $0.element) })
+    }()
+
+    static let pictureProfile: [Int64: String] = {
+        var m: [Int64: String] = [0: "Off"]
+        for i in 1...11 { m[Int64(i)] = "PP\(i)" }
+        for i in 1...4 { m[Int64(0x40 + i)] = "PP-LUT\(i)" }
+        return m
+    }()
 
     static let fileType: [Int64: String] = [1: "RAW", 4: "RAW+HEIF", 5: "HEIF"]
     static let quality: [Int64: String] = [1: "ExFine", 2: "Fine", 3: "Standard", 4: "Light"]
@@ -87,6 +141,12 @@ public enum SonyPropertyCatalog {
         case 0xD21E, 0xD226: return SonyFormat.iso(v)
         case 0x5010, 0xD224: return SonyFormat.exposureBias(v)
         case 0xD20F: return v > 0 ? "\(v)K" : nil
+        // S&Q 帧率：取值就是帧数（α7 V 列出 120、60、30、15、8、4、2、1）。
+        case 0xD052: return v > 0 ? "\(v)fps" : nil
+        // Base Look：高字节是类型（0 预设、1 用户、2 场景文件、0x80 临时），低字节是序号。
+        case 0xD03C:
+            let i = v & 0xFF
+            switch v >> 8 { case 0: return "Preset\(i)"; case 1: return "User\(i)"; case 2: return "Scene\(i)"; default: return nil }
         case 0xD218: return v < 0 ? nil : "\(v)%"
         case 0xD21C, 0xD210: return colorTuning(code, v)
         default: return signedIntegers.contains(code) ? (v > 0 ? "+\(v)" : "\(v)") : nil

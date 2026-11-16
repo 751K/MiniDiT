@@ -22,7 +22,7 @@ import FakeSonyCamera
         #expect(dump.advertisedControls == [SonyControl.shutterHalfPress, SonyControl.shutterFullPress, SonyControl.movieRecord])
         #expect(dump.deviceInfo?.model == "ILCE-7M5")
         let shutter = try #require(dump.entries.first { $0.desc.code == SonyProperty.shutterSpeed })
-        #expect(shutter.desc.allowedValues.count == 5 && shutter.desc.isWritable)
+        #expect(shutter.desc.allowedValues.count == 56 && shutter.desc.isWritable)
         // 每条记录的位置首尾相接，覆盖整段数据。
         var cursor = 8
         for e in dump.entries { #expect(e.offset == cursor); cursor += e.length }

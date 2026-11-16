@@ -157,6 +157,15 @@ public enum SonyDatasets {
     }
 
     /// 从 0xFFFFC002 的数据里取出 JPEG。头部：u32 JPEG 偏移、u32 JPEG 长度。
+    /// 取景数据集里的对焦框信息（头部 8–11 字节是偏移、12–15 是长度）。没有或解不出时为空。
+    public static func extractFocalFrames(_ data: Data) -> FocalFrameInfo? {
+        let bytes = [UInt8](data)
+        var r = PTPReader(bytes)
+        guard (try? r.u32()) != nil, (try? r.u32()) != nil, let o = try? r.u32(), let n = try? r.u32(),
+              n >= 56, Int(o) + Int(n) <= bytes.count else { return nil }
+        return FocalFrameInfo.parse(Array(bytes[Int(o)..<Int(o) + Int(n)]))
+    }
+
     public static func extractLiveViewJPEG(_ data: Data) -> Data? {
         let bytes = [UInt8](data)
         var r = PTPReader(bytes)
@@ -185,5 +194,53 @@ public enum SonyDatasets {
             i += 1
         }
         return nil
+    }
+}
+
+
+/// 取景画面上的对焦框、人脸框、跟踪框（Sony PTP 的 FocalFrameInfo，结构照 sony-alpha-python 的解析）。
+/// 坐标归一化到 0…1：cx、cy 是框中心，w、h 是宽高，都相对整幅取景画面。
+public struct FocalFrameInfo: Sendable, Equatable {
+    public struct Frame: Sendable, Equatable {
+        public enum Kind: String, Sendable { case focus, face, tracking }
+        public let kind: Kind
+        /// 类型：对焦框 1 相位检测（AF 传感器）、2 相位检测（图像传感器）、3 广域、4 区域…；跟踪框 2 = 正在对焦的目标。
+        public let type: UInt16
+        /// 状态：1 未合焦、2 合焦（对焦框另有 3 选择中、4 移动中等）。
+        public let state: UInt16
+        public let cx: Double, cy: Double, w: Double, h: Double
+        public var focused: Bool { state == 2 }
+    }
+    /// 版本 ×100（100 = 1.00）。1.01 起有人脸框和跟踪框。
+    public let version: UInt16
+    public let frames: [Frame]
+
+    static func parse(_ b: [UInt8]) -> FocalFrameInfo? {
+        func u16(_ i: Int) -> Int? { i + 2 <= b.count ? Int(b[i]) | Int(b[i + 1]) << 8 : nil }
+        func u32(_ i: Int) -> Int? { i + 4 <= b.count ? Int(b[i]) | Int(b[i + 1]) << 8 | Int(b[i + 2]) << 16 | Int(b[i + 3]) << 24 : nil }
+        guard let version = u16(0) else { return nil }
+        var pos = 48                                     // 版本 + 保留 6 + 保留 40
+        guard let reserved = u16(pos) else { return nil }
+        pos += 8 + reserved * 24
+        var frames: [Frame] = []
+        // 一段：X 分母、Y 分母、个数、保留 6，然后每个 24 字节：类型、状态、优先级…、X、Y、高、宽。
+        func section(_ kind: Frame.Kind) {
+            guard let xd = u32(pos), let yd = u32(pos + 4), let count = u16(pos + 8) else { pos = b.count; return }
+            var e = pos + 16
+            for _ in 0..<count {
+                guard e + 24 <= b.count else { break }
+                if xd > 0, yd > 0, let t = u16(e), let st = u16(e + 2), let x = u32(e + 8), let y = u32(e + 12),
+                   let h = u32(e + 16), let w = u32(e + 20), w > 0 || h > 0 {
+                    frames.append(Frame(kind: kind, type: UInt16(t), state: UInt16(st), cx: Double(x) / Double(xd),
+                                        cy: Double(y) / Double(yd), w: Double(w) / Double(xd), h: Double(h) / Double(yd)))
+                }
+                e += 24
+            }
+            pos += 16 + count * 24
+        }
+        section(.focus)
+        if version >= 101, pos < b.count { section(.face) }
+        if version >= 101, pos < b.count { section(.tracking) }
+        return FocalFrameInfo(version: UInt16(version), frames: frames)
     }
 }

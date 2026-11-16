@@ -34,6 +34,9 @@ public final class FakeSonyState: @unchecked Sendable {
     /// 最近一次取白命令带的位置。
     private var lastCustomWBPosition: UInt32?
     public var customWBPosition: UInt32? { lock.withLock { lastCustomWBPosition } }
+    /// 最近一次远程触摸（0xD2E4）的位置：x << 16 | y。
+    private var lastTouchPosition: UInt32?
+    public var touchPosition: UInt32? { lock.withLock { lastTouchPosition } }
     public func customWBResult(slot: Int) -> (kelvin: Int64, gm: Int64)? { lock.withLock { customWB[0x8020 + Int64(slot - 1)] } }
     private var customWBPolls = 0
     private var readyPolls = 0
@@ -50,14 +53,33 @@ public final class FakeSonyState: @unchecked Sendable {
                                            factoryDefault: .int(v), current: .int(v),
                                            form: list.map { .enumeration($0) } ?? .none)
         }
-        p(SonyProperty.shutterSpeed, .uint32, 0x0001_00FA, [0x0001_00FA, 0x0001_01F4, 0x0001_03E8, 0x0012_000A, 0])
-        p(SonyProperty.fNumber, .uint16, 400, [280, 400, 560, 800, 1100])
-        p(SonyProperty.iso, .uint32, 0x00FF_FFFF, [0x00FF_FFFF, 100, 200, 400, 0x01FF_FFFF])
-        p(SonyProperty.exposureBias, .int16, 0, [-1000, -300, 0, 300, 700])
+        // 和 α7 V 一样：快门 30″ – 1/8000（1/3 档）+ BULB；光圈按 F2.8 – F22 的镜头（1/3 档）。
+        // 快门原始值：分子 << 16 | 分母（1/250 = 0x0001_00FA，1.8″ = 0x0012_000A）。
+        let seconds: [Int64] = [300, 250, 200, 150, 130, 100, 80, 60, 50, 40, 32, 25, 20, 16, 13, 10, 8, 6, 5, 4]
+        let fractions: [Int64] = [3, 4, 5, 6, 8, 10, 13, 15, 20, 25, 30, 40, 50, 60, 80, 100, 125, 160, 200, 250, 320, 400,
+                                  500, 640, 800, 1000, 1250, 1600, 2000, 2500, 3200, 4000, 5000, 6400, 8000]
+        p(SonyProperty.shutterSpeed, .uint32, 0x0001_00FA, seconds.map { $0 << 16 | 10 } + fractions.map { 1 << 16 | $0 } + [0])
+        p(SonyProperty.fNumber, .uint16, 400, [280, 320, 350, 400, 450, 500, 560, 630, 710, 800, 900, 1000, 1100, 1300, 1400,
+                                               1600, 1800, 2000, 2200])
+        // 和 α7 V 一样：AUTO、ISO 50–102400（1/3 档）、多帧降噪 AUTO。
+        p(SonyProperty.iso, .uint32, 0x00FF_FFFF, [0x00FF_FFFF, 50, 64, 80, 100, 125, 160, 200, 250, 320, 400, 500, 640, 800,
+                                                  1000, 1250, 1600, 2000, 2500, 3200, 4000, 5000, 6400, 8000, 10000, 12800,
+                                                  16000, 20000, 25600, 32000, 40000, 51200, 64000, 80000, 102400, 0x01FF_FFFF])
+        // 和 α7 V 一样 ±5 EV，1/3 档（相机用 1/1000 EV：±0.3 = ±300、±0.7 = ±700）。
+        p(SonyProperty.exposureBias, .int16, 0, (-5...5).flatMap { s -> [Int64] in
+            let base = Int64(s) * 1000
+            return s == 5 ? [base] : [base, base + 300, base + 700]
+        })
         p(SonyProperty.whiteBalance, .uint16, 0x0002, [0x0002, 0x0004, 0x8010, 0x8012, 0x8020, 0x8021, 0x8022])
         // 远程取白（和 α7 V 实测一致）：白平衡在自定义 1–3 时 0xD26D = 1；待机后 0xD270 = 1，取白时 = 2，完成后回到 0。
-        p(0xD20F, .uint16, 0, writable: false)
-        p(0xD210, .uint16, 192, writable: false)
+        // 色温和白平衡微调是范围型（和 α7 V 一样：色温 2500–9900 / 100，A–B 164–220 / 2，G–M 164–220 / 1，中心 192）。
+        func r(_ code: UInt16, _ v: Int64, _ lo: Int64, _ hi: Int64, _ step: Int64) {
+            props[code] = SonyPropertyDesc(code: code, dataType: .uint16, getSet: 1, isEnabled: 1,
+                                           factoryDefault: .int(v), current: .int(v), form: .range(min: lo, max: hi, step: step))
+        }
+        r(0xD20F, 0, 2500, 9900, 100)
+        r(0xD21C, 192, 164, 220, 2)
+        r(0xD210, 192, 164, 220, 1)
         for c: UInt16 in [0xD26B, 0xD26C] { p(c, .uint32, 0, writable: false) }
         for c: UInt16 in [0xD26D, 0xD26E, 0xD26F, 0xD270] { p(c, .uint8, 0, writable: false) }
         // 和 α7 V 一样：照片 P/A/S/M/智能自动 + 录像 P/A/S/M/智能自动；相机优先时仅显示（见 setValue）。
@@ -65,12 +87,56 @@ public final class FakeSonyState: @unchecked Sendable {
           [0x48000, 0x10002, 0x20003, 0x30004, 0x1, 0x78054, 0x78050, 0x78051, 0x78052, 0x78053,
            0x9805D, 0x98059, 0x9805A, 0x9805B, 0x9805C])
         setEnabled(SonyProperty.exposureProgramMode, 2)
-        p(SonyProperty.focusMode, .uint16, 2, writable: false)
+        p(SonyProperty.focusMode, .uint16, 2, [1, 2, 0x8004, 0x8005, 0x8006], writable: false)
         p(SonyProperty.focusFound, .uint8, 1, writable: false)
         p(SonyProperty.objectInMemory, .uint16, 0, writable: false)
         p(SonyProperty.movieRecordingState, .uint8, 0, writable: false)
         p(SonyProperty.stillImageStoreDestination, .uint16, 0x0010, [0x0001, 0x0010, 0x0011])
         p(SonyProperty.contentsTransferEnabled, .uint8, 0, writable: false)
+        // 侧栏「照片」一段：创意外观（1–12 = ST … FL3）、文件格式（1 RAW、4 RAW+HEIF、5 HEIF）、传到电脑的格式（3 RAW、4 RAW+HEIF、5 HEIF）。
+        // 后两项录像 / S&Q 时不可用（见 setValue）。
+        p(0xD0FA, .uint16, 1, Array(1...12))
+        p(0xD253, .uint8, 4, [1, 4, 5])
+        p(0xD269, .uint8, 5, [3, 4, 5])
+        // 创意外观各参数（范围型，带符号）：对比度、高光、阴影、饱和度 −9…9，褪色、锐度、清晰度 0…9，锐度范围 1…5。
+        for (c, v, lo, hi): (UInt16, Int64, Int64, Int64) in [(0xD0FB, 0, -9, 9), (0xD0FC, 0, -9, 9), (0xD0FD, 0, -9, 9), (0xD0FE, 0, 0, 9),
+                                                             (0xD0FF, 0, -9, 9), (0xD100, 4, 0, 9), (0xD101, 3, 1, 5), (0xD102, 1, 0, 9)] {
+            props[c] = SonyPropertyDesc(code: c, dataType: .int8, getSet: 1, isEnabled: 1,
+                                        factoryDefault: .int(v), current: .int(v), form: .range(min: lo, max: hi, step: 1))
+        }
+        // 照片的存储和处理设置（取值和 α7 V 实测一致）；录像 / S&Q 时不可用（见 setValue）。
+        p(0xD287, .uint8, 3, [1, 2, 3])
+        p(0xD252, .uint8, 2, [1, 2, 3, 4])
+        p(0xD203, .uint8, 1, [1, 2, 3])
+        p(0xD288, .uint8, 6, [6, 7, 1])
+        p(0xD15E, .uint8, 1, [1, 2])
+        p(0xD201, .uint8, 1, [1, 0x1F, 0x11, 0x12, 0x13, 0x14, 0x15])
+        // 驱动模式：单张、连拍、自拍和几档包围（真机有 139 项）。
+        p(0x5013, .uint32, 1, [0x1, 0x10002, 0x18010, 0x18015, 0x18012, 0x38005, 0x38003, 0x38004, 0x8800E,
+                               0x48337, 0x48537, 0x4C237, 0x4C23F, 0x48311, 0x58336, 0x58310, 0x68018, 0x78019, 0xA8040])
+        p(0xD1A2, .uint8, 2, [1, 2, 3])
+        p(0xD1A3, .uint8, 2, [1, 2])
+        p(0xD135, .uint8, 2, [1, 2, 3])
+        // 远程触摸（和 α7 V 一样）：触摸功能默认「触摸跟踪」，0xD284 = 1 可用；触摸后 0xD285 = 1 可以取消。
+        p(0xD283, .uint8, 11, [9, 8, 11, 10, 5, 1])
+        p(0xD284, .uint8, 1, writable: false)
+        p(0xD285, .uint8, 0, writable: false)
+        // 录像：格式、录像设置（码率）、帧率，取值和 α7 V 实测一致（XAVC HS 4K、200M 4:2:2 10bit、60p）；S&Q 的记录帧率和录像设置。
+        p(0xD241, .uint16, 11, [11, 8, 9, 14, 15])
+        p(0xD242, .uint16, 46, [46, 50, 54, 59, 64])
+        p(0xD286, .uint8, 3, [3, 7, 1])
+        p(0xD0D0, .uint8, 3, [1, 3, 7])
+        p(0xD0D1, .uint16, 46, [46, 50, 54, 59, 64])
+        p(0xD052, .uint16, 120, [120, 60, 30, 15, 8, 4, 2, 1])
+        // 图片配置文件（和 α7 V 一样没有 PP7–9）；伽马、色彩模式按 PP1 的取值（0x303 = S-Log3、8 = S-Gamut3.Cine）。
+        p(0xD23F, .uint8, 0, [0, 1, 2, 3, 4, 5, 6, 10, 11, 0x41, 0x42, 0x43, 0x44])
+        p(0xD0E1, .uint16, 1, [1, 2, 3, 0x101, 0x102, 0x103, 0x104, 0x201, 0x303, 0x401, 0x402, 0x403, 0x404])
+        p(0xD0E9, .uint16, 1, Array(1...9))
+        for c: UInt16 in [0xD0E1, 0xD0E9] { setEnabled(c, 0) }   // 和真机一样：图片配置文件关时不可用
+        // Log 拍摄（α7 V 的 0xE000：1 关、0x501 Flexible ISO）；打开时 Log 色域可改，图片配置文件不可用。
+        p(0xE000, .uint16, 1, [1, 0x501])
+        p(0xE001, .uint8, 1, [1, 2])
+        setEnabled(0xE001, 0)
         // 和 α7 V 一样默认「相机优先」；联机时改成 PC，结束时应改回。
         p(SonyProperty.priorityMode, .uint8, 0, [0, 1])
         props[SonyProperty.batteryLevel] = SonyPropertyDesc(code: SonyProperty.batteryLevel, dataType: .int8, getSet: 0, isEnabled: 1,
@@ -86,11 +152,22 @@ public final class FakeSonyState: @unchecked Sendable {
                                        factoryDefault: p.factoryDefault, current: .int(v), form: p.form)
         // PC 优先时曝光模式才能远程改。
         if code == SonyProperty.priorityMode { setEnabled(SonyProperty.exposureProgramMode, v == 1 ? 1 : 2) }
+        if code == SonyProperty.exposureProgramMode {
+            let photo = SonyPropertyCatalog.shootingMode(v)?.mode == .photo
+            for c: UInt16 in [0xD253, 0xD269, 0xD287, 0xD252, 0xD203, 0xD288, 0xD15E, 0xD201, 0x5013] { setEnabled(c, photo ? 1 : 0) }
+        }
+        if code == 0xE000 {
+            let log = v == 0x501
+            setEnabled(0xE001, log ? 1 : 0)
+            setEnabled(0xD23F, log ? 0 : 1)
+            if log { for c: UInt16 in [0xD0E1, 0xD0E9] { setEnabled(c, 0) } }
+        }
+        if code == 0xD23F { for c: UInt16 in [0xD0E1, 0xD0E9] { setEnabled(c, (1...11).contains(v) ? 1 : 0) } }
         if code == SonyProperty.whiteBalance {
             let custom = customWB[v]
             setValue(0xD26D, custom == nil ? 0 : 1)
-            setValue(0xD20F, custom?.kelvin ?? 0)
-            setValue(0xD210, custom?.gm ?? 192)
+            setValue(0xD20F, custom?.kelvin ?? (v == 0x8012 ? 5500 : 0))
+            if let custom { setValue(0xD210, custom.gm) }
         }
     }
 
@@ -178,13 +255,17 @@ public final class FakeSonyState: @unchecked Sendable {
                         setValue(0xD270, 0)
                     }
                 }
-                let list = props.values.sorted { $0.code < $1.code }
+                // 和 α7 V 一样：第二个参数为 1（带扩展属性）时才报告 0xE000 起的属性。
+                let extended = params.count > 1 && params[1] == 1
+                let list = props.values.filter { extended || $0.code < 0xE000 }.sorted { $0.code < $1.code }
                 return .init(data: SonyDatasets.encodeAllProperties(list, twinList: twinList))
             case SonyOperation.setExtDevicePropValue:
                 let c = UInt16(params.first ?? 0)
                 let bytes = [UInt8](dataOut ?? Data())
                 sets.append((c, bytes))
                 guard let p = props[c] else { return .init() }  // 未知属性（如 PriorityMode）照样返回 OK
+                // 和 α7 V 一样：扩展属性不带第二个参数 1 时回 OK 但不改。
+                if c >= 0xE000, !(params.count > 1 && params[1] == 1) { return .init() }
                 guard p.getSet == 1, p.isEnabled == 1 else { return .init(code: PTPResponse.accessDenied) }
                 var r = PTPReader(bytes)
                 guard let v = try? PTPValue.read(p.dataType, from: &r).intValue else {
@@ -216,6 +297,13 @@ public final class FakeSonyState: @unchecked Sendable {
                     lastCustomWBPosition = try? r4.u32()
                     customWBPolls = 0
                     setValue(0xD270, 2); setValue(0xD26E, 0); setValue(0xD26F, 0)
+                case (0xD2E4, _):
+                    guard raw(0xD284) == 1, let d = dataOut, d.count >= 4 else { return .init(code: PTPResponse.accessDenied) }
+                    var r4 = PTPReader(d)
+                    lastTouchPosition = try? r4.u32()
+                    setValue(0xD285, 1); setValue(SonyProperty.focusFound, 2)
+                case (0xD2E5, SonyControl.up):
+                    setValue(0xD285, 0); setValue(SonyProperty.focusFound, s1 ? 2 : 1)
                 case (SonyControl.movieRecord, SonyControl.down):
                     setValue(SonyProperty.movieRecordingState, 1)
                 case (SonyControl.movieRecord, SonyControl.up):

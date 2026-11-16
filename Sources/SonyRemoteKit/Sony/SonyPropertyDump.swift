@@ -50,7 +50,10 @@ public struct SonyPropertyDump: Sendable {
             let extRaw = try await client.transaction(SonyOperation.getExtDeviceInfo, [UInt32(SonyProtocolVersion.v300), 1]).data
             let lists = (try? parseLists(extRaw)) ?? (ext.version, Array(ext.codes).sorted(), [])
             progress("reading properties")
-            let raw = try await client.transaction(SonyOperation.getAllExtDevicePropInfo).data
+            // 第二个参数 1 = 带上扩展属性（α7 V 不带时不报告 0xE000 起的 62 个属性）；相机不接受时退回不带参数。
+            var r = try await client.transaction(SonyOperation.getAllExtDevicePropInfo, [0, 1], requireOK: false)
+            if r.code != PTPResponse.ok { r = try await client.transaction(SonyOperation.getAllExtDevicePropInfo) }
+            let raw = r.data
             let parsed = parse(raw)
             await client.shutdown()
             return SonyPropertyDump(deviceInfo: info, protocolVersion: lists.0, advertisedProperties: lists.1,
