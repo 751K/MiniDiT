@@ -1,0 +1,220 @@
+import AppKit
+import Foundation
+import ImageIO
+import MiniDiTCore
+import SonyRemoteKit
+
+/// 联机窗口和 CLI / MCP 共用的操作：切换拍照 / 录像、远程取白、改任意属性、本次拍摄的照片列表。
+/// 出错时抛 AgentControlError（错误码 + 中文说明），界面直接显示说明，agent 原样返回。
+extension TetherSession {
+    // MARK: 改属性（界面用）
+
+    /// 改一个属性并回读确认；失败时显示在窗口里。
+    func setProperty(_ code: UInt16, _ value: Int64) {
+        guard !lost else { return }
+        Task {
+            do { _ = try await setVerified(code, .int(value), timeout: 5) }
+            catch { message = AppModel.cameraError(error).message }
+        }
+    }
+
+    // MARK: 拍照 / 录像 / S&Q
+
+    struct ModeSwitch { let from: Int64; let to: Int64; let priorityChanged: Bool }
+
+    /// 当前是拍照、录像还是 S&Q（相机没报告或不认识时为 nil）。
+    var shootingMode: SonyPropertyCatalog.ShootingMode? {
+        properties[SonyProperty.exposureProgramMode]?.intValue.flatMap(SonyPropertyCatalog.shootingMode)?.mode
+    }
+
+    /// 曝光模式改到另一组。exposure 为 nil 时沿用当前的 P/A/S/M/auto。
+    /// 曝光模式「仅显示」时说明由相机拨盘控制：先把 PriorityKey 改成 PC（记为改过，结束联机时改回）。
+    func switchMode(to target: SonyPropertyCatalog.ShootingMode, exposure: String? = nil, timeout: TimeInterval = 8) async throws -> ModeSwitch {
+        let code = SonyProperty.exposureProgramMode
+        let all = try await freshProperties()
+        guard let d = all[code], let current = d.intValue else { throw AgentControlError("unknown_property", "相机没有报告曝光模式。") }
+        guard let letter = exposure?.lowercased() ?? SonyPropertyCatalog.shootingMode(current)?.exposure else {
+            throw AgentControlError("invalid_params", "当前曝光模式（\(SonyFormat.exposureProgram(current))）无法对应，请指定 auto、p、a、s 或 m。")
+        }
+        guard let value = SonyPropertyCatalog.exposureProgram(target, exposure: letter, allowed: d.allowedValues) else {
+            throw AgentControlError("invalid_value", "相机不支持\(Self.modeTitle(target))的 \(letter.uppercased()) 模式。")
+        }
+        busy = "正在切换到\(Self.modeTitle(target))…"
+        defer { busy = nil }
+        var priorityChanged = false
+        if d.getSet == 1, d.isEnabled == 2, value != current {
+            guard let pk = all[SonyProperty.priorityMode], pk.isWritable, pk.intValue == 0 else {
+                throw AgentControlError("not_writable", "曝光模式由相机拨盘控制，且无法把 PriorityKey 改成 PC 优先。")
+            }
+            do { _ = try await setVerified(SonyProperty.priorityMode, .int(1), timeout: 5) } catch { throw AppModel.cameraError(error) }
+            priorityChanged = true
+        }
+        let result: SonyPropertyDesc
+        do { result = try await setVerified(code, .int(value), timeout: timeout) } catch { throw AppModel.cameraError(error) }
+        logLine("联机拍摄：切换到\(Self.modeTitle(target))（\(SonyFormat.exposureProgram(value))）")
+        return ModeSwitch(from: current, to: result.intValue ?? value, priorityChanged: priorityChanged)
+    }
+
+    static func modeTitle(_ m: SonyPropertyCatalog.ShootingMode) -> String {
+        switch m { case .photo: "拍照"; case .movie: "录像"; case .sq: "S&Q" }
+    }
+
+    // MARK: 远程取白
+
+    struct CustomWBResult {
+        let slot: Int
+        let position: Int64
+        let sawCapturing: Bool
+        /// 取白结束时的全部属性（色温、G–M、A–B、白平衡模式从这里读）。
+        let properties: [UInt16: SonyPropertyDesc]
+        let trace: [AgentJSON]
+    }
+
+    struct CustomWBProbe { let stateAfterCancel: Int64; let area: SonyPropertyDesc?; let frame: SonyPropertyDesc?; let trace: [AgentJSON] }
+
+    /// 白平衡切到自定义 slot → 取白待机 → 在 position（x << 16 | y，640×480 坐标，默认中央）取白 → 等执行状态离开「取白中」→ 退出待机。
+    /// probe 时只进入待机再取消。每一步的状态记在 trace 里；出错或超时会尝试取消待机，错误消息附 trace。
+    func customWhiteBalance(slot: Int, position: Int64? = nil, probe: Bool = false,
+                            timeout: TimeInterval = 15) async throws -> (result: CustomWBResult?, probe: CustomWBProbe?) {
+        busy = probe ? "正在检查取白…" : "正在取白：请让相机对准灰卡…"
+        defer { busy = nil }
+        var trace: [AgentJSON] = []
+        var last: [String: AgentJSON] = [:]
+        let started = Date()
+        func snapshot(_ note: String) async throws -> [UInt16: SonyPropertyDesc] {
+            let all = try await freshProperties()
+            var o: [String: AgentJSON] = [:]
+            for c in SonyCamera.customWBStatusCodes + [0x5005, 0xD20F, 0xD210, 0xD21C] {
+                guard let d = all[c] else { continue }
+                o[String(format: "0x%04X", c)] = AppModel.valueJSON(c, d.current)
+            }
+            if o != last || note != "poll" {
+                last = o
+                var e = o
+                e["t"] = .number((Date().timeIntervalSince(started) * 10).rounded() / 10)
+                e["step"] = .string(note)
+                trace.append(.object(e))
+            }
+            return all
+        }
+        func state(_ all: [UInt16: SonyPropertyDesc]) -> Int64 { all[0xD270]?.intValue ?? -1 }
+        func fail(_ code: String, _ text: String) async -> AgentControlError {
+            try? await customWBButton(.cancel)
+            _ = try? await snapshot("cancel")
+            let data = (try? AgentJSON.array(trace).data()).map { String(decoding: $0, as: UTF8.self) } ?? ""
+            return AgentControlError(code, text + " 过程：" + data)
+        }
+
+        var all = try await snapshot("start")
+        guard all[0xD270] != nil else { throw AgentControlError("unsupported", "相机没有报告取白状态（0xD270），不支持远程取白。") }
+        let wb: Int64 = 0x8020 + Int64(slot - 1)
+        guard all[0x5005]?.allowedValues.contains(wb) == true else { throw AgentControlError("invalid_value", "相机没有自定义 \(slot)。") }
+        do { _ = try await setVerified(0x5005, .int(wb), timeout: 5) } catch { throw AppModel.cameraError(error) }
+        let deadline = Date().addingTimeInterval(timeout)
+        all = try await snapshot("wb")
+        while all[0xD26D]?.intValue != 1 {
+            guard Date() < deadline else { throw await fail("custom_wb_unavailable", "相机没有允许进入取白待机（检查拍摄模式和菜单状态）。") }
+            try await Task.sleep(for: .milliseconds(200))
+            all = try await snapshot("poll")
+        }
+        do { try await customWBButton(.standby) } catch { throw await fail("camera_error", "进入取白待机失败：\(AppModel.cameraError(error).message)") }
+        all = try await snapshot("standby")
+        while !(state(all) == 1 && all[0xD26F]?.intValue == 1) {
+            guard Date() < deadline else { throw await fail("custom_wb_timeout", "相机没有进入取白待机。") }
+            try await Task.sleep(for: .milliseconds(200))
+            all = try await snapshot("poll")
+        }
+        if probe {
+            let area = all[0xD26B], frame = all[0xD26C]
+            try? await customWBButton(.cancel)
+            try await Task.sleep(for: .milliseconds(500))
+            all = try await snapshot("cancel")
+            return (nil, CustomWBProbe(stateAfterCancel: state(all), area: area, frame: frame, trace: trace))
+        }
+        // α7 V 上可取白区域 0xD26B、0xD26C 待机时也是 0：默认取画面中央 (320, 240)，实测可用。
+        let pos = position ?? Int64(320 << 16 | 240)
+        do { try await customWBCapture(.int(pos), type: .uint32) }
+        catch { throw await fail("camera_error", "取白命令被拒绝：\(AppModel.cameraError(error).message)") }
+        all = try await snapshot("capture")
+        var sawCapturing = state(all) == 2
+        while Date() < deadline {
+            try await Task.sleep(for: .milliseconds(200))
+            all = try await snapshot("poll")
+            if state(all) == 2 { sawCapturing = true; continue }
+            if sawCapturing || Date().timeIntervalSince(started) > 3 { break }
+        }
+        guard state(all) != 2 else { throw await fail("custom_wb_timeout", "取白没有在 \(Int(timeout)) 秒内完成。") }
+        if state(all) == 1 { try? await customWBButton(.cancel) }
+        try await Task.sleep(for: .milliseconds(500))
+        all = try await snapshot("done")
+        logLine("联机拍摄：取白存入自定义 \(slot)，\(all[0xD20F].flatMap { SonyPropertyCatalog.label(0xD20F, $0.intValue ?? 0) } ?? "—")")
+        return (CustomWBResult(slot: slot, position: pos, sawCapturing: sawCapturing, properties: all, trace: trace), nil)
+    }
+
+    /// 现读全部属性（同时更新缓存）。
+    func freshProperties() async throws -> [UInt16: SonyPropertyDesc] {
+        let all: [SonyPropertyDesc]
+        do { all = try await properties() } catch { throw AppModel.cameraError(error) }
+        let map = Dictionary(all.map { ($0.code, $0) }, uniquingKeysWith: { _, b in b })
+        properties = map
+        return map
+    }
+
+    // MARK: 本次拍摄
+
+    /// 缓存里的照片按文件名主干分组（DSC06887.ARW + DSC06887.HIF 是一张），新的在前。
+    static func groupShots(_ files: [URL]) -> [TetherShot] {
+        var groups: [String: [URL]] = [:]
+        var order: [String] = []
+        for f in files {
+            let stem = f.deletingPathExtension().lastPathComponent
+            if groups[stem] == nil { order.append(stem) }
+            groups[stem, default: []].append(f)
+        }
+        return order.reversed().map { stem in
+            let files = groups[stem]!.sorted { $0.lastPathComponent < $1.lastPathComponent }
+            // 显示用 JPG / HIF（解码快、颜色是机内效果），只有 RAW 时用 RAW 内嵌的预览。
+            let display = files.first { ["JPG", "JPEG", "HIF", "HEIF"].contains($0.pathExtension.uppercased()) } ?? files[0]
+            return TetherShot(id: stem, files: files, display: display)
+        }
+    }
+
+    /// 缩略图（后台解码，解好后更新界面）。
+    func thumbnail(for shot: TetherShot) -> NSImage? {
+        if let img = thumbnails[shot.id] { return img }
+        guard !thumbnailLoading.contains(shot.id) else { return nil }
+        thumbnailLoading.insert(shot.id)
+        let url = shot.display, id = shot.id
+        Task.detached(priority: .utility) {
+            let cg = TetherSession.previewCGImage(url, maxPixel: 240)
+            await MainActor.run { [weak self] in
+                self?.thumbnailLoading.remove(id)
+                if let cg { self?.thumbnails[id] = NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height)) }
+            }
+        }
+        return nil
+    }
+
+    /// 回看某一张：大图在侧栏显示。
+    func review(_ shot: TetherShot) {
+        reviewedShotID = shot.id
+        reviewImage = nil
+        reviewExif = ShotExif(url: shot.display)
+        let url = shot.display, id = shot.id
+        Task.detached(priority: .userInitiated) {
+            let cg = TetherSession.previewCGImage(url, maxPixel: 1600)
+            await MainActor.run { [weak self] in
+                guard let self, self.reviewedShotID == id else { return }
+                self.reviewImage = cg.map { NSImage(cgImage: $0, size: NSSize(width: $0.width, height: $0.height)) }
+            }
+        }
+    }
+}
+
+/// 本次联机拍到的一张（可能是 RAW + HIF 两个文件）。
+struct TetherShot: Identifiable, Equatable {
+    let id: String
+    let files: [URL]
+    let display: URL
+    var formats: String { files.map { $0.pathExtension.uppercased() }.joined(separator: " + ") }
+}

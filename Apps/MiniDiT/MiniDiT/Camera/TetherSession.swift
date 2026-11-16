@@ -27,6 +27,18 @@ final class TetherSession {
     var lastShotImage: NSImage?
     var lastShotExif: ShotExif?
     var shotCount = 0
+    /// 本次拍到的照片（新的在前）；窗口里的胶片条和回看用。
+    var shots: [TetherShot] = []
+    /// 正在回看的那张（nil = 跟随最新一张）。
+    var reviewedShotID: String?
+    var reviewImage: NSImage?
+    var reviewExif: ShotExif?
+    var thumbnails: [String: NSImage] = [:]
+    @ObservationIgnored var thumbnailLoading: Set<String> = []
+    /// 切换模式、取白等较长的操作进行中（显示在取景上）。
+    var busy: String?
+    /// 开始录像的时间（计时用）。
+    var recordingSince: Date?
 
     /// 新照片已写进缓存。
     @ObservationIgnored var onFiles: (([URL]) -> Void)?
@@ -127,15 +139,17 @@ final class TetherSession {
     // MARK: 控制
 
     /// 最近一次读到的全部属性（状态里的镜头、卡剩余张数等从这里取）。
-    @ObservationIgnored var properties: [UInt16: SonyPropertyDesc] = [:]
+    var properties: [UInt16: SonyPropertyDesc] = [:]
     /// 本次联机改过的属性和原值（tether.stop 可按此还原）。
     @ObservationIgnored var changed: [(code: UInt16, original: PTPValue)] = []
 
     func refresh() async {
         guard !lost, let s = try? await camera.refreshStatus() else { return }
+        if s.isRecording != status.isRecording { recordingSince = s.isRecording ? Date() : nil }
         if s != status { status = s }
         if let all = try? await camera.allProperties(refresh: false) {
-            properties = Dictionary(all.map { ($0.code, $0) }, uniquingKeysWith: { _, b in b })
+            let map = Dictionary(all.map { ($0.code, $0) }, uniquingKeysWith: { _, b in b })
+            if map != properties { properties = map }
         }
         changed = await camera.changedProperties
     }
@@ -196,6 +210,8 @@ final class TetherSession {
             catch { fail("调整\(kind.title)失败", error) }
         }
     }
+
+    func logLine(_ s: String) { log(s) }
 
     private func fail(_ what: String, _ error: Error) {
         message = "\(what)：\(error.localizedDescription)"
@@ -277,6 +293,8 @@ final class TetherSession {
                 log("联机拍摄：收到 \(url.lastPathComponent)（\(f.data.count) 字节）")
             }
             shotCount += urls.count
+            shots = Self.groupShots(spool.files())
+            reviewedShotID = nil
             showLatest(urls)
             onFiles?(urls)
             await refresh()
@@ -295,12 +313,16 @@ final class TetherSession {
     }
 
     static func previewImage(_ url: URL, maxPixel: Int) -> NSImage? {
+        previewCGImage(url, maxPixel: maxPixel).map { NSImage(cgImage: $0, size: NSSize(width: $0.width, height: $0.height)) }
+    }
+
+    /// 后台解码用（不碰界面对象）。
+    nonisolated static func previewCGImage(_ url: URL, maxPixel: Int) -> CGImage? {
         guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
         let opts: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true,
                                      kCGImageSourceCreateThumbnailWithTransform: true,
                                      kCGImageSourceThumbnailMaxPixelSize: maxPixel]
-        guard let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary) else { return nil }
-        return NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
+        return CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary)
     }
 }
 
