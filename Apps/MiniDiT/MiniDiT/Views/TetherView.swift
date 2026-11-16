@@ -726,7 +726,8 @@ private struct GradientSliderRow: View {
     }
 }
 
-/// 白平衡微调矩阵（和索尼机身的微调画面一样）：横轴 B ← → A，纵轴 G 在上、M 在下，各 ±7 格。
+/// 白平衡微调矩阵，照 α7 V 机身的微调画面画：15 × 15 个色块（左上绿、右上黄、左青、中白、右橙、
+/// 左下蓝、右下品红），G / M / B / A 写在四边，红色圆点是当前位置。
 /// 点按或拖动选位置，松手时按两个轴各自的档位取整后发给相机；读数旁的箭头回到中心。
 private struct WBShiftPad: View {
     let session: TetherSession
@@ -735,7 +736,8 @@ private struct WBShiftPad: View {
     @State private var dragging: (ab: Int64, gm: Int64)?
 
     private static let center: Int64 = 192
-    private static let unit: Int64 = 4   // 一格 = 4（A–B 可停半格，G–M 可停四分之一格）
+    private static let cells = 15          // −7 … +7，每格 = 原始值 4
+    private static let margin: CGFloat = 13 // 四边留给 G / M / B / A
 
     var body: some View {
         if case let .range(aLo, aHi, aStep) = ab.form, case let .range(gLo, gHi, gStep) = gm.form,
@@ -753,51 +755,54 @@ private struct WBShiftPad: View {
                             .accessibilityLabel("微调回到 0")
                     }
                 }
-                HStack(spacing: 6) {
-                    Text("B").axisLabel()
-                    VStack(spacing: 4) {
-                        Text("G").axisLabel()
-                        GeometryReader { geo in
-                            let size = geo.size
-                            let fx = CGFloat(a - aLo) / CGFloat(aHi - aLo)
-                            let fy = 1 - CGFloat(g - gLo) / CGFloat(gHi - gLo)
-                            ZStack {
-                                PadBackground()
-                                PadGrid(cells: Int((aHi - aLo) / Self.unit))
-                                    .stroke(Color.primary.opacity(0.12), lineWidth: 0.5)
-                                Path { p in
-                                    p.move(to: CGPoint(x: size.width / 2, y: 0)); p.addLine(to: CGPoint(x: size.width / 2, y: size.height))
-                                    p.move(to: CGPoint(x: 0, y: size.height / 2)); p.addLine(to: CGPoint(x: size.width, y: size.height / 2))
+                GeometryReader { geo in
+                    let side = geo.size.width - Self.margin * 2
+                    let cell = side / CGFloat(Self.cells)
+                    // 当前值落在色块中心：第 0 格中心 = 最小值，第 14 格中心 = 最大值。
+                    let fx = CGFloat(a - aLo) / CGFloat(aHi - aLo)
+                    let fy = 1 - CGFloat(g - gLo) / CGFloat(gHi - gLo)
+                    ZStack(alignment: .topLeading) {
+                        Canvas { ctx, _ in
+                            let gap: CGFloat = 1
+                            for row in 0..<Self.cells {
+                                for col in 0..<Self.cells {
+                                    let u = CGFloat(col) / CGFloat(Self.cells - 1) * 2 - 1   // −1 = B，+1 = A
+                                    let v = 1 - CGFloat(row) / CGFloat(Self.cells - 1) * 2   // +1 = G，−1 = M
+                                    let r = CGRect(x: CGFloat(col) * cell + gap / 2, y: CGFloat(row) * cell + gap / 2,
+                                                   width: cell - gap, height: cell - gap)
+                                    ctx.fill(Path(r), with: .color(Self.color(u, v)))
                                 }
-                                .stroke(Color.primary.opacity(0.35), lineWidth: 0.75)
-                                Circle().fill(.white).frame(width: 13, height: 13)
-                                    .overlay(Circle().strokeBorder(Color.black.opacity(0.75), lineWidth: 2))
-                                    .shadow(color: .black.opacity(0.3), radius: 1.5)
-                                    .position(x: fx * size.width, y: fy * size.height)
                             }
-                            .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
-                            .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).strokeBorder(Color.primary.opacity(0.15)))
-                            .contentShape(Rectangle())
-                            .gesture(DragGesture(minimumDistance: 0)
-                                .onChanged { v in dragging = values(v.location, size, aLo, aHi, aStep, gLo, gHi, gStep) }
-                                .onEnded { v in
-                                    let t = values(v.location, size, aLo, aHi, aStep, gLo, gHi, gStep)
-                                    dragging = nil
-                                    if t.ab != curA { session.setProperty(ab.code, t.ab) }
-                                    if t.gm != curG { session.setProperty(gm.code, t.gm) }
-                                })
                         }
-                        .aspectRatio(1, contentMode: .fit)
-                        .frame(maxWidth: 210)
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityLabel("白平衡微调")
-                        .accessibilityValue(readout(curA, curG))
-                        Text("M").axisLabel()
+                        .frame(width: side, height: side)
+                        .offset(x: Self.margin, y: Self.margin)
+                        Circle().fill(Color(red: 0.92, green: 0.22, blue: 0.14))
+                            .overlay(Circle().strokeBorder(Color.black.opacity(0.6), lineWidth: 1))
+                            .frame(width: cell * 1.35, height: cell * 1.35)
+                            .position(x: Self.margin + (fx * CGFloat(Self.cells - 1) + 0.5) * cell,
+                                      y: Self.margin + (fy * CGFloat(Self.cells - 1) + 0.5) * cell)
+                        axis("G").position(x: geo.size.width / 2, y: Self.margin / 2)
+                        axis("M").position(x: geo.size.width / 2, y: geo.size.width - Self.margin / 2)
+                        axis("B").position(x: Self.margin / 2, y: geo.size.width / 2)
+                        axis("A").position(x: geo.size.width - Self.margin / 2, y: geo.size.width / 2)
                     }
-                    Text("A").axisLabel()
+                    .contentShape(Rectangle())
+                    .gesture(DragGesture(minimumDistance: 0)
+                        .onChanged { v in dragging = values(v.location, cell, aLo, aHi, aStep, gLo, gHi, gStep) }
+                        .onEnded { v in
+                            let t = values(v.location, cell, aLo, aHi, aStep, gLo, gHi, gStep)
+                            dragging = nil
+                            if t.ab != curA { session.setProperty(ab.code, t.ab) }
+                            if t.gm != curG { session.setProperty(gm.code, t.gm) }
+                        })
                 }
+                .aspectRatio(1, contentMode: .fit)
+                .frame(maxWidth: 156)
                 .frame(maxWidth: .infinity)
                 .disabled(!enabled)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("白平衡微调")
+                .accessibilityValue(readout(curA, curG))
             }
             .font(.system(size: 13))
             .padding(.horizontal, 12).padding(.vertical, 10)
@@ -806,9 +811,13 @@ private struct WBShiftPad: View {
         }
     }
 
+    private func axis(_ t: String) -> some View {
+        Text(t).font(.system(size: 10, weight: .bold)).foregroundStyle(.secondary)
+    }
+
+    /// 和机身一样写成「A-B: B5  G-M: G4.5」。
     private func readout(_ a: Int64, _ g: Int64) -> String {
-        let parts = [SonyPropertyCatalog.label(0xD21C, a), SonyPropertyCatalog.label(0xD210, g)].compactMap { $0 }.filter { $0 != "0" }
-        return parts.isEmpty ? "0" : parts.joined(separator: " · ")
+        "A-B: \(SonyPropertyCatalog.label(0xD21C, a) ?? "0")  G-M: \(SonyPropertyCatalog.label(0xD210, g) ?? "0")"
     }
 
     private func reset(_ curA: Int64, _ curG: Int64) {
@@ -816,48 +825,36 @@ private struct WBShiftPad: View {
         if curG != Self.center { session.setProperty(gm.code, Self.center) }
     }
 
-    private func values(_ pt: CGPoint, _ size: CGSize, _ aLo: Int64, _ aHi: Int64, _ aStep: Int64,
+    private func values(_ pt: CGPoint, _ cell: CGFloat, _ aLo: Int64, _ aHi: Int64, _ aStep: Int64,
                         _ gLo: Int64, _ gHi: Int64, _ gStep: Int64) -> (ab: Int64, gm: Int64) {
         func snap(_ f: CGFloat, _ lo: Int64, _ hi: Int64, _ step: Int64) -> Int64 {
             let raw = Double(lo) + Double(min(max(f, 0), 1)) * Double(hi - lo)
             let s = Double(max(step, 1))
             return min(hi, max(lo, lo + Int64(((raw - Double(lo)) / s).rounded()) * Int64(s)))
         }
-        return (snap(pt.x / max(size.width, 1), aLo, aHi, aStep), snap(1 - pt.y / max(size.height, 1), gLo, gHi, gStep))
+        // 色块中心之间映射到取值范围（第一格中心 = 最小值，最后一格中心 = 最大值）。
+        let span = cell * CGFloat(Self.cells - 1)
+        let fx = (pt.x - Self.margin - cell / 2) / max(span, 1)
+        let fy = (pt.y - Self.margin - cell / 2) / max(span, 1)
+        return (snap(fx, aLo, aHi, aStep), snap(1 - fy, gLo, gHi, gStep))
     }
-}
 
-/// 四个方向的颜色：左蓝、右琥珀、上绿、下品红，中间是中性灰。
-private struct PadBackground: View {
-    var body: some View {
-        ZStack {
-            Color(white: 0.5)
-            LinearGradient(colors: [Color(red: 0.25, green: 0.45, blue: 1), .clear, Color(red: 1, green: 0.62, blue: 0.15)],
-                           startPoint: .leading, endPoint: .trailing).opacity(0.75)
-            LinearGradient(colors: [Color(red: 0.25, green: 0.8, blue: 0.35), .clear, Color(red: 0.92, green: 0.25, blue: 0.75)],
-                           startPoint: .top, endPoint: .bottom).opacity(0.6)
-        }
-    }
-}
-
-/// 每一格一条细线。
-private struct PadGrid: Shape {
-    let cells: Int
-    func path(in r: CGRect) -> Path {
-        var p = Path()
-        guard cells > 0 else { return p }
-        for i in 1..<cells {
-            let x = r.minX + r.width * CGFloat(i) / CGFloat(cells), y = r.minY + r.height * CGFloat(i) / CGFloat(cells)
-            p.move(to: CGPoint(x: x, y: r.minY)); p.addLine(to: CGPoint(x: x, y: r.maxY))
-            p.move(to: CGPoint(x: r.minX, y: y)); p.addLine(to: CGPoint(x: r.maxX, y: y))
-        }
-        return p
-    }
-}
-
-private extension Text {
-    func axisLabel() -> some View {
-        font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary).frame(width: 12)
+    /// 色块颜色：3 × 3 个控制色按象限双线性插值（上排 绿 / 黄绿 / 黄，中排 青 / 白 / 橙，下排 蓝 / 紫 / 品红）。
+    static func color(_ u: CGFloat, _ v: CGFloat) -> Color {
+        typealias RGB = (r: CGFloat, g: CGFloat, b: CGFloat)
+        let grid: [[RGB]] = [
+            [(0.15, 0.85, 0.25), (0.7, 0.92, 0.2), (1.0, 0.85, 0.1)],
+            [(0.1, 0.8, 0.95), (1, 1, 1), (1.0, 0.5, 0.3)],
+            [(0.15, 0.2, 1.0), (0.6, 0.25, 0.95), (1.0, 0.15, 0.75)],
+        ]
+        // u: −1 … 1 → 列 0 … 2；v: 1 … −1 → 行 0 … 2
+        let x = (u + 1), y = (1 - v)
+        let c0 = min(Int(x), 1), r0 = min(Int(y), 1)
+        let tx = x - CGFloat(c0), ty = y - CGFloat(r0)
+        func lerp(_ p: RGB, _ q: RGB, _ t: CGFloat) -> RGB { (p.r + (q.r - p.r) * t, p.g + (q.g - p.g) * t, p.b + (q.b - p.b) * t) }
+        let top = lerp(grid[r0][c0], grid[r0][c0 + 1], tx), bottom = lerp(grid[r0 + 1][c0], grid[r0 + 1][c0 + 1], tx)
+        let c = lerp(top, bottom, ty)
+        return Color(red: c.r, green: c.g, blue: c.b)
     }
 }
 
