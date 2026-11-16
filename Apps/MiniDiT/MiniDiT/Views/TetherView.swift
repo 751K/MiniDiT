@@ -369,18 +369,14 @@ private struct ThirdsGrid: Shape {
 private struct TetherSidebar: View {
     @Environment(AppModel.self) private var model
     @Bindable var session: TetherSession
-    @AppStorage("tetherImageExpanded") private var imageExpanded = true
 
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     review
-                    DisclosureGroup(isExpanded: $imageExpanded) {
-                        imageSettings.padding(.top, 8)
-                    } label: {
-                        sectionTitle("图像")
-                    }
+                    whiteBalanceCard
+                    photoCard
                 }
                 .padding(16)
             }
@@ -482,59 +478,77 @@ private struct TetherSidebar: View {
         .frame(height: 42)
     }
 
-    // MARK: 图像设置
+    // MARK: 图像设置（分组卡片：标签在左，值在右）
 
-    private var imageSettings: some View {
+    private var whiteBalanceCard: some View {
         let p = session.properties
-        let wb = p[0x5005]?.intValue
-        let fileTypeCode = [UInt16(0xD28B), 0xD253].first { p[$0]?.isWritable == true } ?? [UInt16(0xD28B), 0xD253].first { p[$0] != nil }
-        return VStack(alignment: .leading, spacing: 10) {
-            whiteBalanceRow
-            if wb == 0x8012 { StepperRow(session: session, title: "色温", code: 0xD20F) }
-            StepperRow(session: session, title: "A–B 微调", code: 0xD21C)
-            StepperRow(session: session, title: "G–M 微调", code: 0xD210)
-            customWB
-            Divider().padding(.vertical, 2)
-            PropertyRow(session: session, title: "创意外观", code: 0xD0FA)
-            if let c = fileTypeCode { PropertyRow(session: session, title: "文件格式", code: c) }
-            PropertyRow(session: session, title: "传到电脑", code: 0xD269)
-        }
-        .font(.system(size: 13))
-    }
-
-    /// 白平衡模式：用状态里的选项（中文名，和底部参数条一致）。
-    @ViewBuilder private var whiteBalanceRow: some View {
-        if let s = session.status.settings.first(where: { $0.kind == .whiteBalance }), let v = s.currentValue, !s.options.isEmpty {
-            HStack {
-                Text("白平衡").foregroundStyle(.secondary).frame(width: 74, alignment: .leading)
-                Picker("白平衡", selection: Binding(get: { v }, set: { session.set(.whiteBalance, value: $0) })) {
-                    ForEach(s.options) { o in Text(o.label).tag(o.value) }
-                }
-                .labelsHidden().fixedSize()
-                .disabled(!s.isEditable || session.lost)
-                Spacer()
-            }
-        }
-    }
-
-    private var customWB: some View {
-        HStack {
-            Text("取白").foregroundStyle(.secondary).frame(width: 74, alignment: .leading)
-            Menu("存入自定义…") {
-                ForEach(1...3, id: \.self) { slot in
-                    Button("自定义 \(slot)") {
-                        Task {
-                            do { _ = try await session.customWhiteBalance(slot: slot) }
-                            catch { session.message = (error as? AgentControlError).map { $0.message.components(separatedBy: " 过程：")[0] } ?? error.localizedDescription }
+        let wb = session.status.settings.first { $0.kind == .whiteBalance }
+        let isTemp = wb?.currentValue == 0x8012
+        return VStack(alignment: .leading, spacing: 6) {
+            sectionTitle("白平衡")
+            PanelCard {
+                PanelRow("模式", enabled: wb?.isEditable == true && !session.lost) {
+                    if let wb, let v = wb.currentValue, !wb.options.isEmpty {
+                        ValueMenu(text: wb.valueText, options: wb.options.map { ($0.value, $0.label) }, current: v) {
+                            session.set(.whiteBalance, value: $0)
                         }
+                    } else {
+                        Text("—").foregroundStyle(.secondary)
+                    }
+                }
+                if isTemp, let d = p[0xD20F] {
+                    PanelDivider()
+                    GradientSliderRow(session: session, desc: d, title: "色温",
+                                      colors: [Color(red: 0.35, green: 0.55, blue: 1), Color(white: 0.92), Color(red: 1, green: 0.72, blue: 0.25)])
+                } else if let k = p[0xD20F]?.intValue, k > 0 {
+                    PanelDivider()
+                    PanelRow("色温", enabled: false) { Text("\(k)K").monospacedDigit() }
+                }
+                if let ab = p[0xD21C], let gm = p[0xD210] {
+                    PanelDivider()
+                    WBShiftPad(session: session, ab: ab, gm: gm)
+                }
+                if p[0xD270] != nil {
+                    PanelDivider()
+                    PanelRow("取白", enabled: session.busy == nil && !session.lost) {
+                        Menu {
+                            ForEach(1...3, id: \.self) { slot in
+                                Button("存入自定义 \(slot)") { captureWB(slot) }
+                            }
+                        } label: {
+                            Label("对准灰卡后取白", systemImage: "eyedropper")
+                        }
+                        .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+                        .help("先让相机对准灰卡或白纸，再选择存入哪个自定义白平衡。会覆盖该槽位原来的结果。")
                     }
                 }
             }
-            .menuStyle(.borderlessButton).fixedSize()
-            .disabled(session.busy != nil || session.properties[0xD270] == nil)
-            Spacer()
         }
-        .help("先让相机对准灰卡或白纸，再选择存入哪个自定义白平衡。会覆盖该槽位原来的结果。")
+    }
+
+    private func captureWB(_ slot: Int) {
+        Task {
+            do { _ = try await session.customWhiteBalance(slot: slot) }
+            catch { session.message = (error as? AgentControlError).map { $0.message.components(separatedBy: " 过程：")[0] } ?? error.localizedDescription }
+        }
+    }
+
+    @ViewBuilder private var photoCard: some View {
+        let p = session.properties
+        let fileTypeCode = [UInt16(0xD28B), 0xD253].first { p[$0]?.isWritable == true } ?? [UInt16(0xD28B), 0xD253].first { p[$0] != nil }
+        let rows: [(String, UInt16)] = [("创意外观", 0xD0FA)] + (fileTypeCode.map { [("文件格式", $0)] } ?? []) + [("传到电脑", 0xD269)]
+        let shown = rows.filter { r in p[r.1].map { $0.isEnabled != 0 && !$0.allowedValues.isEmpty } ?? false }
+        if !shown.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                sectionTitle("照片")
+                PanelCard {
+                    ForEach(Array(shown.enumerated()), id: \.element.1) { i, r in
+                        if i > 0 { PanelDivider() }
+                        PropertyRow(session: session, title: r.0, code: r.1)
+                    }
+                }
+            }
+        }
     }
 
     // MARK: 导入
@@ -584,51 +598,283 @@ private struct TetherSidebar: View {
     }
 }
 
-/// 一个属性的选项菜单（相机没报告或未启用时不显示；仅显示时变灰）。
+// MARK: 面板组件
+
+/// 圆角分组卡片（和系统设置的分组表单同一种层次）。
+private struct PanelCard<Content: View>: View {
+    @ViewBuilder var content: Content
+    var body: some View {
+        VStack(spacing: 0) { content }
+            .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Color.primary.opacity(0.035)))
+            .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Color.primary.opacity(0.07)))
+    }
+}
+
+private struct PanelDivider: View {
+    var body: some View { Divider().padding(.leading, 12) }
+}
+
+/// 一行：标签在左，值在右。
+private struct PanelRow<Trailing: View>: View {
+    let title: String
+    let enabled: Bool
+    @ViewBuilder var trailing: Trailing
+    init(_ title: String, enabled: Bool = true, @ViewBuilder trailing: () -> Trailing) {
+        self.title = title; self.enabled = enabled; self.trailing = trailing()
+    }
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(title).foregroundStyle(.secondary)
+            Spacer(minLength: 8)
+            trailing.disabled(!enabled)
+        }
+        .font(.system(size: 13))
+        .padding(.horizontal, 12)
+        .frame(minHeight: 34)
+        .opacity(enabled ? 1 : 0.55)
+    }
+}
+
+/// 右对齐的值 + 上下箭头，点按弹出选项（不带按钮外框）。
+private struct ValueMenu: View {
+    let text: String
+    let options: [(Int64, String)]
+    let current: Int64
+    let choose: (Int64) -> Void
+    var body: some View {
+        Menu {
+            ForEach(options, id: \.0) { v, label in
+                Button { choose(v) } label: {
+                    if v == current { Label(label, systemImage: "checkmark") } else { Text(label) }
+                }
+            }
+        } label: {
+            // 菜单按钮会把图标放在文字前面：拼成一段文字，箭头才在值的后面。
+            Text("\(text) ") + Text(Image(systemName: "chevron.up.chevron.down")).font(.system(size: 9, weight: .semibold))
+        }
+        .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+    }
+}
+
+/// 范围型属性（色温）：渐变滑杆，松手时才发给相机（按档位取整）。
+private struct GradientSliderRow: View {
+    let session: TetherSession
+    let desc: SonyPropertyDesc
+    let title: String
+    var center: Int64? = nil
+    let colors: [Color]
+    @State private var dragging: Int64?
+
+    var body: some View {
+        if case let .range(lo, hi, step) = desc.form, hi > lo, let current = desc.intValue {
+            let value = dragging ?? current
+            let enabled = desc.isWritable && !session.lost
+            VStack(spacing: 6) {
+                HStack {
+                    Text(title).foregroundStyle(.secondary)
+                    Spacer()
+                    Text(SonyPropertyCatalog.label(desc.code, value) ?? "\(value)").monospacedDigit()
+                }
+                GeometryReader { geo in
+                    let w = geo.size.width
+                    let x = CGFloat(value - lo) / CGFloat(hi - lo) * w
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(LinearGradient(colors: colors, startPoint: .leading, endPoint: .trailing))
+                            .frame(height: 5).opacity(enabled ? 0.9 : 0.4)
+                        if let center {
+                            Rectangle().fill(Color.primary.opacity(0.35)).frame(width: 1, height: 9)
+                                .offset(x: CGFloat(center - lo) / CGFloat(hi - lo) * w)
+                        }
+                        Circle().fill(.white).frame(width: 15, height: 15)
+                            .shadow(color: .black.opacity(0.3), radius: 1.5, y: 0.5)
+                            .overlay(Circle().strokeBorder(Color.black.opacity(0.08)))
+                            .offset(x: min(max(x - 7.5, -1), w - 14))
+                    }
+                    .frame(height: 16)
+                    .frame(maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                    .gesture(DragGesture(minimumDistance: 0)
+                        .onChanged { g in dragging = snap(g.location.x / max(w, 1), lo, hi, step) }
+                        .onEnded { g in
+                            let v = snap(g.location.x / max(w, 1), lo, hi, step)
+                            dragging = nil
+                            if v != current { session.setProperty(desc.code, v) }
+                        })
+                }
+                .frame(height: 18)
+                .disabled(!enabled)
+            }
+            .font(.system(size: 13))
+            .padding(.horizontal, 12).padding(.vertical, 8)
+            .opacity(enabled ? 1 : 0.55)
+            .help(enabled ? "拖动调整" : "当前设置下由相机决定")
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(title)
+            .accessibilityValue(SonyPropertyCatalog.label(desc.code, current) ?? "\(current)")
+            .accessibilityAdjustableAction { dir in
+                guard enabled else { return }
+                let v = dir == .increment ? min(hi, current + step) : max(lo, current - step)
+                session.setProperty(desc.code, v)
+            }
+        }
+    }
+
+    private func snap(_ f: CGFloat, _ lo: Int64, _ hi: Int64, _ step: Int64) -> Int64 {
+        let raw = Double(lo) + Double(min(max(f, 0), 1)) * Double(hi - lo)
+        let s = Double(max(step, 1))
+        return min(hi, max(lo, lo + Int64(((raw - Double(lo)) / s).rounded()) * Int64(s)))
+    }
+}
+
+/// 白平衡微调矩阵（和索尼机身的微调画面一样）：横轴 B ← → A，纵轴 G 在上、M 在下，各 ±7 格。
+/// 点按或拖动选位置，松手时按两个轴各自的档位取整后发给相机；读数旁的箭头回到中心。
+private struct WBShiftPad: View {
+    let session: TetherSession
+    let ab: SonyPropertyDesc
+    let gm: SonyPropertyDesc
+    @State private var dragging: (ab: Int64, gm: Int64)?
+
+    private static let center: Int64 = 192
+    private static let unit: Int64 = 4   // 一格 = 4（A–B 可停半格，G–M 可停四分之一格）
+
+    var body: some View {
+        if case let .range(aLo, aHi, aStep) = ab.form, case let .range(gLo, gHi, gStep) = gm.form,
+           aHi > aLo, gHi > gLo, let curA = ab.intValue, let curG = gm.intValue {
+            let a = dragging?.ab ?? curA, g = dragging?.gm ?? curG
+            let enabled = ab.isWritable && gm.isWritable && !session.lost
+            VStack(spacing: 8) {
+                HStack {
+                    Text("微调").foregroundStyle(.secondary)
+                    Spacer()
+                    Text(readout(a, g)).monospacedDigit()
+                    if curA != Self.center || curG != Self.center {
+                        Button { reset(curA, curG) } label: { Image(systemName: "arrow.counterclockwise") }
+                            .buttonStyle(.borderless).help("回到 0").disabled(!enabled)
+                            .accessibilityLabel("微调回到 0")
+                    }
+                }
+                HStack(spacing: 6) {
+                    Text("B").axisLabel()
+                    VStack(spacing: 4) {
+                        Text("G").axisLabel()
+                        GeometryReader { geo in
+                            let size = geo.size
+                            let fx = CGFloat(a - aLo) / CGFloat(aHi - aLo)
+                            let fy = 1 - CGFloat(g - gLo) / CGFloat(gHi - gLo)
+                            ZStack {
+                                PadBackground()
+                                PadGrid(cells: Int((aHi - aLo) / Self.unit))
+                                    .stroke(Color.primary.opacity(0.12), lineWidth: 0.5)
+                                Path { p in
+                                    p.move(to: CGPoint(x: size.width / 2, y: 0)); p.addLine(to: CGPoint(x: size.width / 2, y: size.height))
+                                    p.move(to: CGPoint(x: 0, y: size.height / 2)); p.addLine(to: CGPoint(x: size.width, y: size.height / 2))
+                                }
+                                .stroke(Color.primary.opacity(0.35), lineWidth: 0.75)
+                                Circle().fill(.white).frame(width: 13, height: 13)
+                                    .overlay(Circle().strokeBorder(Color.black.opacity(0.75), lineWidth: 2))
+                                    .shadow(color: .black.opacity(0.3), radius: 1.5)
+                                    .position(x: fx * size.width, y: fy * size.height)
+                            }
+                            .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).strokeBorder(Color.primary.opacity(0.15)))
+                            .contentShape(Rectangle())
+                            .gesture(DragGesture(minimumDistance: 0)
+                                .onChanged { v in dragging = values(v.location, size, aLo, aHi, aStep, gLo, gHi, gStep) }
+                                .onEnded { v in
+                                    let t = values(v.location, size, aLo, aHi, aStep, gLo, gHi, gStep)
+                                    dragging = nil
+                                    if t.ab != curA { session.setProperty(ab.code, t.ab) }
+                                    if t.gm != curG { session.setProperty(gm.code, t.gm) }
+                                })
+                        }
+                        .aspectRatio(1, contentMode: .fit)
+                        .frame(maxWidth: 210)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("白平衡微调")
+                        .accessibilityValue(readout(curA, curG))
+                        Text("M").axisLabel()
+                    }
+                    Text("A").axisLabel()
+                }
+                .frame(maxWidth: .infinity)
+                .disabled(!enabled)
+            }
+            .font(.system(size: 13))
+            .padding(.horizontal, 12).padding(.vertical, 10)
+            .opacity(enabled ? 1 : 0.55)
+            .help(enabled ? "点按或拖动选择微调位置；右上角的箭头回到中心" : "当前设置下由相机决定")
+        }
+    }
+
+    private func readout(_ a: Int64, _ g: Int64) -> String {
+        let parts = [SonyPropertyCatalog.label(0xD21C, a), SonyPropertyCatalog.label(0xD210, g)].compactMap { $0 }.filter { $0 != "0" }
+        return parts.isEmpty ? "0" : parts.joined(separator: " · ")
+    }
+
+    private func reset(_ curA: Int64, _ curG: Int64) {
+        if curA != Self.center { session.setProperty(ab.code, Self.center) }
+        if curG != Self.center { session.setProperty(gm.code, Self.center) }
+    }
+
+    private func values(_ pt: CGPoint, _ size: CGSize, _ aLo: Int64, _ aHi: Int64, _ aStep: Int64,
+                        _ gLo: Int64, _ gHi: Int64, _ gStep: Int64) -> (ab: Int64, gm: Int64) {
+        func snap(_ f: CGFloat, _ lo: Int64, _ hi: Int64, _ step: Int64) -> Int64 {
+            let raw = Double(lo) + Double(min(max(f, 0), 1)) * Double(hi - lo)
+            let s = Double(max(step, 1))
+            return min(hi, max(lo, lo + Int64(((raw - Double(lo)) / s).rounded()) * Int64(s)))
+        }
+        return (snap(pt.x / max(size.width, 1), aLo, aHi, aStep), snap(1 - pt.y / max(size.height, 1), gLo, gHi, gStep))
+    }
+}
+
+/// 四个方向的颜色：左蓝、右琥珀、上绿、下品红，中间是中性灰。
+private struct PadBackground: View {
+    var body: some View {
+        ZStack {
+            Color(white: 0.5)
+            LinearGradient(colors: [Color(red: 0.25, green: 0.45, blue: 1), .clear, Color(red: 1, green: 0.62, blue: 0.15)],
+                           startPoint: .leading, endPoint: .trailing).opacity(0.75)
+            LinearGradient(colors: [Color(red: 0.25, green: 0.8, blue: 0.35), .clear, Color(red: 0.92, green: 0.25, blue: 0.75)],
+                           startPoint: .top, endPoint: .bottom).opacity(0.6)
+        }
+    }
+}
+
+/// 每一格一条细线。
+private struct PadGrid: Shape {
+    let cells: Int
+    func path(in r: CGRect) -> Path {
+        var p = Path()
+        guard cells > 0 else { return p }
+        for i in 1..<cells {
+            let x = r.minX + r.width * CGFloat(i) / CGFloat(cells), y = r.minY + r.height * CGFloat(i) / CGFloat(cells)
+            p.move(to: CGPoint(x: x, y: r.minY)); p.addLine(to: CGPoint(x: x, y: r.maxY))
+            p.move(to: CGPoint(x: r.minX, y: y)); p.addLine(to: CGPoint(x: r.maxX, y: y))
+        }
+        return p
+    }
+}
+
+private extension Text {
+    func axisLabel() -> some View {
+        font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary).frame(width: 12)
+    }
+}
+
+/// 一个属性的选项（右对齐，相机没报告或未启用时不显示；仅显示时变淡）。
 private struct PropertyRow: View {
     let session: TetherSession
     let title: String
     let code: UInt16
 
     var body: some View {
-        if let d = session.properties[code], d.isEnabled != 0, case .enumeration(let list) = d.form, !list.isEmpty {
-            HStack {
-                Text(title).foregroundStyle(.secondary).frame(width: 74, alignment: .leading)
-                Picker(title, selection: Binding(get: { d.intValue ?? list[0] }, set: { session.setProperty(code, $0) })) {
-                    ForEach(list, id: \.self) { v in Text(SonyPropertyCatalog.label(code, v) ?? "\(v)").tag(v) }
+        if let d = session.properties[code], d.isEnabled != 0, case .enumeration(let list) = d.form, !list.isEmpty, let v = d.intValue {
+            PanelRow(title, enabled: d.isWritable && !session.lost) {
+                ValueMenu(text: SonyPropertyCatalog.label(code, v) ?? "\(v)",
+                          options: list.map { ($0, SonyPropertyCatalog.label(code, $0) ?? "\($0)") }, current: v) {
+                    session.setProperty(code, $0)
                 }
-                .labelsHidden()
-                .fixedSize()
-                .disabled(!d.isWritable || session.lost)
-                Spacer()
             }
-            .help(d.isWritable ? "" : "当前设置下由相机决定")
-        }
-    }
-}
-
-/// 范围型属性（色温、白平衡微调）：‹ 值 › 逐档调整。
-private struct StepperRow: View {
-    let session: TetherSession
-    let title: String
-    let code: UInt16
-
-    var body: some View {
-        if let d = session.properties[code], d.isEnabled != 0, case let .range(lo, hi, step) = d.form, let v = d.intValue {
-            HStack(spacing: 6) {
-                Text(title).foregroundStyle(.secondary).frame(width: 74, alignment: .leading)
-                Button { session.setProperty(code, max(lo, v - step)) } label: { Image(systemName: "minus") }
-                    .disabled(!d.isWritable || v <= lo)
-                    .accessibilityLabel("减小\(title)")
-                Text(SonyPropertyCatalog.label(code, v) ?? "\(v)")
-                    .monospacedDigit().frame(minWidth: 58)
-                Button { session.setProperty(code, min(hi, v + step)) } label: { Image(systemName: "plus") }
-                    .disabled(!d.isWritable || v >= hi)
-                    .accessibilityLabel("增大\(title)")
-                Spacer()
-            }
-            .buttonStyle(.borderless)
-            .disabled(session.lost)
             .help(d.isWritable ? "" : "当前设置下由相机决定")
         }
     }
