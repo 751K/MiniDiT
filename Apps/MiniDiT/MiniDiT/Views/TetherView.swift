@@ -46,6 +46,8 @@ struct TetherView: View {
     @State private var scrollMonitor: Any?
     /// 指针在取景画面上（MF 时滚轮调焦）。
     @State private var overViewfinder = false
+    @State private var modeHovered = false
+    @State private var modePicking = false
 
     var body: some View {
         HStack(spacing: 0) {
@@ -275,16 +277,48 @@ struct TetherView: View {
     private var modeCell: some View {
         // 只显示曝光字母（录像、S&Q 已在顶部的切换里体现）；不认识的模式显示相机给的名字。
         let raw = session.properties[SonyProperty.exposureProgramMode]?.intValue
-        let letter = raw.flatMap(SonyPropertyCatalog.shootingMode)?.exposure
-        let text = letter.map { $0 == "auto" ? "AUTO" : $0.uppercased() }
+        let current = raw.flatMap(SonyPropertyCatalog.shootingMode)
+        let text = current.map { Self.exposureText($0.exposure) }
             ?? session.status.modeText.split(separator: " ").first.map(String.init) ?? "—"
-        return VStack(spacing: 3) {
-            Text("模式").font(.system(size: 10)).foregroundStyle(.secondary)
-            Text(text).font(.system(size: 17, weight: .semibold))
+        // 同一组（拍照 / 录像 / S&Q）里相机支持的曝光模式。
+        let allowed = session.properties[SonyProperty.exposureProgramMode]?.allowedValues ?? []
+        let letters = current.map { c in
+            ["auto", "p", "a", "s", "m"].filter { SonyPropertyCatalog.exposureProgram(c.mode, exposure: $0, allowed: allowed) != nil }
+        } ?? []
+        let enabled = current != nil && letters.count > 1 && !session.lost && session.busy == nil && !session.status.isRecording
+        return Button { modePicking.toggle() } label: {
+            VStack(spacing: 3) {
+                Text("模式").font(.system(size: 10)).foregroundStyle(.secondary)
+                Text(text).font(.system(size: 17, weight: .semibold))
+            }
+            .frame(minWidth: 44)
+            .padding(.horizontal, 6).padding(.vertical, 6)
+            .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(.white.opacity((modeHovered && enabled) || modePicking ? 0.1 : 0)))
+            .contentShape(Rectangle())
         }
-        .frame(minWidth: 44)
-        .padding(.horizontal, 6)
-        .help(session.status.modeText)
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .onHover { modeHovered = $0 }
+        .help(enabled ? "\(session.status.modeText)：点按切换曝光模式" : session.status.modeText)
+        .accessibilityLabel("曝光模式")
+        .accessibilityValue(text)
+        .popover(isPresented: $modePicking, arrowEdge: .top) {
+            ExposurePicker(letters: letters, current: current?.exposure) { l in
+                modePicking = false
+                chooseExposure(l)
+            }
+        }
+    }
+
+    private static func exposureText(_ l: String) -> String { l == "auto" ? "AUTO" : l.uppercased() }
+
+    private func chooseExposure(_ l: String) {
+        guard let mode = session.shootingMode else { return }
+        Task {
+            do { _ = try await session.switchMode(to: mode, exposure: l) }
+            catch { session.message = (error as? AgentControlError)?.message ?? error.localizedDescription }
+        }
     }
 
     private func settingCell(_ s: CameraSetting) -> some View {
@@ -656,6 +690,48 @@ private struct ScalePicker: View {
 
 /// 白平衡弹出框：一排模式图标（和相机里一样按相机报告的顺序），选中色温时下面是色温刻度（低色温偏蓝在左，高色温偏暖在右）。
 /// 悬停图标或刻度时底部参数条显示指着的值；点按才发给相机。A–B、G–M 微调在右侧栏。
+/// 曝光模式：一排方块（和白平衡弹出框同一种样式），字母在上、中文名在下。
+private struct ExposurePicker: View {
+    let letters: [String]
+    let current: String?
+    let choose: (String) -> Void
+    @State private var hover: String?
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(letters, id: \.self) { l in
+                let on = l == current
+                Button { choose(l) } label: {
+                    VStack(spacing: 5) {
+                        Text(l == "auto" ? "AUTO" : l.uppercased()).font(.system(size: 13, weight: .bold, design: .rounded)).frame(height: 18)
+                        Text(Self.name(l)).font(.system(size: 10)).lineLimit(1).minimumScaleFactor(0.8)
+                    }
+                    .frame(width: 54, height: 48)
+                    .foregroundStyle(on ? Color.white : Color.primary)
+                    .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(on ? Color.accentColor : Color.primary.opacity(hover == l ? 0.14 : 0.06)))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .onHover { h in hover = h ? l : (hover == l ? nil : hover) }
+                .accessibilityLabel(Self.name(l))
+                .accessibilityAddTraits(on ? .isSelected : [])
+            }
+        }
+        .padding(14)
+    }
+
+    static func name(_ l: String) -> String {
+        switch l {
+        case "auto": "智能自动"
+        case "p": "程序自动"
+        case "a": "光圈优先"
+        case "s": "快门优先"
+        default: "手动曝光"
+        }
+    }
+}
+
 private struct WhiteBalancePicker: View {
     let setting: CameraSetting
     let temperature: SonyPropertyDesc?
