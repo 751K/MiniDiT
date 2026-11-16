@@ -370,6 +370,30 @@ public actor SonyCamera: RemoteCamera {
         throw SonyPropertyError.readbackMismatch(code, requested: value, actual: last.current)
     }
 
+    // MARK: 自定义白平衡（远程取白）
+
+    /// 取白相关的属性：0xD26B 可取白区域、0xD26C 取白框尺寸、0xD26D/0xD26E/0xD26F 待机 / 取消 / 取白当前是否可用、
+    /// 0xD270 执行状态（0 无效、1 待机、2 取白中、3 相机端操作中）。
+    public static let customWBStatusCodes: [UInt16] = [0xD26B, 0xD26C, 0xD26D, 0xD26E, 0xD26F, 0xD270]
+
+    public enum CustomWBStep: Sendable { case standby, cancel }
+
+    /// 按一下（按下再松开）取白待机 0xD2DF 或取消 0xD2E0。
+    public func customWBButton(_ step: CustomWBStep) async throws {
+        let code: UInt16 = step == .standby ? 0xD2DF : 0xD2E0
+        try await control(code, SonyControl.down)
+        try await control(code, SonyControl.up)
+        propsFetchedAt = .distantPast
+    }
+
+    /// 取白 0xD2E1：参数是取白框在可取白区域里的位置（类型由调用方按实测给出）。
+    public func customWBCapture(_ value: PTPValue, type: PTPDataType) async throws {
+        var w = PTPWriter()
+        value.write(type, to: &w)
+        try await client.transaction(SonyOperation.controlDevice, [UInt32(0xD2E1)], dataOut: w.data)
+        propsFetchedAt = .distantPast
+    }
+
     // MARK: 存储卡内容（远程传输，和遥控共用这条连接）
 
     private var contents: SonyRemoteTransferLibrary?

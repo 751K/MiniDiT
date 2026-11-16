@@ -100,6 +100,7 @@ MCP 暴露与 CLI 对应的 35 个工具，例如 `minidit_projects_list`、`min
 | `tether.files`、`tether.download` | 列出存储卡文件；按文件名下载（视频附 M01.XML） |
 | `tether.record_clip` | 录一段指定秒数的视频并取回 MP4 + XML |
 | `tether.mode` | 切换拍照 / 录像 / S&Q（需要时先改成 PC 优先） |
+| `tether.custom_wb` | 远程取白：结果存进自定义 1–3，返回色温和 G–M |
 
 CLI 的方法可以写成分隔的命令，例如 `projects list`；下划线操作可以写成连字符，例如 `sources open-card`。完整方法也可通过 `minidit call METHOD 'JSON'` 调用。
 
@@ -129,6 +130,7 @@ minidit tether live-view --max-width 1024           # data 字段为 base64 JPEG
 minidit tether live-view --out-file /path/frame.jpg   # 原始帧写成文件，不覆盖
 minidit tether configure --auto-import false
 minidit tether mode --mode movie                     # 照片 M ↔ 录像 M；--exposure auto|p|a|s|m 可另选
+minidit tether custom-wb --slot 3                    # 先把相机对准灰卡；--probe true 只试待机，不取白
 minidit tether stop --restore-settings true         # 先改回本次改过的属性再断开
 ```
 
@@ -161,6 +163,14 @@ minidit tether capture --out-dir /path/to/dir --timeout-seconds 60
 - `record_clip --seconds S [--out-dir DIR]`：开始录像 → 等 S 秒 → 停止 → 等新片段出现在卡上（`timeoutSeconds`，默认 120）→ 下载。α7 V 上开始和停止各有延迟，结果里的 `durationSeconds`（来自 XML）是实际时长，2 秒约为 1.5 秒。
 - `live_view --out-file PATH`：把相机送来的那一帧 JPEG 原样写到文件（不缩小、不重新编码），只返回 `path`、`bytes`、`width`、`height`、`savedAt`。要绝对路径、目录已存在；文件已存在报 `file_exists`，先写隐藏临时文件再改名。
 - CLI 等待回复的时间：`capture` 330 秒、`set_properties` 90 秒、`files` 120 秒、`download` 3600 秒、`record_clip` 录像秒数 + 超时 + 3600 秒、`stop` 60 秒、其余 10 秒。
+
+### 远程取白
+
+`tether custom-wb --slot N` 依次：白平衡切到自定义 N → 取白待机 → 在画面中央取白 → 等相机完成 → 返回 `colorTemperature`、`tintGM`、`tintAB`。α7 V 上约 3 秒。结果存进该槽位，白平衡保持在自定义 N（白平衡的原值记在 `changedProperties` 里，`stop --restore-settings` 会改回）。
+
+- `--probe true` 只进入待机再取消，不改槽位里的结果，用来确认相机能否远程取白。
+- `--position` 指定取白框位置 `x << 16 | y`（640×480 坐标），默认中央。
+- 每一步的状态记在 `trace` 里；相机不允许待机、待机或取白超时时报 `custom_wb_unavailable` / `custom_wb_timeout`，消息里附 trace，并会尝试取消待机。
 
 ### 还原相机设置
 

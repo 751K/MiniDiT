@@ -32,6 +32,7 @@ func perform(_ method: String, _ params: AgentJSON) throws -> AgentJSON {
     case "tether.record_clip": timeout = (params["seconds"].int ?? 0) + (params["timeoutSeconds"].int ?? 120) + 3600
     case "tether.files": timeout = 120
     case "tether.stop", "tether.mode": timeout = 60
+    case "tether.custom_wb": timeout = 90
     default: timeout = 10
     }
     return try AgentSocket.request(.init(method: tool.method, params: params), path: path, timeout: timeout)
@@ -129,6 +130,7 @@ func cli(_ arguments: [String]) throws {
         minidit tether live-view --out-file /abs/frame.jpg   save the full frame (never overwrites)
         minidit tether configure --auto-import true --live-view false
         minidit tether mode --mode movie [--exposure m]   switch photo / movie / sq
+        minidit tether custom-wb --slot 3 [--probe true]   custom white balance from a grey card
         minidit tools                     JSON tool catalog and argument schemas
         minidit call METHOD '{"arg":"value"}'
         minidit mcp                       MCP stdio server (2025-11-25)

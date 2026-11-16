@@ -103,4 +103,36 @@ import FakeSonyCamera
         #expect(SonyPropertyCatalog.exposureProgram(.movie, exposure: "m", allowed: [1, 2]) == nil)
         #expect(SonyPropertyCatalog.label(0x500E, 0x9805C) == "S&Q M" && SonyPropertyCatalog.label(0x500E, 0x78053) == "Movie M" && SonyPropertyCatalog.parse(0x500E, "Movie M", allowed: a7v) == 0x78053)
     }
+
+    @Test func customWhiteBalanceStandbyCaptureAndCancel() async throws {
+        let state = FakeSonyState()
+        let fake = try FakeCamera { state.handle($0, $1, $2) }
+        let port = try await fake.start()
+        defer { fake.stop() }
+        let cam = try await SonyCamera.connect(host: "127.0.0.1", port: port, identity: .random(name: "Test"), startupDelay: 0)
+        func read() async throws -> [UInt16: Int64] {
+            Dictionary(try await cam.allProperties().compactMap { d in d.intValue.map { (d.code, $0) } }, uniquingKeysWith: { _, b in b })
+        }
+        // AWB 时不能待机；切到自定义 3 后可以。
+        var p = try await read()
+        #expect(p[0xD26D] == 0)
+        _ = try await cam.setVerified(SonyProperty.whiteBalance, .int(0x8022))
+        p = try await read()
+        #expect(p[0xD26D] == 1 && p[0xD20F] == 5500)
+        try await cam.customWBButton(.standby)
+        p = try await read()
+        #expect(p[0xD270] == 1 && p[0xD26F] == 1)
+        try await cam.customWBButton(.cancel)
+        p = try await read()
+        #expect(p[0xD270] == 0 && p[0xD26D] == 1)
+        try await cam.customWBButton(.standby)
+        try await cam.customWBCapture(.int(320 << 16 | 240), type: .uint32)
+        p = try await read()
+        #expect(p[0xD270] == 2)
+        var polls = 0
+        while p[0xD270] != 0, polls < 10 { polls += 1; p = try await read() }
+        #expect(p[0xD270] == 0 && p[0xD20F] == 6300 && p[0xD210] == 188)
+        #expect(state.customWBPosition == 0x0140_00F0 && state.customWBResult(slot: 3)?.kelvin == 6300 && state.customWBResult(slot: 1)?.kelvin == 7000)
+        await cam.disconnect()
+    }
 }

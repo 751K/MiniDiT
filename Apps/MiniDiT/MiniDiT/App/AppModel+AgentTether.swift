@@ -336,6 +336,8 @@ extension AppModel {
             ])
         case "tether.mode":
             return try await agentTetherMode(t, p)
+        case "tether.custom_wb":
+            return try await agentCustomWB(t, p)
         case "tether.files":
             let lib = try await mapped { try await t.contentLibrary() }
             let all = try await mapped { try await Self.cardFiles(lib, slot: p["slot"].int.map(UInt32.init)) }
@@ -426,6 +428,106 @@ extension AppModel {
             "mode": .string(target.rawValue), "exposure": .string(exposure),
             "from": Self.valueJSON(code, .int(current)), "to": Self.valueJSON(code, result.current),
             "priorityKeyChanged": .bool(priorityChanged),
+        ])
+    }
+
+    /// 远程取白：白平衡切到自定义 slot → 取白待机 → 在取白框位置取白 → 等执行状态回到待机或无效 → 读回色温和 G–M。
+    /// probe=true 时只进入待机、记下各状态属性（含可取白区域的原始值），然后取消，不取白。
+    /// 每一步的状态都记在 trace 里，出错时一并返回；出错或超时都会尝试取消待机。
+    func agentCustomWB(_ t: TetherSession, _ p: AgentJSON) async throws -> AgentJSON {
+        let slot = p["slot"].int!
+        let probe = p["probe"].bool == true
+        let timeout = TimeInterval(p["timeoutSeconds"].int ?? 15)
+        var trace: [AgentJSON] = []
+        var lastSnapshot: [String: AgentJSON] = [:]
+        let started = Date()
+        func snapshot(_ note: String) async throws -> [UInt16: SonyPropertyDesc] {
+            let all = Dictionary(try await mapped { try await t.properties() }.map { ($0.code, $0) }, uniquingKeysWith: { _, b in b })
+            var o: [String: AgentJSON] = [:]
+            for c in SonyCamera.customWBStatusCodes + [0x5005, 0xD20F, 0xD210, 0xD21C] {
+                guard let d = all[c] else { continue }
+                o[String(format: "0x%04X", c)] = Self.valueJSON(c, d.current)
+            }
+            if o != lastSnapshot || note != "poll" {
+                lastSnapshot = o
+                var e = o
+                e["t"] = .number((Date().timeIntervalSince(started) * 10).rounded() / 10)
+                e["step"] = .string(note)
+                trace.append(.object(e))
+            }
+            return all
+        }
+        func state(_ all: [UInt16: SonyPropertyDesc]) -> Int64 { all[0xD270]?.intValue ?? -1 }
+        func fail(_ code: String, _ message: String) async -> AgentControlError {
+            try? await t.customWBButton(.cancel)
+            _ = try? await snapshot("cancel")
+            let data = (try? AgentJSON.array(trace).data()).map { String(decoding: $0, as: UTF8.self) } ?? ""
+            return AgentControlError(code, message + " 过程：" + data)
+        }
+
+        var all = try await snapshot("start")
+        guard all[0xD270] != nil else { throw AgentControlError("unsupported", "相机没有报告取白状态（0xD270），不支持远程取白。") }
+        // 1. 白平衡切到自定义 slot（记为改过）。
+        let wb: Int64 = 0x8020 + Int64(slot - 1)
+        guard all[0x5005]?.allowedValues.contains(wb) == true else { throw AgentControlError("invalid_value", "相机没有自定义 \(slot)。") }
+        do { _ = try await t.setVerified(0x5005, .int(wb), timeout: 5) } catch { throw Self.cameraError(error) }
+        // 2. 等「可以进入待机」。
+        let deadline = Date().addingTimeInterval(timeout)
+        all = try await snapshot("wb")
+        while all[0xD26D]?.intValue != 1 {
+            guard Date() < deadline else { throw await fail("custom_wb_unavailable", "相机没有允许进入取白待机（检查拍摄模式和菜单状态）。") }
+            try await Task.sleep(for: .milliseconds(200))
+            all = try await snapshot("poll")
+        }
+        // 3. 取白待机。
+        do { try await t.customWBButton(.standby) } catch { throw await fail("camera_error", "进入取白待机失败：\(Self.cameraError(error).message)") }
+        all = try await snapshot("standby")
+        while !(state(all) == 1 && all[0xD26F]?.intValue == 1) {
+            guard Date() < deadline else { throw await fail("custom_wb_timeout", "相机没有进入取白待机。") }
+            try await Task.sleep(for: .milliseconds(200))
+            all = try await snapshot("poll")
+        }
+        let area = all[0xD26B], frame = all[0xD26C]
+        let areaInfo: AgentJSON = .object([
+            "area": area.map { Self.valueJSON($0.code, $0.current) } ?? .null,
+            "areaType": .string(area.map { String(format: "0x%04X", $0.dataType.rawValue) } ?? ""),
+            "frame": frame.map { Self.valueJSON($0.code, $0.current) } ?? .null,
+            "frameType": .string(frame.map { String(format: "0x%04X", $0.dataType.rawValue) } ?? ""),
+        ])
+        if probe {
+            try? await t.customWBButton(.cancel)
+            try await Task.sleep(for: .milliseconds(500))
+            all = try await snapshot("cancel")
+            return .object(["probe": .bool(true), "slot": .integer(slot), "areaInfo": areaInfo,
+                            "stateAfterCancel": .integer(state(all)), "trace": .array(trace)])
+        }
+        // 4. 取白：位置 = x << 16 | y（640×480 坐标）。α7 V 上可取白区域 0xD26B、0xD26C 待机时也是 0，默认取画面中央（320, 240），实测可用。
+        let position = Int64(p["position"].int ?? (320 << 16 | 240))
+        do { try await t.customWBCapture(.int(position), type: .uint32) }
+        catch { throw await fail("camera_error", "取白命令被拒绝：\(Self.cameraError(error).message)") }
+        all = try await snapshot("capture")
+        // 5. 等取白完成：状态离开「取白中」。
+        var sawCapturing = state(all) == 2
+        while Date() < deadline {
+            try await Task.sleep(for: .milliseconds(200))
+            all = try await snapshot("poll")
+            if state(all) == 2 { sawCapturing = true; continue }
+            if sawCapturing || Date().timeIntervalSince(started) > 3 { break }
+        }
+        guard state(all) != 2 else { throw await fail("custom_wb_timeout", "取白没有在 \(Int(timeout)) 秒内完成。") }
+        // 6. 退出待机，读回结果。
+        if state(all) == 1 { try? await t.customWBButton(.cancel) }
+        try await Task.sleep(for: .milliseconds(500))
+        all = try await snapshot("done")
+        log.add("Agent 远程取白：自定义 \(slot)，\(all[0xD20F].flatMap { SonyPropertyCatalog.label(0xD20F, $0.intValue ?? 0) } ?? "—")")
+        return .object([
+            "slot": .integer(slot), "position": .integer(position), "areaInfo": areaInfo,
+            "sawCapturing": .bool(sawCapturing),
+            "colorTemperature": all[0xD20F].map { Self.valueJSON(0xD20F, $0.current) } ?? .null,
+            "tintGM": all[0xD210].map { Self.valueJSON(0xD210, $0.current) } ?? .null,
+            "tintAB": all[0xD21C].map { Self.valueJSON(0xD21C, $0.current) } ?? .null,
+            "whiteBalance": all[0x5005].map { Self.valueJSON(0x5005, $0.current) } ?? .null,
+            "trace": .array(trace),
         ])
     }
 

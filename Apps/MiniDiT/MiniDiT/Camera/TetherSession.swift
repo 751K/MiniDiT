@@ -224,6 +224,9 @@ final class TetherSession {
 
     func properties() async throws -> [SonyPropertyDesc] { try await camera.allProperties() }
 
+    func customWBButton(_ step: SonyCamera.CustomWBStep) async throws { try await camera.customWBButton(step) }
+    func customWBCapture(_ value: PTPValue, type: PTPDataType) async throws { try await camera.customWBCapture(value, type: type) }
+
     func setVerified(_ code: UInt16, _ value: PTPValue, timeout: TimeInterval) async throws -> SonyPropertyDesc {
         let d = try await camera.setVerified(code, value, timeout: timeout)
         await refresh()

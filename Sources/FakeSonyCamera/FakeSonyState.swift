@@ -29,6 +29,13 @@ public final class FakeSonyState: @unchecked Sendable {
     public private(set) var sessionMode: UInt32?
     private var contentsOn = false
     private var clipCount = 0
+    /// 自定义白平衡各槽位的结果（色温、G–M 原始值）。
+    private var customWB: [Int64: (kelvin: Int64, gm: Int64)] = [0x8020: (7000, 188), 0x8021: (5500, 192), 0x8022: (5500, 192)]
+    /// 最近一次取白命令带的位置。
+    private var lastCustomWBPosition: UInt32?
+    public var customWBPosition: UInt32? { lock.withLock { lastCustomWBPosition } }
+    public func customWBResult(slot: Int) -> (kelvin: Int64, gm: Int64)? { lock.withLock { customWB[0x8020 + Int64(slot - 1)] } }
+    private var customWBPolls = 0
     private var readyPolls = 0
     public let jpeg = Data([0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3, 4, 0xFF, 0xD9])
     /// 可替换成真实画面（命令行模拟器会生成真正的 JPEG）。
@@ -47,7 +54,12 @@ public final class FakeSonyState: @unchecked Sendable {
         p(SonyProperty.fNumber, .uint16, 400, [280, 400, 560, 800, 1100])
         p(SonyProperty.iso, .uint32, 0x00FF_FFFF, [0x00FF_FFFF, 100, 200, 400, 0x01FF_FFFF])
         p(SonyProperty.exposureBias, .int16, 0, [-1000, -300, 0, 300, 700])
-        p(SonyProperty.whiteBalance, .uint16, 0x0002, [0x0002, 0x0004, 0x8010, 0x8012])
+        p(SonyProperty.whiteBalance, .uint16, 0x0002, [0x0002, 0x0004, 0x8010, 0x8012, 0x8020, 0x8021, 0x8022])
+        // 远程取白（和 α7 V 实测一致）：白平衡在自定义 1–3 时 0xD26D = 1；待机后 0xD270 = 1，取白时 = 2，完成后回到 0。
+        p(0xD20F, .uint16, 0, writable: false)
+        p(0xD210, .uint16, 192, writable: false)
+        for c: UInt16 in [0xD26B, 0xD26C] { p(c, .uint32, 0, writable: false) }
+        for c: UInt16 in [0xD26D, 0xD26E, 0xD26F, 0xD270] { p(c, .uint8, 0, writable: false) }
         // 和 α7 V 一样：照片 P/A/S/M/智能自动 + 录像 P/A/S/M/智能自动；相机优先时仅显示（见 setValue）。
         p(SonyProperty.exposureProgramMode, .uint32, 0x0000_0001,
           [0x48000, 0x10002, 0x20003, 0x30004, 0x1, 0x78054, 0x78050, 0x78051, 0x78052, 0x78053,
@@ -74,7 +86,16 @@ public final class FakeSonyState: @unchecked Sendable {
                                        factoryDefault: p.factoryDefault, current: .int(v), form: p.form)
         // PC 优先时曝光模式才能远程改。
         if code == SonyProperty.priorityMode { setEnabled(SonyProperty.exposureProgramMode, v == 1 ? 1 : 2) }
+        if code == SonyProperty.whiteBalance {
+            let custom = customWB[v]
+            setValue(0xD26D, custom == nil ? 0 : 1)
+            setValue(0xD20F, custom?.kelvin ?? 0)
+            setValue(0xD210, custom?.gm ?? 192)
+        }
     }
+
+    /// 锁内读值（handle 已持有锁）。
+    private func raw(_ code: UInt16) -> Int64? { props[code]?.intValue }
 
     private func setEnabled(_ code: UInt16, _ e: UInt8) {
         guard let p = props[code] else { return }
@@ -149,6 +170,14 @@ public final class FakeSonyState: @unchecked Sendable {
                     readyPolls += 1
                     if readyPolls >= 2 { setValue(SonyProperty.contentsTransferEnabled, 1) }
                 }
+                if raw(0xD270) == 2 {
+                    customWBPolls += 1
+                    if customWBPolls >= 3, let wb = raw(SonyProperty.whiteBalance) {
+                        customWB[wb] = (6300, 188)
+                        setValue(SonyProperty.whiteBalance, wb)
+                        setValue(0xD270, 0)
+                    }
+                }
                 let list = props.values.sorted { $0.code < $1.code }
                 return .init(data: SonyDatasets.encodeAllProperties(list, twinList: twinList))
             case SonyOperation.setExtDevicePropValue:
@@ -177,6 +206,16 @@ public final class FakeSonyState: @unchecked Sendable {
                 case (SonyControl.shutterFullPress, SonyControl.up):
                     pendingFile = ("DSC01234.JPG", photoProvider?() ?? Data((0..<70_000).map { UInt8($0 % 251) }))
                     setValue(SonyProperty.objectInMemory, 0x8001)
+                case (0xD2DF, SonyControl.up) where raw(0xD26D) == 1:
+                    setValue(0xD270, 1); setValue(0xD26D, 0); setValue(0xD26E, 1); setValue(0xD26F, 1)
+                case (0xD2E0, SonyControl.up) where raw(0xD270) == 1:
+                    setValue(0xD270, 0); setValue(0xD26D, 1); setValue(0xD26E, 0); setValue(0xD26F, 0)
+                case (0xD2E1, _):
+                    guard raw(0xD270) == 1, let d = dataOut, d.count >= 4 else { return .init(code: PTPResponse.accessDenied) }
+                    var r4 = PTPReader(d)
+                    lastCustomWBPosition = try? r4.u32()
+                    customWBPolls = 0
+                    setValue(0xD270, 2); setValue(0xD26E, 0); setValue(0xD26F, 0)
                 case (SonyControl.movieRecord, SonyControl.down):
                     setValue(SonyProperty.movieRecordingState, 1)
                 case (SonyControl.movieRecord, SonyControl.up):
