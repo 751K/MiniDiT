@@ -322,7 +322,7 @@ struct TetherView: View {
             }
             Spacer(minLength: 12)
             aidToggles
-            barToggle(grid, "square.grid.3x3", "取景框线；右键选择网格、画幅遮罩、安全框") { grid.toggle() }
+            barToggle(grid, "square.grid.3x3", "取景框线（G）；右键选择网格、画幅遮罩、安全框", key: "g") { grid.toggle() }
                 .contextMenu {
                     Toggle("三分网格", isOn: $guideThirds)
                     Picker("画幅遮罩", selection: $guideMask) {
@@ -350,6 +350,7 @@ struct TetherView: View {
             .keyboardShortcut(.escape, modifiers: [])
             .frame(width: 0, height: 0).opacity(0).accessibilityHidden(true)
             .disabled(!(session.canCancelTouch || session.magnifier?.isOn == true))
+            shortcutButtons
             recordButton.padding(.leading, 6)
             shutterButton.padding(.leading, 4)
         }
@@ -447,7 +448,7 @@ struct TetherView: View {
         // 提示放在外层：按钮禁用时也能看到为什么不能改。
         .background(Color.clear.contentShape(Rectangle()).help(s.isEditable ? "" : lockedReason(s)))
         .onHover { hovered = $0 ? s.kind : (hovered == s.kind ? nil : hovered) }
-        .help(s.isEditable ? "\(s.kind.title)：点按选择，或把指针放在上面滚动调整" : lockedReason(s))
+        .help(s.isEditable ? "\(s.kind.title)：点按选择，或把指针放在上面滚动调整\(Self.stepKeyText(s.kind))" : lockedReason(s))
         .accessibilityLabel(s.kind.title)
         .accessibilityValue(cellValue(s))
         .popover(isPresented: Binding(get: { picking == s.kind }, set: { if !$0 { picking = nil; preview = nil; tempPreview = nil } }), arrowEdge: .top) {
@@ -639,21 +640,21 @@ struct TetherView: View {
 
     /// 底栏的辅助开关；斑马纹和峰值对焦右键可调。
     @ViewBuilder private var aidToggles: some View {
-        barToggle(showHistogram, "chart.bar.xaxis", "直方图；右键切换亮度或 RGB") { showHistogram.toggle() }
+        barToggle(showHistogram, "chart.bar.xaxis", "直方图（H）；右键切换亮度或 RGB", key: "h") { showHistogram.toggle() }
             .contextMenu {
                 Picker("直方图", selection: $histogramMode) {
                     ForEach(ViewfinderAidOptions.HistogramMode.allCases, id: \.self) { Text($0.title).tag($0.rawValue) }
                 }
                 .pickerStyle(.inline)
             }
-        barToggle(showWaveform, "waveform.path", "波形图；右键切换亮度、RGB 叠加或 RGB 分量") { showWaveform.toggle() }
+        barToggle(showWaveform, "waveform.path", "波形图（W）；右键切换亮度、RGB 叠加或 RGB 分量", key: "w") { showWaveform.toggle() }
             .contextMenu {
                 Picker("波形图", selection: $waveformMode) {
                     ForEach(ViewfinderAidOptions.WaveformMode.allCases, id: \.self) { Text($0.title).tag($0.rawValue) }
                 }
                 .pickerStyle(.inline)
             }
-        barToggle(showVectorscope, "target", "矢量示波器；右键放大 2 倍（Log 画面饱和度低时用）") { showVectorscope.toggle() }
+        barToggle(showVectorscope, "target", "矢量示波器（V）；右键放大 2 倍（Log 画面饱和度低时用）", key: "v") { showVectorscope.toggle() }
             .contextMenu {
                 Toggle("放大 2 倍", isOn: $vectorscopeZoom)
                 Toggle("彩色轨迹", isOn: $vectorscopeColor)
@@ -663,14 +664,14 @@ struct TetherView: View {
             showSpotMeter.toggle()
             if !showSpotMeter { spotPin = nil; spotHover = nil }
         }
-        barToggle(showFalseColor, "swatchpalette", "伪色；右键切换按档位或按百分比") { showFalseColor.toggle() }
+        barToggle(showFalseColor, "swatchpalette", "伪色（C）；右键切换按档位或按百分比", key: "c") { showFalseColor.toggle() }
             .contextMenu {
                 Picker("伪色", selection: $falseColorMode) {
                     ForEach(ViewfinderAidOptions.FalseColorMode.allCases, id: \.self) { Text($0.title).tag($0.rawValue) }
                 }
                 .pickerStyle(.inline)
             }
-        barToggle(showZebra, "circle.lefthalf.striped.horizontal", "斑马纹（\(aidOptions.zebraText)）；右键调整") { showZebra.toggle() }
+        barToggle(showZebra, "circle.lefthalf.striped.horizontal", "斑马纹（\(aidOptions.zebraText)，Z）；右键调整", key: "z") { showZebra.toggle() }
             .contextMenu {
                 Picker("模式", selection: $zebraMode) {
                     Text("下限：亮度不低于阈值").tag(ViewfinderAidOptions.ZebraMode.lowerLimit.rawValue)
@@ -683,7 +684,7 @@ struct TetherView: View {
             .popover(isPresented: $zebraEditing, arrowEdge: .top) {
                 ZebraSettings(mode: $zebraMode, level: $zebraLevel, center: $zebraCenter, range: $zebraRange)
             }
-        barToggle(showPeaking, "circle.dotted.and.circle", "峰值对焦；右键调整颜色和灵敏度") { showPeaking.toggle() }
+        barToggle(showPeaking, "circle.dotted.and.circle", "峰值对焦（P）；右键调整颜色和灵敏度", key: "p") { showPeaking.toggle() }
             .contextMenu {
                 Picker("颜色", selection: $peakingColor) {
                     ForEach(ViewfinderAidOptions.PeakingColor.allCases, id: \.self) { Text($0.title).tag($0.rawValue) }
@@ -694,7 +695,8 @@ struct TetherView: View {
             }
     }
 
-    private func barToggle(_ on: Bool, _ icon: String, _ help: String, action: @escaping () -> Void) -> some View {
+    private func barToggle(_ on: Bool, _ icon: String, _ help: String, key: KeyEquivalent? = nil,
+                           action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: icon).font(.system(size: 14))
                 .frame(width: 32, height: 32)
@@ -703,8 +705,45 @@ struct TetherView: View {
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
+        .keyboardShortcut(key.map { KeyboardShortcut($0, modifiers: []) })
         .help(help)
         .accessibilityLabel(help)
+    }
+
+    /// 只为快捷键的看不见的按钮：M 放大检查焦点，方向键加修饰键调参数（和滚轮一样一次一档）。
+    /// ⌃←→ 是系统切换桌面用的，所以 ISO 用 ⌥⇧←→。
+    @ViewBuilder private var shortcutButtons: some View {
+        Group {
+            Button("放大检查焦点") {
+                guard let m = session.magnifier else { return }
+                if m.isOn { session.setMagnifier(0) }
+                else if let r = m.ratios.filter({ $0 > 10 }).min() { session.setMagnifier(r) }
+            }
+            .keyboardShortcut("m", modifiers: [])
+            .disabled(session.magnifier == nil)
+            ForEach(Self.stepKeys, id: \.title) { k in
+                Button("\(k.title)减一档") { keyStep(k.kind, -1) }.keyboardShortcut(.leftArrow, modifiers: k.modifiers)
+                Button("\(k.title)加一档") { keyStep(k.kind, 1) }.keyboardShortcut(.rightArrow, modifiers: k.modifiers)
+            }
+        }
+        .frame(width: 0, height: 0).opacity(0).accessibilityHidden(true)
+    }
+
+    private static let stepKeys: [(title: String, kind: CameraSettingKind, modifiers: EventModifiers)] = [
+        ("快门", .shutterSpeed, .shift), ("光圈", .aperture, .option),
+        ("ISO", .iso, [.option, .shift]), ("曝光补偿", .exposureCompensation, .command),
+    ]
+
+    /// 参数格提示里的快捷键说明，如「；⇧← → 加减一档」。
+    private static func stepKeyText(_ kind: CameraSettingKind) -> String {
+        guard let k = stepKeys.first(where: { $0.kind == kind }) else { return "" }
+        let m = (k.modifiers.contains(.option) ? "⌥" : "") + (k.modifiers.contains(.shift) ? "⇧" : "") + (k.modifiers.contains(.command) ? "⌘" : "")
+        return "；\(m)← → 加减一档"
+    }
+
+    private func keyStep(_ kind: CameraSettingKind, _ delta: Int) {
+        guard session.status.settings.first(where: { $0.kind == kind })?.isEditable == true else { return }
+        scrollStep(kind, delta)
     }
 
     private var recordButton: some View {
@@ -719,7 +758,8 @@ struct TetherView: View {
             .animation(.easeOut(duration: 0.15), value: on)
         }
         .buttonStyle(.plain)
-        .help(on ? "停止录像（录像保存在相机存储卡上）" : "开始录像（录像保存在相机存储卡上）")
+        .keyboardShortcut("r", modifiers: [])
+        .help(on ? "停止录像（R，录像保存在相机存储卡上）" : "开始录像（R，录像保存在相机存储卡上）")
         .accessibilityLabel(on ? "停止录像" : "开始录像")
     }
 
@@ -1606,7 +1646,7 @@ private struct TetherSidebar: View {
                                           options: [(Int64(0), "关")] + ratios.map { ($0, TetherSession.ratioText($0)) },
                                           current: m.isOn ? m.ratio : 0) { session.setMagnifier($0) }
                             }
-                            .help("放大取景画面检查焦点；放大时点按画面移动放大区域，Esc 退出")
+                            .help("放大取景画面检查焦点（M）；放大时点按画面移动放大区域，Esc 退出")
                         }
                     }
                 }
