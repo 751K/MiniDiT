@@ -13,7 +13,7 @@ struct BrowseHeader: View {
         HStack(spacing: 10) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 let counts = model.countTitle
-                Text(counts.new)
+                Text(counts.new.titleCased)
                     .font(Theme.Font.headline)
                 Text(counts.total)
                     .font(Theme.Font.caption).foregroundStyle(.secondary)
