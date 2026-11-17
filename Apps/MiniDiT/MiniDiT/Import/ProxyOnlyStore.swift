@@ -13,7 +13,7 @@ final class ProxyOnlyStore {
 
     private init() {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appending(path: "SonyImport", directoryHint: .isDirectory)
+            .appending(path: LegacyMigration.supportFolder, directoryHint: .isDirectory)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         url = dir.appending(path: "proxy-only.json")
         map = (try? JSONDecoder().decode([String: String].self, from: Data(contentsOf: url))) ?? [:]

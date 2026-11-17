@@ -226,7 +226,7 @@ struct TetherView: View {
             }
             .padding(10)
         }
-        // 测延迟用（defaults write com.kong.SonyImport tetherDebugClock -bool true）：取景区左上角显示毫秒时钟。
+        // 测延迟用（defaults write com.kong.MiniDiT tetherDebugClock -bool true）：取景区左上角显示毫秒时钟。
         // 相机对着屏幕拍，取景画面里的时钟和这里的时钟之差就是延迟。
         .overlay(alignment: .topLeading) {
             if UserDefaults.standard.bool(forKey: "tetherDebugClock") {

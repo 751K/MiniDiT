@@ -5,7 +5,13 @@ import SwiftUI
 @main
 struct MiniDiTApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
-    @State private var model = AppModel()
+    @State private var model: AppModel
+
+    init() {
+        // 旧名 SonyImport 的设置和数据要在 AppModel 读取之前搬过来。
+        LegacyMigration.run()
+        _model = State(initialValue: AppModel())
+    }
 
     var body: some Scene {
         // 只有一个主窗口：关了以后从菜单栏、通知、插卡再打开的都是它。

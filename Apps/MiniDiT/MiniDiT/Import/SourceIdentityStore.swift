@@ -20,7 +20,7 @@ final class SourceIdentityStore {
 
     static var defaultURL: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appending(path: "SonyImport/card-identities.json")
+            .appending(path: "\(LegacyMigration.supportFolder)/card-identities.json")
     }
     init(url: URL) {
         self.url = url

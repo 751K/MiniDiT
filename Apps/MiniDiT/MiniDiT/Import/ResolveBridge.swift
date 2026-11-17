@@ -179,7 +179,7 @@ def check_project():
         raise RuntimeError("导入时 Resolve 项目已切换，未向其他项目发送素材；可重试。")
 check_project()
 # An old helper may outlive an app restart. Serialize retries before inspecting the actual media pool.
-lock_root = os.path.expanduser("~/Library/Application Support/SonyImport/ResolveLocks")
+lock_root = os.path.expanduser("~/Library/Application Support/MiniDiT/ResolveLocks")
 os.makedirs(lock_root, mode=0o700, exist_ok=True)
 lock = open(os.path.join(lock_root, hashlib.sha256(project_id.encode()).hexdigest() + ".lock"), "a")
 try:

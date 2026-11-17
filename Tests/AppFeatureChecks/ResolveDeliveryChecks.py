@@ -124,7 +124,7 @@ alias = media / 'alias.MP4'; alias.symlink_to(a)
 aliased = json.loads(json.dumps(request)); aliased['events'][0]['clips'] = [dict(request['events'][0]['clips'][0], path=str(alias))]
 assert run(aliased)['skipped'] == 1 and len(pool.calls) == 2
 # A live old helper owns the project lock; another attempt must not import concurrently.
-lock_path = sandbox / 'Library/Application Support/SonyImport/ResolveLocks' / (hashlib.sha256(b'original').hexdigest() + '.lock')
+lock_path = sandbox / 'Library/Application Support/MiniDiT/ResolveLocks' / (hashlib.sha256(b'original').hexdigest() + '.lock')
 with lock_path.open('a') as held:
     fcntl.flock(held.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
     try: run(); raise AssertionError('concurrent send accepted')

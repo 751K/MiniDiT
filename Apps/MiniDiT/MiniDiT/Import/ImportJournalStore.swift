@@ -19,7 +19,7 @@ final class ImportJournalStore {
 
     static var defaultURL: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appending(path: "SonyImport/import-journal.sqlite")
+            .appending(path: "\(LegacyMigration.supportFolder)/import-journal.sqlite")
     }
 
     init(url: URL) {

@@ -4,16 +4,26 @@ import SonyRemoteKit
 
 /// 相机的访问身份验证账号存在钥匙串里，按相机的 SSH 指纹保存（家里路由器给相机的 IP 可能会变）。
 enum CredentialStore {
-    private static let service = "com.kong.SonyImport.camera-ssh"
+    private static let service = "com.kong.MiniDiT.camera-ssh"
+    /// 改名前（SonyImport）用的服务名：读不到新的时找旧的，找到就搬到新服务名下。
+    private static let legacyService = "com.kong.SonyImport.camera-ssh"
 
-    private static func base(_ account: String) -> [String: Any] {
+    private static func base(_ account: String, service: String = service) -> [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,
          kSecAttrService as String: service,
          kSecAttrAccount as String: account]
     }
 
     static func load(_ account: String) -> SSHCredentials? {
-        var q = base(account)
+        if let creds = read(account, service: service) { return creds }
+        guard let creds = read(account, service: legacyService) else { return nil }
+        save(creds, account)
+        SecItemDelete(base(account, service: legacyService) as CFDictionary)
+        return creds
+    }
+
+    private static func read(_ account: String, service: String) -> SSHCredentials? {
+        var q = base(account, service: service)
         q[kSecReturnData as String] = true
         q[kSecMatchLimit as String] = kSecMatchLimitOne
         var out: CFTypeRef?
@@ -30,7 +40,10 @@ enum CredentialStore {
         }
     }
 
-    static func delete(_ account: String) { SecItemDelete(base(account) as CFDictionary) }
+    static func delete(_ account: String) {
+        SecItemDelete(base(account) as CFDictionary)
+        SecItemDelete(base(account, service: legacyService) as CFDictionary)
+    }
 }
 
 /// 连过的相机（地址可能变，用指纹认人）。

@@ -180,7 +180,7 @@ enum FCPXMLWriter {
     }
     /// A retry uses the same immutable document; opening is awaited, not mistaken for an import receipt.
     static func prepare(id: UUID, payload: Data, directory: URL? = nil) throws -> URL {
-        let dir = directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appending(path: "SonyImport/FCP")
+        let dir = directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appending(path: "\(LegacyMigration.supportFolder)/FCP")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let url = dir.appending(path: "MiniDiT-" + id.uuidString + ".fcpxml")
         if FileManager.default.fileExists(atPath: url.path) {

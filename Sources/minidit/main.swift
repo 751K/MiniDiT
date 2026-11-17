@@ -12,7 +12,7 @@ func perform(_ method: String, _ params: AgentJSON) throws -> AgentJSON {
     try tool.validate(params)
     if tool.method == "app.launch" {
         let process = Process(); process.executableURL = URL(filePath: "/usr/bin/open")
-        process.arguments = ["-b", "com.kong.SonyImport"]
+        process.arguments = ["-b", "com.kong.MiniDiT"]
         process.standardOutput = FileHandle.standardError
         try process.run(); process.waitUntilExit()
         guard process.terminationStatus == 0 else { throw AgentControlError("app_not_found", "未找到已安装的 MiniDiT。") }

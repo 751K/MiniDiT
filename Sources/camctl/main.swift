@@ -83,16 +83,21 @@ func loadIdentity() -> PTPIPHostIdentity {
     return true
 }
 
-/// MiniDiT 保存的相机登录（钥匙串通用密码，服务 com.kong.SonyImport.camera-ssh，账户 = SSH 指纹）。
+/// MiniDiT 保存的相机登录（钥匙串通用密码，服务 com.kong.MiniDiT.camera-ssh，账户 = SSH 指纹）。
+/// 还没被新版 MiniDiT 搬过去的，在改名前的服务名 com.kong.SonyImport.camera-ssh 下。
 /// 密码只在本进程里用来建立加密连接，不输出、不写日志。
 func minidItCredentials(fingerprint: String) -> SSHCredentials? {
-    let q: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
-                            kSecAttrService as String: "com.kong.SonyImport.camera-ssh",
-                            kSecAttrAccount as String: fingerprint,
-                            kSecReturnData as String: true, kSecMatchLimit as String: kSecMatchLimitOne]
-    var out: CFTypeRef?
-    guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess, let data = out as? Data else { return nil }
-    return try? JSONDecoder().decode(SSHCredentials.self, from: data)
+    for service in ["com.kong.MiniDiT.camera-ssh", "com.kong.SonyImport.camera-ssh"] {
+        let q: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+                                kSecAttrService as String: service,
+                                kSecAttrAccount as String: fingerprint,
+                                kSecReturnData as String: true, kSecMatchLimit as String: kSecMatchLimitOne]
+        var out: CFTypeRef?
+        if SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess, let data = out as? Data {
+            return try? JSONDecoder().decode(SSHCredentials.self, from: data)
+        }
+    }
+    return nil
 }
 
 // MARK: 可读名称和数值

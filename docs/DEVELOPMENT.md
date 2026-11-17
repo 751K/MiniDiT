@@ -12,6 +12,20 @@ open Apps/MiniDiT/MiniDiT.xcodeproj
 
 工程默认使用「Apple Development」证书签名。自己编译时，在 Signing 里换成自己的团队；没有开发者账号就改成「Sign to Run Locally」，只是每次重新编译后，钥匙串都会再问一次能不能读取相机账号。
 
+## 发布
+
+Debug 和 Release 都开着强化运行时，不开沙盒（沙盒会挡住 PTP/IP、SSH、USB 透传和往 Resolve 发脚本）。`MiniDiT/MiniDiT.entitlements` 只声明强化运行时下还要单独申请的两项：Apple Events（让 Capture One 导入）和照片图库（导出实况照片）。
+
+发给别人用的版本由 `Apps/MiniDiT/scripts/release.sh` 生成：Developer ID 签名 → 公证 → 钉上公证结果 → 做成 DMG，DMG 也签名、公证。Developer ID 证书不用事先建：导出时用自动签名，Xcode 会用 已登录的开发者账号申请一张存进钥匙串，以后复用。公证凭据要存一次：`xcrun notarytool store-credentials minidit-notary --apple-id <Apple ID> --team-id HGXZB3UC25`，按提示粘贴在 appleid.apple.com 生成的 App 专用密码。
+
+```bash
+sh Apps/MiniDiT/scripts/release.sh               # 版本号取工程里的 MARKETING_VERSION
+VERSION=0.2 sh Apps/MiniDiT/scripts/release.sh
+NOTARIZE=0 sh Apps/MiniDiT/scripts/release.sh    # 只签名打包，先检查签名
+```
+
+结果在 `Apps/MiniDiT/build/release/MiniDiT-<版本>.dmg`。构建号默认取提交数（没有 `.git` 时用日期时间），可用 `BUILD=` 指定。公证被拒时脚本会打出 Apple 返回的日志。
+
 ## 开发
 
 运行测试：
@@ -40,9 +54,9 @@ USB：`Sources/SonyRemoteKit/PTP/PTPTransport.swift` 是 PTP 传输接口（`PTP
 
 整理与导入偏好检查使用 `Tests/AppFeatureChecks/run.sh --organization`。检查程序创建自己的临时卡和偏好设置域，覆盖照片/视频独立目录、项目类型（含旧项目沿用原全局选择）、仅视频的下游计划、镜像备份内容校验、旧副本保留、跨日期项目、隐藏选择和路径预览。
 
-项目结果使用独立的 `SonyImport/import-journal.sqlite`，按文件增量提交，不重写原有 `history.json` / `sessions.json` 格式。
+项目结果使用独立的 `MiniDiT/import-journal.sqlite`，按文件增量提交，不重写原有 `history.json` / `sessions.json` 格式。
 
-来源身份检查使用 `Tests/AppFeatureChecks/run.sh --identity`（可加 `--render`）：使用临时档案和独立偏好域，覆盖同名不同卡、挂载路径变化、重复卷标识、容量冲突、无 UUID 手动确认、本地目录身份、卡别名与相机设置隔离、连接切换、历史快照和同卡不同机身照片的逐文件 EXIF。卡档案保存在 `SonyImport/card-identities.json`，不向存储卡写入识别文件。`Sources/MiniDiTCore/SourceIdentity.swift` 定义纯识别规则与导入快照，`SourceIdentityStore` 管理持久卡档案和当前连接绑定。照片仅有机型/序列号而无曝光参数时也保留元数据。
+来源身份检查使用 `Tests/AppFeatureChecks/run.sh --identity`（可加 `--render`）：使用临时档案和独立偏好域，覆盖同名不同卡、挂载路径变化、重复卷标识、容量冲突、无 UUID 手动确认、本地目录身份、卡别名与相机设置隔离、连接切换、历史快照和同卡不同机身照片的逐文件 EXIF。卡档案保存在 `MiniDiT/card-identities.json`，不向存储卡写入识别文件。`Sources/MiniDiTCore/SourceIdentity.swift` 定义纯识别规则与导入快照，`SourceIdentityStore` 管理持久卡档案和当前连接绑定。照片仅有机型/序列号而无曝光参数时也保留元数据。
 
 卡类型：`CardMediaProbe` 从卷对应 IOMedia 的提供者链读取 `Card Characteristics / Card Type` 和 `Protocol Characteristics / Physical Interconnect`；`CardMediaType` 负责保守分类。不要从 USB 产品名或 NVMe 接口推测 CFexpress A/B，也不要把 SDXC 当作全尺寸 SD 的证明。`SourceIdentityTests` 覆盖模糊和冲突报告、通用传输协议及快照序列化；`--identity --render` 输出卡来源和 Wi-Fi 来源详情截图。
 

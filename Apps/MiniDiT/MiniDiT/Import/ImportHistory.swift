@@ -12,7 +12,7 @@ final class ImportHistory {
 
     init(directory: URL? = nil) {
         let dir = directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appending(path: "SonyImport", directoryHint: .isDirectory)
+            .appending(path: LegacyMigration.supportFolder, directoryHint: .isDirectory)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         url = dir.appending(path: "history.json")
         if let data = try? Data(contentsOf: url), let records = try? JSONDecoder().decode([ImportRecord].self, from: data) {
