@@ -106,6 +106,16 @@ package final class PTPIPSocket: @unchecked Sendable {
         return try PTPIPPacket.decode(type: type, payload: payload)
     }
 
+    /// 按字节读（富士的 USB 式容器用它自己分帧）。
+    package func receiveBytes(_ count: Int, timeout: TimeInterval?) async throws -> [UInt8] {
+        try await receiveExactly(count, timeout: timeout)
+    }
+
+    /// 读到多少算多少（丢弃不需要的数据流用）。
+    package func receiveSome(max: Int, timeout: TimeInterval?) async throws -> Data {
+        try await receiveChunk(max: max, timeout: timeout)
+    }
+
     private func receiveExactly(_ count: Int, timeout: TimeInterval?) async throws -> [UInt8] {
         var out: [UInt8] = []
         out.reserveCapacity(count)

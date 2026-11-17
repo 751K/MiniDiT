@@ -20,7 +20,9 @@ The full license texts ship with each source release. A shipped app must include
 ## Protocol references (no code copied)
 
 The protocol facts in `docs/PROTOCOL.md` were collected from:
-- libgphoto2 (LGPL-2.1+), including issue #1314 for the Nikon Z Wi-Fi pairing handshake
+- libgphoto2 (LGPL-2.1+), including issue #1314 for the Nikon Z Wi-Fi pairing handshake and the Canon EOS PTP/IP sequence in `camlibs/ptp2`
+- libfuji (MIT) and Fudge (GPL-3.0, read only for protocol facts), for the Fujifilm Wi-Fi handshake and session setup
+- "Paparazzi over IP" (Daniel Mende, Pascal Turbing, Troopers 2013), for the Canon EOS Wi-Fi pairing behaviour
 - ROCC (MIT)
 - sony-alpha-python (no license)
 - alpha2go (Apache-2.0)

@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 
 /// 读卡器 / 已挂载的存储卡：和 Wi-Fi 相机用同一套接口，上层不用区分来源。
 /// 照片在 DCIM/ 下，索尼视频在 PRIVATE/M4ROOT/CLIP/ 下（缩略图在 PRIVATE/M4ROOT/THMBNL/）；
-/// 大疆（Osmo Pocket 等）的视频、照片、DNG 和 .LRF 代理都在 DCIM/ 下。
+/// 大疆（Osmo Pocket 等）的视频、照片、DNG 和 .LRF 代理都在 DCIM/ 下；佳能的照片和视频都在 DCIM/100CANON 这类文件夹里，富士在 DCIM/100_FUJI 里。
 public actor LocalCardLibrary: CameraLibrary {
     private struct Entry {
         let url: URL
@@ -150,6 +150,10 @@ public actor LocalCardLibrary: CameraLibrary {
         case "ARW": PTPObjectFormat.sonyARW
         case "DNG": PTPObjectFormat.dng
         case "NEF", "NRW": PTPObjectFormat.undefined
+        // 佳能：CR3 / CR2 / CRW 和 Cinema RAW Light 视频 CRM，按扩展名判断类别。
+        case "CR3", "CR2", "CRW", "CRM": PTPObjectFormat.undefined
+        // 富士 RAF。
+        case "RAF": PTPObjectFormat.undefined
         case "MP4": PTPObjectFormat.mp4
         case "MOV": PTPObjectFormat.mov
         default: nil

@@ -20,6 +20,7 @@ case " $* " in
   *" --organization "*) FEATURE_SOURCE=OrganizationChecks.swift ;;
   *" --workflow "*) FEATURE_SOURCE=WorkflowChecks.swift ;;
   *" --dji-card "*) FEATURE_SOURCE=DJICardChecks.swift ;;
+  *" --canon-card "*) FEATURE_SOURCE=CanonCardChecks.swift ;;
   *" --tether "*) FEATURE_SOURCE=TetherChecks.swift ;;
   *" --show-ui "*) FEATURE_SOURCE=FeaturePreview.swift ;;
   *) FEATURE_SOURCE=FeatureChecks.swift ;;

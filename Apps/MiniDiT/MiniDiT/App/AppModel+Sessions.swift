@@ -7,7 +7,7 @@ enum ProjectMedia: String, CaseIterable, Identifiable {
 
     static func forPath(_ path: String) -> ProjectMedia {
         let ext = URL(filePath: path).pathExtension.lowercased()
-        return ["mp4", "mov", "mxf", "m4v", "mts", "avi"].contains(ext) ? .videos : .photos
+        return ["mp4", "mov", "mxf", "m4v", "mts", "avi", "crm"].contains(ext) ? .videos : .photos
     }
 }
 

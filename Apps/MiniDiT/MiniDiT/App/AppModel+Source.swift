@@ -190,7 +190,7 @@ extension AppModel {
     /// 打开相机的存储卡接口。返回是否用的远程传输（不改主来源的状态，同时连接第二台相机时也用它）。
     private func openLibrary(_ cam: FoundCamera, interactive: Bool = true) async throws -> (any CameraLibrary, remote: Bool) {
         let step: @Sendable (String) -> Void = { s in Task { @MainActor in self.status = s; self.log.add(s) } }
-        if let nikon = try await openNikonIfNeeded(cam, step: step) { return (nikon, false) }
+        if let nikon = try await openOtherBrandIfNeeded(cam, step: step) { return (nikon, false) }
         do {
             let tunnel = try await prepareTunnel(cam, interactive: interactive)
             let lib = try await SonyRemoteTransferLibrary.open(host: cam.host, identity: HostIdentityStore.identity,
@@ -206,21 +206,39 @@ extension AppModel {
         }
     }
 
-    /// 直连的相机先握一次手看 GUID：尼康走尼康的配对和标准 PTP，其他的照旧走索尼流程。
+    /// 直连的相机先握一次手看 GUID 和名字：尼康走尼康的配对和标准 PTP，佳能（EOS）走标准 PTP，其他的照旧走索尼流程。
     /// 已经知道是索尼的机型（上次读到的型号）不再多握这一次。
-    private func openNikonIfNeeded(_ cam: FoundCamera, step: @escaping @Sendable (String) -> Void) async throws -> (any CameraLibrary)? {
+    private func openOtherBrandIfNeeded(_ cam: FoundCamera, step: @escaping @Sendable (String) -> Void) async throws -> (any CameraLibrary)? {
         guard case .direct = cam.kind else { return nil }
         let model = knownCameras.first { $0.fingerprint == cam.fingerprint }?.model ?? ""
         if ["ILCE", "ILME", "ILCA", "ZV-", "DSC-"].contains(where: { model.hasPrefix($0) }) { return nil }
-        let isNikon: Bool
+        let probe: (nikon: Bool, name: String)
         do {
-            isNikon = try await NikonWiFi.probe(host: cam.host, identity: HostIdentityStore.identity).nikon
-        } catch let e as NikonWiFi.Failure {
-            throw e
+            probe = try await NikonWiFi.probe(host: cam.host, identity: HostIdentityStore.identity)
         } catch {
+            // 握手被拒：尼康是「配对了别的电脑」，佳能是「这台 Mac 还没配对」。看 mDNS 里有没有佳能分辨。
+            let refused: Bool
+            if case PTPIPTransportError.initFailed = error { refused = true }
+            else { refused = (error as? NikonWiFi.Failure) == .pairedToAnotherComputer }
+            // 佳能在配对状态下可能等用户在机身上确认后才回握手，探测会超时：这时直接走佳能的连接，多等一会儿。
+            if await CanonBonjour.isAdvertising() {
+                if refused {
+                    log.add("佳能相机：\(cam.host) 拒绝了握手（尚未配对）")
+                    throw CanonWiFi.Failure.notPaired
+                }
+                log.add("佳能相机：\(cam.host) 探测未完成（\(error.localizedDescription)），按佳能连接")
+                step("请在相机上确认与这台 Mac 的连接…")
+                return try await CanonWiFi.openLibrary(host: cam.host, identity: HostIdentityStore.identity, progress: step)
+            }
+            if error is NikonWiFi.Failure { throw error }
             return nil
         }
-        guard isNikon else { return nil }
+        if !probe.nikon, CanonWiFi.looksLikeCanon(name: probe.name) {
+            log.add("佳能相机：\(cam.host)（\(probe.name)）")
+            try await Task.sleep(for: .milliseconds(500))
+            return try await CanonWiFi.openLibrary(host: cam.host, identity: HostIdentityStore.identity, progress: step)
+        }
+        guard probe.nikon else { return nil }
         log.add("尼康相机：\(cam.host)")
         try await Task.sleep(for: .milliseconds(500))
         let needsPairing = await NikonBonjour.needsPairing()

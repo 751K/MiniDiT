@@ -45,14 +45,15 @@ public struct CameraContentItem: Identifiable, Hashable, Sendable {
         switch format {
         case PTPObjectFormat.jpeg, PTPObjectFormat.mpo: return .jpeg
         case PTPObjectFormat.heif: return .heif
-        case PTPObjectFormat.sonyARW, PTPObjectFormat.dng: return .raw
-        case PTPObjectFormat.mp4, PTPObjectFormat.mov, PTPObjectFormat.avi: return .video
+        case PTPObjectFormat.sonyARW, PTPObjectFormat.dng, CanonWiFi.formatCR3, CanonWiFi.formatCR2: return .raw
+        case PTPObjectFormat.mp4, PTPObjectFormat.mov, PTPObjectFormat.avi, CanonWiFi.formatMOV: return .video
         default:
             switch (filename as NSString).pathExtension.uppercased() {
             case "JPG", "JPEG": return .jpeg
             case "HIF", "HEIF", "HEIC": return .heif
-            case "ARW", "DNG", "NEF", "NRW": return .raw
-            case "MP4", "MOV", "MTS", "AVI": return .video
+            case "ARW", "DNG", "NEF", "NRW", "CR3", "CR2", "CRW", "RAF": return .raw
+            // CRM：佳能 Cinema RAW Light。
+            case "MP4", "MOV", "MTS", "AVI", "CRM": return .video
             default: return .other
             }
         }
@@ -177,6 +178,7 @@ public actor PTPCameraLibrary: CameraLibrary {
     public func refresh() async { infoCache = [:] }
     private let client: PTPIPClient
     private let largeObjectReads: Bool
+    private let fixedChunk: UInt32?
     private let onClose: @Sendable () async -> Void
     private var infoCache: [UInt32: PTPObjectInfo] = [:]
     public nonisolated let connectionLost: AsyncStream<Void>
@@ -186,9 +188,11 @@ public actor PTPCameraLibrary: CameraLibrary {
 
     /// - largeObjectReads: 用索尼 0x9211 分块下载（内容传输模式下可用，支持 ≥4GB）。
     /// - deviceInfo: 连接时读到的型号和序列号（尼康等），没有时 nil。
+    /// - chunkSize: 固定的分块下载大小（佳能要 1 MB）；nil 时按 contentChunkMB，默认 16 MB。
     public init(client: PTPIPClient, largeObjectReads: Bool = false, deviceInfo: CameraDeviceInfo? = nil,
-                onClose: @escaping @Sendable () async -> Void = {}) {
+                chunkSize: UInt32? = nil, onClose: @escaping @Sendable () async -> Void = {}) {
         self.info = deviceInfo
+        self.fixedChunk = chunkSize
         self.client = client
         self.largeObjectReads = largeObjectReads
         self.onClose = onClose
@@ -415,6 +419,7 @@ public actor PTPCameraLibrary: CameraLibrary {
         let formats: [(UInt16, CameraContentItem.Kind)] = [
             (PTPObjectFormat.jpeg, .jpeg), (PTPObjectFormat.mpo, .jpeg), (PTPObjectFormat.heif, .heif),
             (PTPObjectFormat.sonyARW, .raw), (PTPObjectFormat.mp4, .video), (PTPObjectFormat.mov, .video),
+            (CanonWiFi.formatCR3, .raw), (CanonWiFi.formatCR2, .raw), (CanonWiFi.formatMOV, .video),
         ]
         var map: [UInt32: CameraContentItem.Kind] = [:]
         var lists: [[UInt32]] = []
@@ -438,7 +443,7 @@ public actor PTPCameraLibrary: CameraLibrary {
         // 内容传输的分块大小（MB）。实测 a7 V：3 MB 17.1 MB/s，16 MB 18.3 MB/s，32 MB 18.6 MB/s；
         // 16 MB 在取消响应（约 0.9 秒）和吞吐之间比较平衡。可用 contentChunkMB 覆盖。
         let mb = UserDefaults.standard.integer(forKey: "contentChunkMB")
-        let chunk = UInt32((1...64).contains(mb) ? mb : 16) * 1024 * 1024
+        let chunk = fixedChunk ?? UInt32((1...64).contains(mb) ? mb : 16) * 1024 * 1024
         try await client.download(item.id, size: item.sizeKnown ? item.size : nil, to: url, from: offset,
                                   largeObjectReads: largeObjectReads, chunkSize: chunk, progress: progress)
     }

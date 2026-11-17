@@ -24,7 +24,11 @@ swift test
 
 大疆存储卡检查使用 `Tests/AppFeatureChecks/run.sh --dji-card`：在临时目录构造只有 `DCIM/DJI_001/` 的卡，验证识别、DNG 归为 RAW、.LRF 不单独列出而作为代理导入到 `Proxy/*.MP4`、按文件名取拍摄时间。文件内容是占位字节，不能代替真卡实测。
 
-尼康无线：`Sources/SonyRemoteKit/Nikon/NikonWiFi.swift`（探测、配对、打开标准 `PTPCameraLibrary`）和 `NikonBonjour.swift`（mDNS 配对状态），App 里由 `AppModel+Source.swift` 的 `openNikonIfNeeded` 在索尼流程之前分流。配对流程依据 libgphoto2 issue #1314（Nikon ZR 抓包），独立实现。`swift test --filter Nikon` 用 `FakeCamera`（可设 `ackGUID` / `ackName`）模拟配对、重连、已配对和被别的电脑占用的情况。
+尼康无线：`Sources/SonyRemoteKit/Nikon/NikonWiFi.swift`（探测、配对、打开标准 `PTPCameraLibrary`）和 `NikonBonjour.swift`（mDNS 配对状态），App 里由 `AppModel+Source.swift` 的 `openOtherBrandIfNeeded` 在索尼流程之前分流。配对流程依据 libgphoto2 issue #1314（Nikon ZR 抓包），独立实现。`swift test --filter Nikon` 用 `FakeCamera`（可设 `ackGUID` / `ackName`）模拟配对、重连、已配对和被别的电脑占用的情况。
+
+富士无线：`Sources/SonyRemoteKit/Fujifilm/FujiWiFi.swift`（82 字节握手和 USB 式容器的 `FujiPTPClient`）与 `FujiCameraLibrary.swift`（按 libfuji 的 `fuji_setup` 建立会话、列文件、1 MB 分块下载），App 里是 `AppModel+Fujifilm.swift` 的 `connectFujifilm`（来源页按钮，默认 192.168.0.1，可用 `fujiHost` 改）。`swift test --filter Fuji` 里的 `FakeFuji` 模拟握手、按 OK、远程看图和下载。
+
+佳能无线：`Sources/SonyRemoteKit/Canon/CanonWiFi.swift`（握手、SetRemoteMode、1 MB 分块下载、KeepDeviceOn 保活，打开标准 `PTPCameraLibrary`；`CanonBonjour` 在握手被拒或超时时看 mDNS 里有没有佳能）。同一个 `openOtherBrandIfNeeded` 里按握手返回的相机名（含 Canon 或以 EOS 开头）分流。协议依据 libgphoto2 的 `camlibs/ptp2` 源码和 Troopers 2013「Paparazzi over IP」，独立实现。`swift test --filter Canon` 用 `FakeCamera` 模拟连接、下载和未配对；读卡检查用 `Tests/AppFeatureChecks/run.sh --canon-card`。
 
 联机拍摄：`Apps/MiniDiT/MiniDiT/Camera/TetherSession.swift`（遥控、取景、下载到缓存 `TetherSpool`）、`App/AppModel+Tether.swift`（换主来源、自动导入）、`Views/TetherView.swift`（独立窗口 `tether`）。遥控协议在 `Sources/SonyRemoteKit/Sony/SonyCamera.swift`。`swift build --product fake-sony-camera` 后运行 `sh Tests/AppFeatureChecks/run.sh --tether $(swift build --show-bin-path)/fake-sony-camera`（模拟相机监听 127.0.0.1:15740，缓存写在临时目录）。
 
