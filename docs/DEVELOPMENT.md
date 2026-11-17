@@ -31,7 +31,7 @@ NOTARIZE=0 sh Apps/MiniDiT/scripts/release.sh    # 只签名打包，先检查�
 App 用 [Sparkle](https://sparkle-project.org) 检查更新：读最新 GitHub Release 里的 `appcast.xml`（地址和公钥在 `Apps/MiniDiT/Info.plist`），只安装用同一把 EdDSA 私钥签过名、同一个开发者团队签名的版本。Debug 版不启动更新器。
 
 - 私钥由 Sparkle 的 `generate_keys` 生成，存在发布者的登录钥匙串里，`release.sh` 用 `sign_update` 给 DMG 签名（Sparkle 命令行工具默认在 `~/Tools/Sparkle-2.10.1/bin`，可用 `SPARKLE_BIN` 改）。私钥要另外备份（`generate_keys -x <文件>`）：丢了以后，已安装的 App 就收不到更新。
-- 更新说明：有 `Apps/MiniDiT/release-notes/<版本>.html` 时写进 `appcast.xml`，在更新窗口里显示。
+- 更新说明：有 `Apps/MiniDiT/release-notes/<版本>.html` 时写进 `appcast.xml`，在更新窗口里显示；`<版本>.md` 是 GitHub 发布页的说明，`publish-release.sh` 默认使用。
 - 发布：`sh Apps/MiniDiT/scripts/publish-release.sh`，把 DMG 和 `appcast.xml` 上传成 GitHub Release `v<版本>`（`NOTES_FILE=` 指定发布页说明）。仓库是公开的，App 才能读到。
 - 本地测试：`defaults write com.kong.MiniDiT updateFeedURL http://127.0.0.1:<端口>/appcast.xml` 让 Release 版从本地地址检查更新（清单里的下载地址也要改成本地的），测完 `defaults delete com.kong.MiniDiT updateFeedURL`。
 

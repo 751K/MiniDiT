@@ -4,7 +4,7 @@
 # 仓库必须是公开的，App 才能下载到更新。
 #
 # 用法：sh Apps/MiniDiT/scripts/publish-release.sh            发布 Apps/MiniDiT/build/release 里打好的那一版
-#       NOTES_FILE=notes.md sh …/publish-release.sh          用这个文件作为 GitHub 上的发布说明
+#       NOTES_FILE=notes.md sh …/publish-release.sh          用这个文件作为 GitHub 上的发布说明（默认 release-notes/<版本>.md）
 set -eu
 REPO=751K/MiniDiT
 WORK=$(CDPATH= cd -- "$(dirname -- "$0")/../build/release" && pwd)
@@ -24,6 +24,8 @@ fi
     echo "注意：$REPO 现在是私有仓库，已安装的 MiniDiT 读不到这次更新，公开后才能用。" >&2
 
 set -- --title "MiniDiT $VERSION" --latest
-if [ -n "${NOTES_FILE:-}" ]; then set -- "$@" --notes-file "$NOTES_FILE"; else set -- "$@" --notes "MiniDiT $VERSION"; fi
+# 发布说明：NOTES_FILE 指定的文件，否则用 release-notes/<版本>.md，都没有就只写版本号。
+NOTES_FILE=${NOTES_FILE:-$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)/release-notes/$VERSION.md}
+if [ -f "$NOTES_FILE" ]; then set -- "$@" --notes-file "$NOTES_FILE"; else set -- "$@" --notes "MiniDiT $VERSION"; fi
 gh release create "v$VERSION" -R "$REPO" --target main "$@" "$WORK/$DMG" "$WORK/appcast.xml"
 echo "已发布：https://github.com/$REPO/releases/tag/v$VERSION"

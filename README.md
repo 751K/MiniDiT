@@ -6,7 +6,7 @@ MiniDiT 面向摄影与视频创作者，负责拍摄素材的导入、整理、
 
 通过 Wi-Fi 连接相机，或插上读卡器，浏览并选择照片和视频，再导入选定的项目。照片和视频可以分别设置保存位置及目录规则，也可以备份到多个位置并分别校验。下载完成后，照片可自动导入 Capture One 或 Lightroom Classic，视频可交给 DaVinci Resolve、Final Cut Pro、Adobe Premiere Pro 或剪映专业版。
 
-> 早期版本（v0.8），当前主要适配 Sony α 相机（已在 α7 V 上实机验证）；佳能、富士、尼康和大疆的存储卡可以用读卡器导入，它们的无线连接为试验性功能，尚未用真机验证。电脑需要 Apple 芯片的 Mac、macOS 14 以上。功能规划见 [docs/MiniDiT-ROADMAP.md](docs/MiniDiT-ROADMAP.md)。
+> 早期版本（v0.1），当前主要适配 Sony α 相机（已在 α7 V 上实机验证）；佳能、富士、尼康和大疆的存储卡可以用读卡器导入，它们的无线连接为试验性功能，尚未用真机验证。电脑需要 Apple 芯片的 Mac、macOS 14 以上。功能规划见 [docs/MiniDiT-ROADMAP.md](docs/MiniDiT-ROADMAP.md)。
 >
 > **Sony / 索尼是索尼集团的商标，本项目与索尼没有关联。** 本项目根据公开资料独立实现了 PTP/IP 和索尼 SDIO 扩展协议，参考了 libgphoto2、alpha2go 等开源项目，没有复制它们的代码。
 
