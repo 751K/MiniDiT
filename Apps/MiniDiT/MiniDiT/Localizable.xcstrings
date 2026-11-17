@@ -809,6 +809,12 @@
               }
             }
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 个文件 · %@"
+          }
         }
       }
     },
@@ -830,6 +836,12 @@
                 }
               }
             }
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 个文件已存储至电脑，无需重新下载"
           }
         }
       }
@@ -853,6 +865,12 @@
               }
             }
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 个来源"
+          }
         }
       }
     },
@@ -874,6 +892,12 @@
                 }
               }
             }
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 份副本"
           }
         }
       }
@@ -897,6 +921,12 @@
               }
             }
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 天"
+          }
         }
       }
     },
@@ -919,6 +949,12 @@
               }
             }
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 天前"
+          }
         }
       }
     },
@@ -940,6 +976,12 @@
                 }
               }
             }
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 张"
           }
         }
       }
@@ -993,6 +1035,12 @@
                 }
               }
             }
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 项备份待补"
           }
         }
       }
@@ -1583,6 +1631,12 @@
                 }
               }
             }
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lightroom Classic 已添加 %lld 个文件"
           }
         }
       }
@@ -2576,6 +2630,12 @@
               }
             }
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "、%lld 个片段的代理"
+          }
         }
       }
     },
@@ -2738,6 +2798,12 @@
               }
             }
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上次 %lld 个备份失败"
+          }
         }
       }
     },
@@ -2759,6 +2825,12 @@
                 }
               }
             }
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上次 %lld 个文件未完成"
           }
         }
       }
@@ -4068,6 +4140,12 @@
               }
             }
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共 %lld 次拍摄"
+          }
         }
       }
     },
@@ -4545,6 +4623,12 @@
               }
             }
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "剪映草稿“%@”已在剪映中打开并被加密，MiniDiT 无法向其中加入素材。请在剪映中手动导入这 %lld 个片段。"
+          }
         }
       }
     },
@@ -4874,6 +4958,12 @@
               }
             }
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "即将从“%@”导入 %lld 张新照片"
+          }
         }
       }
     },
@@ -4905,6 +4995,12 @@
                 }
               }
             }
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "即将自动导入 %lld 张新照片"
           }
         }
       }
@@ -5415,6 +5511,12 @@
                 }
               }
             }
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取白没有在 %lld 秒内完成。"
           }
         }
       }
@@ -6180,6 +6282,12 @@
                 }
               }
             }
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "备份至 %lld 个位置"
           }
         }
       }
@@ -7001,6 +7109,12 @@
               }
             }
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导入 %lld 个文件"
+          }
         }
       }
     },
@@ -7032,6 +7146,12 @@
                 }
               }
             }
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导入 %lld 个片段的代理"
           }
         }
       }
@@ -7117,6 +7237,12 @@
                 }
               }
             }
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导入到 %lld 个会话"
           }
         }
       }
@@ -7726,6 +7852,12 @@
               }
             }
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚有 %lld 个文件等待添加"
+          }
         }
       }
     },
@@ -8050,6 +8182,12 @@
               }
             }
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已在剪映中新建草稿“%@”，%lld 个片段已加入素材区。"
+          }
         }
       }
     },
@@ -8162,6 +8300,12 @@
               }
             }
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已导入 %lld 个文件"
+          }
         }
       }
     },
@@ -8183,6 +8327,12 @@
                 }
               }
             }
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已导入 %lld 个片段的代理"
           }
         }
       }
@@ -8664,6 +8814,12 @@
                 }
               }
             }
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前可访问 %lld 份文件；仅检查存在和大小，不代表磁盘独立或刚完成内容复核"
           }
         }
       }
@@ -12694,6 +12850,12 @@
               }
             }
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在导入 %lld 个文件"
+          }
         }
       }
     },
@@ -15220,6 +15382,12 @@
               }
             }
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待 Lightroom Classic 添加 %lld 个文件…"
+          }
         }
       }
     },
@@ -17083,6 +17251,12 @@
               }
             }
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "起始 %@ · %@ · %lld 个文件"
+          }
         }
       }
     },
@@ -17104,6 +17278,12 @@
                 }
               }
             }
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "起始 %@ · %lld 个文件"
           }
         }
       }
@@ -18180,6 +18360,12 @@
               }
             }
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新导入 %lld 个文件%@"
+          }
         }
       }
     },
@@ -18621,6 +18807,12 @@
               }
             }
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "项目未启用色彩管理，%lld 个片段的输入色彩空间尚未设置。"
+          }
         }
       }
     },
@@ -18907,6 +19099,12 @@
               }
             }
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "，%lld 个备份失败"
+          }
         }
       }
     },
@@ -18948,6 +19146,12 @@
                 }
               }
             }
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "，%lld 张 RAW 未套用创意外观"
           }
         }
       }
@@ -19001,6 +19205,12 @@
               }
             }
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "，Capture One 已套用创意外观 %lld 张"
+          }
         }
       }
     },
@@ -19022,6 +19232,12 @@
                 }
               }
             }
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "，DxO 创意外观已设置 %lld 张"
           }
         }
       }
@@ -19225,6 +19441,12 @@
               }
             }
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "，已设置星级 %lld 张"
+          }
         }
       }
     },
@@ -19287,6 +19509,12 @@
               }
             }
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "，本次备份并校验 %lld 个文件"
+          }
         }
       }
     },
@@ -19338,6 +19566,12 @@
                 }
               }
             }
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "；%lld 个文件未能从存储卡上删除"
           }
         }
       }
