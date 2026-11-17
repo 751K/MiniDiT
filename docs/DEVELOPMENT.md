@@ -16,7 +16,7 @@ open Apps/MiniDiT/MiniDiT.xcodeproj
 
 Debug 和 Release 都开着强化运行时，不开沙盒（沙盒会挡住 PTP/IP、SSH、USB 透传和往 Resolve 发脚本）。`MiniDiT/MiniDiT.entitlements` 只声明强化运行时下还要单独申请的两项：Apple Events（让 Capture One 导入）和照片图库（导出实况照片）。
 
-发给别人用的版本由 `Apps/MiniDiT/scripts/release.sh` 生成：Developer ID 签名 → 公证 → 钉上公证结果 → 做成 DMG，DMG 也签名、公证。Developer ID 证书不用事先建：导出时用自动签名，Xcode 会用 已登录的开发者账号申请一张存进钥匙串，以后复用。公证凭据要存一次：`xcrun notarytool store-credentials minidit-notary --apple-id <Apple ID> --team-id HGXZB3UC25`，按提示粘贴在 appleid.apple.com 生成的 App 专用密码。
+发给别人用的版本由 `Apps/MiniDiT/scripts/release.sh` 生成：Developer ID 签名 → 公证 → 钉上公证结果 → 做成 DMG，DMG 也签名、公证。Developer ID 证书不用事先建：导出时用自动签名，Xcode 会用 已登录的开发者账号申请一张存进钥匙串，以后复用。公证凭据要存一次：`xcrun notarytool store-credentials minidit-notary --team-id HGXZB3UC25 --keychain ~/Library/Keychains/login.keychain-db`，按提示粘贴在 appleid.apple.com 生成的 App 专用密码。
 
 ```bash
 sh Apps/MiniDiT/scripts/release.sh               # 版本号取工程里的 MARKETING_VERSION

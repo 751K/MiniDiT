@@ -3,7 +3,7 @@
 #
 # 需要（登录钥匙串里，只做一次）：
 #   · Developer ID Application 证书：不用事先建，导出时 Xcode 用已登录的账号自动申请（-allowProvisioningUpdates）
-#   · 公证凭据：xcrun notarytool store-credentials minidit-notary --team-id HGXZB3UC25
+#   · 公证凭据：xcrun notarytool store-credentials minidit-notary --team-id HGXZB3UC25 --keychain ~/Library/Keychains/login.keychain-db
 #     （按提示粘贴 appleid.apple.com 生成的 App 专用密码；脚本只用 minidit-notary 这个名字。）
 #
 # 用法：
@@ -16,6 +16,8 @@ set -eu
 DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 OUT="$DIR/build/release"
 PROFILE=minidit-notary
+# 公证凭据明确存在登录钥匙串文件里（不指定时 notarytool 的默认位置不好查，出过找不到的情况）。
+NOTARY_KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
 TEAM=HGXZB3UC25
 IDENTITY="Developer ID Application"
 cd "$DIR"
@@ -25,8 +27,8 @@ step() { echo "== $*"; }
 # Developer ID 证书不必事先建：导出时用自动签名加 -allowProvisioningUpdates，
 # Xcode 会用已登录的开发者账号申请一张并存进钥匙串（之后复用）。
 if [ "${NOTARIZE:-1}" = 1 ]; then
-    xcrun notarytool history --keychain-profile "$PROFILE" >/dev/null 2>&1 || {
-        echo "error: 没有找到公证凭据 $PROFILE。请先运行 xcrun notarytool store-credentials $PROFILE --apple-id <Apple ID> --team-id $TEAM"
+    xcrun notarytool history --keychain-profile "$PROFILE" --keychain "$NOTARY_KEYCHAIN" >/dev/null 2>&1 || {
+        echo "error: 没有找到公证凭据 $PROFILE。请先运行 xcrun notarytool store-credentials $PROFILE --team-id $TEAM --keychain $NOTARY_KEYCHAIN"
         exit 1
     }
 fi
@@ -65,12 +67,12 @@ codesign -dv "$APP" 2>&1 | grep -E "Authority=Developer ID|flags=.*runtime|TeamI
 
 notarize() {
     step "公证 $(basename "$1")（一般几分钟）"
-    xcrun notarytool submit "$1" --keychain-profile "$PROFILE" --wait --output-format plist > "$OUT/notary.plist"
+    xcrun notarytool submit "$1" --keychain-profile "$PROFILE" --keychain "$NOTARY_KEYCHAIN" --wait --output-format plist > "$OUT/notary.plist"
     STATUS=$(/usr/libexec/PlistBuddy -c "Print :status" "$OUT/notary.plist")
     ID=$(/usr/libexec/PlistBuddy -c "Print :id" "$OUT/notary.plist")
     echo "status: $STATUS ($ID)"
     if [ "$STATUS" != Accepted ]; then
-        xcrun notarytool log "$ID" --keychain-profile "$PROFILE"
+        xcrun notarytool log "$ID" --keychain-profile "$PROFILE" --keychain "$NOTARY_KEYCHAIN"
         exit 1
     fi
 }
