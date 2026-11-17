@@ -66,7 +66,7 @@ struct HandoffExportSheet: View {
         guard let directory = FolderPicker.choose(start: nil) else { return }
         let records = selectedRecords
         let options = HandoffReport.Options(projectID: project.id, projectName: project.name,
-            scope: entireProject ? "整个项目的已记录导入" : "所选一次导入（仅此项目）", preparedBy: preparedBy, notes: notes,
+            scope: entireProject ? String(localized: "整个项目的已记录导入") : String(localized: "所选一次导入（仅此项目）"), preparedBy: preparedBy, notes: notes,
             appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "")
         exporting = true; problem = nil; exportStatus = String(localized: "正在整理导入记录…")
         exportTask = Task {

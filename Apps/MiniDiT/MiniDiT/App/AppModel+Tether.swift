@@ -117,7 +117,7 @@ extension AppModel {
             cardRoot = spool.root
             tetherAttempted = []
             tetherNeedsReload = false
-            attach(LocalCardLibrary(root: spool.root), name: "联机拍摄 · \(name)", host: nil)
+            attach(LocalCardLibrary(root: spool.root), name: String(localized: "联机拍摄 · ") + name, host: nil)
             tether = session
             session.onFiles = { [weak self] _ in self?.tetherNeedsReload = true }
             session.start()
@@ -143,7 +143,11 @@ extension AppModel {
     func stopTether() {
         guard tether != nil else { return }
         endTetherCamera()
-        if let name = connectedName { connectedName = name.replacingOccurrences(of: "联机拍摄 · ", with: "联机缓存 · ") }
+        // 前缀按界面语言；旧版本的中文前缀同样识别。
+        if let name = connectedName,
+           let prefix = [String(localized: "联机拍摄 · "), "联机拍摄 · "].first(where: name.hasPrefix) {
+            connectedName = String(localized: "联机缓存 · ") + name.dropFirst(prefix.count)
+        }
     }
 
     /// 只停相机这一头（disconnect() 里也调用）。

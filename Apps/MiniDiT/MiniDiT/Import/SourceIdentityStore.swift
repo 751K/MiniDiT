@@ -52,7 +52,7 @@ final class SourceIdentityStore {
         var binding = Binding(descriptor: descriptor)
         switch CardIdentityResolver.resolve(descriptor, profiles: profiles, otherOpenDescriptors: other) {
         case .new:
-            let name = descriptor.kind == .directory ? descriptor.label : String(format: "存储卡 %02d", profiles.filter { $0.descriptor.kind == .volume }.count + 1)
+            let name = descriptor.kind == .directory ? descriptor.label : String(format: String(localized: "存储卡 %02d"), profiles.filter { $0.descriptor.kind == .volume }.count + 1)
             let profile = CardIdentityProfile(name: name, descriptor: descriptor)
             if save(profiles + [profile]) { binding.profileID = profile.id }
             else { binding.needsConfirmation = true }

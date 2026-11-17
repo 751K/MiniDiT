@@ -203,7 +203,7 @@ enum LightroomBridge {
                     case "skip": r.skipped += 1
                     case "fail":
                         r.failed += 1
-                        r.failures.append(((f.count > 1 ? f[1] : "") as NSString).lastPathComponent + (f.count > 2 ? "：" + f[2] : ""))
+                        r.failures.append(((f.count > 1 ? f[1] : "") as NSString).lastPathComponent + (f.count > 2 ? "：" + failureReason(f[2]) : ""))
                     default: break
                     }
                 }
@@ -219,5 +219,13 @@ enum LightroomBridge {
             }
         }
         return r
+    }
+
+    /// 回执里的失败原因：插件的代号换成 App 界面语言的说明；旧版插件写的中文也认。LrC 自己的错误原样显示。
+    private static func failureReason(_ reason: String) -> String {
+        if reason.contains(LightroomPlugin.FailureCode.catalogBusy) || reason.contains("目录一直被占用") {
+            return String(localized: "Lightroom 目录一直被占用")
+        }
+        return reason
     }
 }

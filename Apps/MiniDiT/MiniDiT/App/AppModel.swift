@@ -226,13 +226,13 @@ final class AppModel {
         didSet { UserDefaults.standard.set(videoFolderLayout.rawValue, forKey: "videoFolderLayout") }
     }
     var splitVideoByRoll: Bool = UserDefaults.standard.object(forKey: "splitVideoByRoll") as? Bool
-        ?? (UserDefaults.standard.string(forKey: NameTemplate.Kind.video.key) == UsageMode.teamVideoTemplate) {
+        ?? NameTemplate.same(UserDefaults.standard.string(forKey: NameTemplate.Kind.video.key), UsageMode.teamVideoTemplate) {
         didSet { UserDefaults.standard.set(splitVideoByRoll, forKey: "splitVideoByRoll") }
     }
     /// 旧版自定义备份规则继续可用；默认备份沿用各类素材的实际目录。
     var backupFollowsOrganization: Bool = UserDefaults.standard.object(forKey: "backupFollowsOrganization") as? Bool
         ?? ((UserDefaults.standard.string(forKey: NameTemplate.Kind.backup.key) ?? "").trimmingCharacters(in: .whitespaces).isEmpty
-            || UserDefaults.standard.string(forKey: NameTemplate.Kind.backup.key) == NameTemplate.Kind.backup.defaultValue) {
+            || NameTemplate.same(UserDefaults.standard.string(forKey: NameTemplate.Kind.backup.key), NameTemplate.Kind.backup.defaultValue)) {
         didSet { UserDefaults.standard.set(backupFollowsOrganization, forKey: "backupFollowsOrganization") }
     }
     var destinationVersion = 0
@@ -359,7 +359,7 @@ final class AppModel {
         let current = UserDefaults.standard.string(forKey: key)?.trimmingCharacters(in: .whitespaces) ?? ""
         switch usageMode {
         case .team:
-            if current.isEmpty || current == NameTemplate.Kind.video.defaultValue {
+            if current.isEmpty || NameTemplate.same(current, NameTemplate.Kind.video.defaultValue) {
                 UserDefaults.standard.set(UsageMode.teamVideoTemplate, forKey: key)
                 if videoFolderLayout == .session { splitVideoByRoll = true }
             }
@@ -367,7 +367,7 @@ final class AppModel {
             autoImportCamera = false
             deleteAfterImport = false
         case .personal:
-            if current == UsageMode.teamVideoTemplate {
+            if NameTemplate.same(current, UsageMode.teamVideoTemplate) {
                 UserDefaults.standard.removeObject(forKey: key)
                 if videoFolderLayout == .session { splitVideoByRoll = false }
             }
@@ -400,8 +400,12 @@ final class AppModel {
         }
         set { UserDefaults.standard.set(newValue, forKey: "sessionsFolder"); destinationVersion += 1 }
     }
+    /// 默认的 C1 会话文件夹：旧版本建的「Capture One 会话」已存在时沿用，否则按界面语言命名。
     static var defaultSessionsFolder: URL {
-        FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask)[0].appending(path: "Capture One 会话", directoryHint: .isDirectory)
+        let pictures = FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask)[0]
+        let names = [String(localized: "Capture One 会话"), "Capture One 会话"]
+        let name = names.first { FileManager.default.fileExists(atPath: pictures.appending(path: $0).path) } ?? names[0]
+        return pictures.appending(path: name, directoryHint: .isDirectory)
     }
 
     var sessionRequest: SessionRequest?

@@ -36,7 +36,7 @@ extension AppModel {
                 var identity = sourceIdentitySnapshot(source, slot: item.storageID >> 16)
                 if let card = route.library as? LocalCardLibrary {
                     fileCameraKeys[item.id] = nil
-                    address = path ?? "来源路径未提供"
+                    address = path ?? String(localized: "来源路径未提供")
                     if item.kind == .video {
                         identity.cameraModel = await card.clipInfo(route.local)?.model
                     } else if let metadata = await card.exif(route.local) {
@@ -49,7 +49,7 @@ extension AppModel {
                     }
                 } else {
                     let host = source == Self.primarySource ? connectedHost : extra(source)?.camera?.host
-                    address = [host.map { "Wi-Fi \($0)" } ?? (source == Self.primarySource && lastUSBCamera != nil ? "USB" : "相机"), "卡 \(item.storageID >> 16)", path ?? item.filename].joined(separator: " · ")
+                    address = [host.map { "Wi-Fi \($0)" } ?? (source == Self.primarySource && lastUSBCamera != nil ? "USB" : String(localized: "相机")), String(localized: "卡 \(item.storageID >> 16)"), path ?? item.filename].joined(separator: " · ")
                 }
                 addresses[run.fileID(job, item)] = address
                 identities[run.fileID(job, item)] = identity

@@ -1,11 +1,13 @@
 /* Official Premiere UXP API only. Import into bins; never edit a timeline or run supplied code. */
 function createReceiver(ppro, io) {
+    /* 界面语言由 index.js 传入；未传入时沿用中文。 */
+    const zh = io.zh !== false, t = (c, e) => zh ? c : e;
     const projectInfo = project => ({ id: project.guid.toString(), name: project.name, path: project.path || "" });
     async function identify() {
         const project = await ppro.Project.getActiveProject();
-        if (!project) throw new Error("请先在 Premiere Pro 中打开目标项目。");
+        if (!project) throw new Error(t("请先在 Premiere Pro 中打开目标项目。", "Open the target project in Premiere Pro first."));
         const info = projectInfo(project);
-        if (!info.id) throw new Error("Premiere Pro 未提供项目标识。");
+        if (!info.id) throw new Error(t("Premiere Pro 未提供项目标识。", "Premiere Pro did not provide a project ID."));
         return info;
     }
     /* 与 MiniDiT 项目同名的 .prproj：当前打开的就是它就直接用；文件已存在就打开；都没有就新建。
@@ -15,10 +17,10 @@ function createReceiver(ppro, io) {
         const want = request.handoff.project;
         const active = await ppro.Project.getActiveProject();
         if (!want) {
-            if (!active || !request.projectID || projectInfo(active).id !== request.projectID) throw new Error("Premiere Pro 项目已切换，请打开原项目后重试。");
+            if (!active || !request.projectID || projectInfo(active).id !== request.projectID) throw new Error(t("Premiere Pro 项目已切换，请打开原项目后重试。", "The Premiere Pro project has changed. Open the original project and try again."));
             return { project: active, created: false };
         }
-        if (typeof want.name !== "string" || typeof want.path !== "string" || !want.path.startsWith("/") || !want.path.endsWith(".prproj")) throw new Error("目标项目无效。");
+        if (typeof want.name !== "string" || typeof want.path !== "string" || !want.path.startsWith("/") || !want.path.endsWith(".prproj")) throw new Error(t("目标项目无效。", "Invalid target project."));
         const same = project => project && (project.path || "") === want.path;
         let project = same(active) ? active : null, created = false;
         if (!project) {
@@ -27,30 +29,32 @@ function createReceiver(ppro, io) {
                 if (options) { options.setShowLocateFileDialog?.(false); options.setShowWarningDialog?.(false); options.setAddToMRUList?.(true); }
                 project = await ppro.Project.open(want.path, options);
             } else if (request.projectID) {
-                throw new Error("未找到原项目“" + want.name + "”，未导入素材。");
+                throw new Error(t("未找到原项目“" + want.name + "”，未导入素材。", "The original project “" + want.name + "” was not found. No media was imported."));
             } else {
                 await io.makeParent(want.path);
                 project = await ppro.Project.createProject(want.path);
                 created = true;
             }
         }
-        if (!project) throw new Error("无法打开 Premiere Pro 项目“" + want.name + "”。");
-        if (request.projectID && projectInfo(project).id !== request.projectID) throw new Error("Premiere Pro 中的“" + want.name + "”已非原项目，未导入素材。");
+        if (!project) throw new Error(t("无法打开 Premiere Pro 项目“" + want.name + "”。", "Couldn’t open the Premiere Pro project “" + want.name + "”."));
+        if (request.projectID && projectInfo(project).id !== request.projectID) throw new Error(t("Premiere Pro 中的“" + want.name + "”已非原项目，未导入素材。", "“" + want.name + "” in Premiere Pro is no longer the original project. No media was imported."));
         return { project, created };
     }
     async function receive(request, active = async () => {}) {
         if (request.action === "identify") return identify();
-        if (request.action !== "import" || request.handoff?.version !== 1) throw new Error("不支持的发送请求。");
+        if (request.action !== "import" || request.handoff?.version !== 1) throw new Error(t("不支持的发送请求。", "Unsupported send request."));
         const { project, created } = await target(request);
         const projectID = projectInfo(project).id;
-        if (!projectID) throw new Error("Premiere Pro 未提供项目标识。");
+        if (!projectID) throw new Error(t("Premiere Pro 未提供项目标识。", "Premiere Pro did not provide a project ID."));
         /* 按目标项目发送时，只要该项目仍然打开就继续（切换到其他项目不影响导入到它）；旧请求仍要求当前项目不变。 */
         async function check() {
             await active();
             const byTarget = request.handoff.project && ppro.Project.getProject;
             const current = byTarget ? await ppro.Project.getProject(project.guid) : await ppro.Project.getActiveProject();
             if (!current || projectInfo(current).id !== projectID || projectInfo(project).id !== projectID) {
-                throw new Error(byTarget ? "Premiere Pro 项目“" + project.name + "”已关闭，导入未完成，可重试。" : "Premiere Pro 项目已切换，请打开原项目后重试。");
+                throw new Error(byTarget
+                    ? t("Premiere Pro 项目“" + project.name + "”已关闭，导入未完成，可重试。", "The Premiere Pro project “" + project.name + "” was closed before the import finished. You can try again.")
+                    : t("Premiere Pro 项目已切换，请打开原项目后重试。", "The Premiere Pro project has changed. Open the original project and try again."));
             }
         }
         const result = { project: project.name, projectID, created, imported: 0, skipped: 0, proxies: 0, receivedPaths: [], failedPaths: [], warnings: [] };
@@ -72,23 +76,23 @@ function createReceiver(ppro, io) {
             }
             return found;
         }
-        function transaction(title, action) {
+        function transaction(title, failure, action) {
             let ok = false;
             project.lockedAccess(() => { ok = project.executeTransaction(compound => compound.addAction(action()), title); });
-            if (!ok) throw new Error(title + "失败。");
+            if (!ok) throw new Error(failure);
         }
         async function ensureBin(names) {
             let parent = root;
             for (const name of names) {
                 await check();
-                if (typeof name !== "string" || !name.trim() || name.length > 512) throw new Error("素材箱名称无效。");
+                if (typeof name !== "string" || !name.trim() || name.length > 512) throw new Error(t("素材箱名称无效。", "Invalid bin name."));
                 let child = (await parent.getItems()).map(folder).find(f => f && f.name === name);
                 if (!child) {
                     const target = parent;
-                    transaction("创建 MiniDiT 素材箱", () => target.createBinAction(name, false));
+                    transaction(t("创建 MiniDiT 素材箱", "Create MiniDiT Bin"), t("创建 MiniDiT 素材箱失败。", "Couldn’t create the MiniDiT bin."), () => target.createBinAction(name, false));
                     child = (await parent.getItems()).map(folder).find(f => f && f.name === name);
                 }
-                if (!child) throw new Error("无法创建素材箱：" + name);
+                if (!child) throw new Error(t("无法创建素材箱：", "Couldn’t create bin: ") + name);
                 parent = child;
             }
             return parent;
@@ -98,7 +102,7 @@ function createReceiver(ppro, io) {
             await check();
             const pending = [];
             for (const source of group.clips) {
-                if (!source.path?.startsWith("/") || !source.canonicalPath?.startsWith("/")) throw new Error("素材路径无效。");
+                if (!source.path?.startsWith("/") || !source.canonicalPath?.startsWith("/")) throw new Error(t("素材路径无效。", "Invalid media path."));
                 const key = await io.identity(source.canonicalPath);
                 if (!existing.has(key)) pending.push(source);
             }
@@ -107,7 +111,7 @@ function createReceiver(ppro, io) {
                 const bin = await ensureBin(group.binPath);
                 await check();
                 try { await project.importFiles(pending.map(c => c.canonicalPath), true, ppro.ProjectItem.cast(bin), false); }
-                catch (error) { result.warnings.push("部分素材导入时出现错误：" + String(error.message || error)); }
+                catch (error) { result.warnings.push(t("部分素材导入时出现错误：", "Some media failed to import: ") + String(error.message || error)); }
                 // The API's boolean result alone is not a per-file receipt.
                 existing = await inventory();
             }
@@ -124,7 +128,7 @@ function createReceiver(ppro, io) {
                         if (!current && await item.canProxy()) await item.attachProxy(source.canonicalProxyPath, false);
                         const linked = await item.getProxyPath();
                         if (linked && await io.identity(linked) === await io.identity(source.canonicalProxyPath)) result.proxies++;
-                        else result.warnings.push(source.path + "：代理未能关联；已有的代理设置已保留。");
+                        else result.warnings.push(source.path + t("：代理未能关联；已有的代理设置已保留。", ": Couldn’t attach the proxy. Existing proxy settings were kept."));
                     }
                     if (source.marks?.length) {
                         const markers = await ppro.Markers.getMarkers(item);
@@ -133,19 +137,19 @@ function createReceiver(ppro, io) {
                             await check();
                             const near = known.filter(m => Math.abs(m.getStart().seconds - mark.seconds) < mark.duration / 2);
                             if (near.some(m => m.getName() === mark.name)) continue;
-                            if (near.length) { result.warnings.push(source.path + "：标记位置已被使用，保留了原标记。"); continue; }
-                            transaction("添加 MiniDiT 拍摄标记", () => markers.createAddMarkerAction(mark.name, "Comment", ppro.TickTime.createWithSeconds(mark.seconds), ppro.TickTime.createWithSeconds(mark.duration), "MiniDiT"));
+                            if (near.length) { result.warnings.push(source.path + t("：标记位置已被使用，保留了原标记。", ": A marker already exists at this position. The existing marker was kept.")); continue; }
+                            transaction(t("添加 MiniDiT 拍摄标记", "Add MiniDiT Shot Mark"), t("添加 MiniDiT 拍摄标记失败。", "Couldn’t add the MiniDiT Shot Mark."), () => markers.createAddMarkerAction(mark.name, "Comment", ppro.TickTime.createWithSeconds(mark.seconds), ppro.TickTime.createWithSeconds(mark.duration), "MiniDiT"));
                             known = markers.getMarkers();
                         }
                     }
                 } catch (error) {
                     await check();
-                    result.warnings.push(source.path + "：" + String(error.message || error));
+                    result.warnings.push(source.path + t("：", ": ") + String(error.message || error));
                 }
             }
         }
         await check();
-        if (!(await project.save())) result.warnings.push("项目未能自动保存，请在 Premiere Pro 中保存。");
+        if (!(await project.save())) result.warnings.push(t("项目未能自动保存，请在 Premiere Pro 中保存。", "The project couldn’t be saved automatically. Save it in Premiere Pro."));
         return result;
     }
     return { identify, receive };

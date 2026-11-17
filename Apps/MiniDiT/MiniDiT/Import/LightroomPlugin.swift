@@ -17,11 +17,41 @@ import Foundation
 /// photo        /路径/DSC0001.HIF   /路径/DSC0001.ARW    第三列：叠到这张 RAW 下面
 /// ```
 /// 回执每行：`ok|skip|fail <Tab> 路径 [<Tab> 原因]`（skip = 目录里本来就有，只加进收藏夹）。
+/// 插件自己的失败原因写成代号（见 `failureCode`），由 App 按自己的界面语言显示；LrC 抛出的错误原样写入。
+///
+/// LrC 里能看到的文字（菜单项、撤销记录名）用 SDK 的 `LOC` 机制：默认文字是英文，
+/// `TranslatedStrings_zh_cn.txt` 提供简体中文；LrC 用其他语言时显示英文。
 enum LightroomPlugin {
     /// 改了插件代码就加版本号，App 会提示用户更新。
-    static let version = "1.1.3"
+    static let version = "1.1.4"
     static let toolkitID = "com.kong.minidit"
     static let folderName = "MiniDiT.lrplugin"
+
+    /// 插件写进回执的失败代号。
+    enum FailureCode {
+        /// 目录一直被占用，重试几次都写不进去。
+        static let catalogBusy = "minidit:catalog-busy"
+    }
+
+    /// LrC 里显示的文字：键、英文（默认）、简体中文。
+    private static let strings: [(key: String, en: String, zh: String)] = [
+        ("ProcessNow", "Process MiniDiT Imports Now", "立即处理 MiniDiT 的导入"),
+        ("Undo/CreateCollection", "MiniDiT: Create Collection", "MiniDiT：建收藏夹"),
+        ("Undo/AddPhotos", "MiniDiT: Add Photos", "MiniDiT：添加照片"),
+        ("Undo/SetProfile", "MiniDiT: Set Profile", "MiniDiT：设置配置文件"),
+        ("Undo/SetRating", "MiniDiT: Set Rating", "MiniDiT：设置星级"),
+    ]
+
+    /// Lua 里的 `LOC "$$$/MiniDiT/键=英文"`。
+    private static func loc(_ key: String) -> String {
+        guard let s = strings.first(where: { $0.key == key }) else { fatalError("未知的键 \(key)") }
+        return "LOC \"$$$/MiniDiT/\(s.key)=\(s.en)\""
+    }
+
+    /// 简体中文译文文件，每行 `"$$$/MiniDiT/键=中文"`。
+    private static var translatedZhCN: String {
+        strings.map { "\"$$$/MiniDiT/\($0.key)=\($0.zh)\"" }.joined(separator: "\n") + "\n"
+    }
 
     static var files: [String: String] {
         [
@@ -32,6 +62,7 @@ enum LightroomPlugin {
             "Shutdown.lua": shutdown,
             "URLHandler.lua": urlHandler,
             "ProcessNow.lua": processNow,
+            "TranslatedStrings_zh_cn.txt": translatedZhCN,
             "version.txt": version + "\n",
         ]
     }
@@ -48,7 +79,7 @@ enum LightroomPlugin {
           LrForceInitPlugin = true,
           LrShutdownPlugin = 'Shutdown.lua',
           URLHandler = 'URLHandler.lua',
-          LrLibraryMenuItems = { { title = '立即处理 MiniDiT 的导入', file = 'ProcessNow.lua' } },
+          LrLibraryMenuItems = { { title = \(loc("ProcessNow")), file = 'ProcessNow.lua' } },
           VERSION = { major = \(v[0]), minor = \(v[1]), revision = \(v[2]), display = '\(version)' },
         }
 
@@ -161,7 +192,7 @@ enum LightroomPlugin {
             if status ~= 'aborted' then return end
             C.log('目录忙，第 ' .. attempt .. ' 次重试')
           end
-          error('目录一直被占用')
+          error('\(FailureCode.catalogBusy)', 0)
         end
 
         local function oneLine(s) return (tostring(s):gsub('[\\t\\r\\n]', ' ')) end
@@ -194,7 +225,7 @@ enum LightroomPlugin {
           local results = {}
           local coll
           if job.collection and job.collection ~= '' then
-            write(catalog, 'MiniDiT：建收藏夹', function()
+            write(catalog, \(loc("Undo/CreateCollection")), function()
               local parent
               if job.set and job.set ~= '' then parent = catalog:createCollectionSet(job.set, nil, true) end
               coll = catalog:createCollection(job.collection, parent, true)
@@ -204,7 +235,7 @@ enum LightroomPlugin {
             local ok, err = LrTasks.pcall(function()
               local photo = catalog:findPhotoByPath(p.path)
               local status = photo and 'skip' or 'ok'
-              write(catalog, 'MiniDiT：添加照片', function()
+              write(catalog, \(loc("Undo/AddPhotos")), function()
                 if not photo then
                   local raw = p.stackWith and catalog:findPhotoByPath(p.stackWith)
                   if raw then photo = catalog:addPhoto(p.path, raw, 'below') else photo = catalog:addPhoto(p.path) end
@@ -216,7 +247,7 @@ enum LightroomPlugin {
                 local look = readLook(p.look)
                 local lok, lerr = LrTasks.pcall(function()
                   if not look then error('读不了 ' .. p.look) end
-                  write(catalog, 'MiniDiT：设置配置文件', function()
+                  write(catalog, \(loc("Undo/SetProfile")), function()
                     photo:applyDevelopSettings({ CameraProfile = look.Parameters.CameraProfile, Look = look })
                   end)
                 end)
@@ -228,7 +259,7 @@ enum LightroomPlugin {
               -- 相机里打的星级：1–5 设星级，-1（相机里标为删除）设为「排除」。只给这次新加的照片设。
               if p.rating and status == 'ok' then
                 local rok, rerr = LrTasks.pcall(function()
-                  write(catalog, 'MiniDiT：设置星级', function()
+                  write(catalog, \(loc("Undo/SetRating")), function()
                     if p.rating < 0 then photo:setRawMetadata('pickStatus', -1)
                     else photo:setRawMetadata('rating', math.min(p.rating, 5)) end
                   end)

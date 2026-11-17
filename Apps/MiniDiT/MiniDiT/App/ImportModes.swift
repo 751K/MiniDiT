@@ -31,7 +31,8 @@ enum UsageMode: String, CaseIterable, Identifiable {
         }
     }
     /// 团队交接时，每卷一个子文件夹；个人流程也可使用这一模板。
-    static let teamVideoTemplate = "{M}.{D}-{事件}/{卷号}"
+    /// 标记按界面语言书写；与已保存的模板比较时用 `NameTemplate.same`。
+    static var teamVideoTemplate: String { NameTemplate.localized("{M}.{D}-{事件}/{卷号}") }
 }
 
 /// 按文件夹管理照片的软件：「只下载」导入完成后用它打开下载的文件夹。

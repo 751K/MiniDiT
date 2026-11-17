@@ -327,8 +327,11 @@ struct NewSessionSheet: View {
         let e = NameTemplate.sanitize(event)
         return e.isEmpty ? nil : e
     }
-    private var name: String { ShootSession.name(day: day, event: cleanEvent) }
-    private var existing: ShootSession? { model.sessions.first { $0.name == name } }
+    /// 同名项目已存在（含旧版本中文生成的名字）时沿用它的名字。
+    private var name: String { existing?.name ?? ShootSession.name(day: day, event: cleanEvent) }
+    private var existing: ShootSession? {
+        ShootSession.names(day: day, event: cleanEvent).compactMap { n in model.sessions.first { $0.name == n } }.first
+    }
     private var exists: Bool { existing != nil }
     /// 同名项目已存在时沿用它的类型。
     private var content: ImportContent { existing?.contentType ?? pickedContent }

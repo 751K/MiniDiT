@@ -214,7 +214,7 @@ extension AppModel {
         }
         return FileImporter(library: lib, root: run.root, camera: camera(of: item.id), backupRoot: nil,
                             event: state.event, scene: state.job.scene, sourceFolder: sourceFolder(for: item, in: run.folders),
-                            backupSubfolder: item.kind == .video ? "视频" : nil,
+                            backupSubfolder: item.kind == .video ? ProjectMedia.videos.folderName : nil,
                             backupDirectory: backupDirectory, checkSource: run.deleteRequested)
     }
 
@@ -229,9 +229,10 @@ extension AppModel {
             planned = ImportOrganization.mirroredBackup(root: backupBase, primaryFolder: importDestination(item, state, run),
                 primaryRoot: item.kind == .video ? run.videoRoot : (state.captureDir == nil ? run.root : run.sessionsFolder), video: item.kind == .video)
         } else {
-            let relative = NameTemplate.render(layout.backupTemplate, allowsFolders: false, day: Self.dayKey(item), event: state.event, scene: state.job.scene)
-            planned = backupBase.appending(path: relative, directoryHint: .isDirectory)
-            if item.kind == .video { planned.append(path: "视频") }
+            let render = { (legacy: Bool) in NameTemplate.render(layout.backupTemplate, allowsFolders: false, day: Self.dayKey(item),
+                                                                 event: state.event, scene: state.job.scene, legacy: legacy) }
+            planned = backupBase.appending(path: NameTemplate.existing(render(false), legacy: render(true), in: backupBase), directoryHint: .isDirectory)
+            if item.kind == .video { planned = ProjectMedia.videos.folder(in: planned) }
             if let name = sourceFolder(for: item, in: run.folders) { planned.append(path: name) }
         }
         let mainDirectory = main.deletingLastPathComponent().path + "/"

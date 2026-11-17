@@ -81,7 +81,7 @@ final class ImportJournalStore {
             var file = ImportedFileRecord(id: UUID().uuidString, projectID: project.id,
                                           filename: URL(filePath: path).lastPathComponent, source: old?.camera ?? "旧版导入")
             file.state = .saved
-            let category = ProjectMedia.forPath(path) == .videos ? "视频" : "照片"
+            let category = ProjectMedia.forPath(path).folderName
             var copies = [ImportedCopyRecord(role: .working, path: path, evidence: .legacy)]
             if let backup = old?.backupPath { copies.append(.init(role: .backup, path: backup, evidence: .legacy)) }
             file.assets = [.init(kind: .original, size: old?.size ?? 0, xxh64: old?.xxh64,
@@ -106,7 +106,7 @@ final class ImportJournalStore {
             guard previous.path == root.path else { repairErrors = [String(localized: "请使用原备份位置，或明确选择更换位置。")]; return }
             target = previous
         } else {
-            target = .init(id: previous?.id ?? UUID(), name: previous?.name ?? (root.lastPathComponent.isEmpty ? "备份" : root.lastPathComponent),
+            target = .init(id: previous?.id ?? UUID(), name: previous?.name ?? (root.lastPathComponent.isEmpty ? String(localized: "备份") : root.lastPathComponent),
                            root: root, required: previous?.required ?? true)
         }
         lastRepairTarget = target.id

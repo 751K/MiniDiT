@@ -141,6 +141,9 @@ enum CaptureOneBridge {
             let stem = pair.file.deletingPathExtension().lastPathComponent
             return "{\(quote(stem)), \(quote(pair.file.path)), \(quote(pair.look))}"
         }.joined(separator: ", ")
+        // 脚本返回给界面的文字按界面语言在此生成。
+        let unconfirmed = quote(String(localized: "Capture One 未确认 ICC 配置文件和曲线"))
+        let restoreFailed = quote(String(localized: "；恢复原设置失败："))
         let src = """
         tell application "Capture One"
             set d to document \(quote(name + ".cosessiondb"))
@@ -182,7 +185,7 @@ enum CaptureOneBridge {
                                 set changedProfile to true
                                 set film curve of adjustments of v to "Linear Response"
                                 if (color profile of adjustments of v is not profileName) or (film curve of adjustments of v is not "Linear Response") then
-                                    error "Capture One 未确认 ICC 配置文件和曲线"
+                                    error \(unconfirmed)
                                 end if
                                 set end of out to "ok"
                             on error msg
@@ -191,19 +194,19 @@ enum CaptureOneBridge {
                                         set color profile of adjustments of v to cp
                                         set film curve of adjustments of v to oldCurve
                                     on error restoreError
-                                        set msg to (msg & "；恢复原设置失败：" & restoreError)
+                                        set msg to (msg & \(restoreFailed) & restoreError)
                                     end try
                                 end if
                                 if not changedProfile and msg contains "Unrecognized color profile" then
                                     set end of out to ("noprofile:" & profileName)
                                 else
-                                    set end of out to ("failed:" & n & "：" & msg)
+                                    set end of out to ("failed:" & n & linefeed & msg)
                                 end if
                             end try
                         end if
                     on error msg
                         set AppleScript's text item delimiters to ""
-                        set end of out to ("failed:" & n & "：" & msg)
+                        set end of out to ("failed:" & n & linefeed & msg)
                     end try
                 end repeat
             end tell
@@ -233,7 +236,11 @@ enum CaptureOneBridge {
             if status == "ok" { result.applied += 1 }
             else if status.hasPrefix("missing:") { result.notFound.insert(String(status.dropFirst(8))) }
             else if status.hasPrefix("noprofile:") { result.noProfile.insert(String(status.dropFirst(10))) }
-            else if status.hasPrefix("failed:") { result.failures.append(String(status.dropFirst(7))) }
+            else if status.hasPrefix("failed:") {
+                // 照片名与错误之间以换行分隔，由此按界面语言拼接。
+                let parts = status.dropFirst(7).split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
+                result.failures.append(parts.count == 2 ? String(localized: "\(parts[0])：\(parts[1])") : parts.joined())
+            }
             else if status.hasPrefix("refresh:") { result.refreshError = String(status.dropFirst(8)) }
         }
         return result

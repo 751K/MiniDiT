@@ -44,7 +44,28 @@ enum ResolveBridge {
         request["action"] = "import"
         if let expected { request["projectID"] = expected.id }
         if (request["project"] as? String ?? "").isEmpty, let name = expected?.name { request["project"] = name }
+        request["messages"] = messages
         return try JSONDecoder().decode(Result.self, from: try await self.request(JSONSerialization.data(withJSONObject: request)))
+    }
+    /// 脚本显示给用户的文字，按界面语言在此生成后随请求传入；`{name}` 由脚本替换为项目名。
+    /// 只在发送时加入，不写入保存的发送记录。
+    private static var messages: [String: String] {
+        let name = "{name}"
+        return [
+            "loadFailed": String(localized: "无法打开 Resolve 项目“\(name)”，未导入素材。"),
+            "missing": String(localized: "Resolve 中未找到原项目“\(name)”，未导入素材。"),
+            "createFailed": String(localized: "无法新建 Resolve 项目“\(name)”，未导入素材。"),
+            "noID": String(localized: "Resolve 未提供项目标识，未导入素材。"),
+            "replaced": String(localized: "Resolve 中的“\(name)”已非原项目，未导入素材。"),
+            "switched": String(localized: "导入时 Resolve 项目已切换，未向其他项目发送素材；可重试。"),
+            "busy": String(localized: "Resolve 正在处理上一批发送，请稍后重试。"),
+            "color": String(localized: "输入色彩空间设置失败"),
+            "importError": String(localized: "部分素材加入时出现错误："),
+            "markerUsed": String(localized: "标记位置已被使用，保留了原标记"),
+            "markerFailed": String(localized: "拍摄标记未能加入"),
+            "rollFailed": String(localized: "卷号未能写入"),
+            "proxyFailed": String(localized: "代理未能链接"),
+        ]
     }
     @MainActor private static func request(_ input: Data) async throws -> Data {
         guard let app = appURL else { throw Failure.notInstalled }
@@ -61,7 +82,9 @@ enum ResolveBridge {
             if code == 0 { return Data(out.utf8) }
             if code != 3 {
                 let message = error.isEmpty ? out : error
-                throw Failure.script(message.components(separatedBy: .newlines).last(where: { !$0.isEmpty }) ?? String(localized: "Resolve 未返回发送结果。"))
+                // 脚本里 raise RuntimeError 的说明在最后一行，去掉 Python 的异常类型前缀再显示。
+                let last = message.components(separatedBy: .newlines).last(where: { !$0.isEmpty })
+                throw Failure.script(last.map { $0.hasPrefix("RuntimeError: ") ? String($0.dropFirst("RuntimeError: ".count)) : $0 } ?? String(localized: "Resolve 未返回发送结果。"))
             }
             guard Date() < deadline else { throw Failure.notReachable }
             try await Task.sleep(for: .seconds(2))
@@ -126,6 +149,10 @@ if not pm:
     sys.exit(3)
 with open(sys.argv[2], encoding="utf-8") as f:
     request = json.load(f)
+# 显示给用户的文字由 MiniDiT 按界面语言传入；缺少时用中文。
+messages = request.get("messages") or {}
+def text(key, default, name=""):
+    return (messages.get(key) or default).replace("{name}", name)
 # 目标是与 MiniDiT 项目同名的 Resolve 项目：有就打开，没有就在项目库根目录新建。
 target_name = (request.get("project") or "").strip() or "MiniDiT"
 expected_id = request.get("projectID", "")
@@ -155,28 +182,28 @@ def open_target():
         save_current(current)
         loaded = pm.LoadProject(target_name)
         if not loaded:
-            raise RuntimeError("无法打开 Resolve 项目“%s”，未导入素材。" % target_name)
+            raise RuntimeError(text("loadFailed", "无法打开 Resolve 项目“{name}”，未导入素材。", target_name))
         return loaded, False
     if expected_id:
-        raise RuntimeError("Resolve 中未找到原项目“%s”，未导入素材。" % target_name)
+        raise RuntimeError(text("missing", "Resolve 中未找到原项目“{name}”，未导入素材。", target_name))
     pm.GotoRootFolder()
     save_current(current)
     made = pm.CreateProject(target_name)
     if not made:
-        raise RuntimeError("无法新建 Resolve 项目“%s”，未导入素材。" % target_name)
+        raise RuntimeError(text("createFailed", "无法新建 Resolve 项目“{name}”，未导入素材。", target_name))
     return made, True
 
 project, created = open_target()
 project_id = str(project.GetUniqueId() or "")
 if not project_id:
-    raise RuntimeError("Resolve 未提供项目标识，未导入素材。")
+    raise RuntimeError(text("noID", "Resolve 未提供项目标识，未导入素材。"))
 if expected_id and project_id != expected_id:
-    raise RuntimeError("Resolve 中的“%s”已非原项目，未导入素材。" % target_name)
+    raise RuntimeError(text("replaced", "Resolve 中的“{name}”已非原项目，未导入素材。", target_name))
 expected_id = project_id
 def check_project():
     current = pm.GetCurrentProject()
     if not current or str(current.GetUniqueId()) != expected_id:
-        raise RuntimeError("导入时 Resolve 项目已切换，未向其他项目发送素材；可重试。")
+        raise RuntimeError(text("switched", "导入时 Resolve 项目已切换，未向其他项目发送素材；可重试。"))
 check_project()
 # An old helper may outlive an app restart. Serialize retries before inspecting the actual media pool.
 lock_root = os.path.expanduser("~/Library/Application Support/MiniDiT/ResolveLocks")
@@ -185,7 +212,7 @@ lock = open(os.path.join(lock_root, hashlib.sha256(project_id.encode()).hexdiges
 try:
     fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
 except BlockingIOError:
-    print("Resolve 正在处理上一批发送，请稍后重试。", file=sys.stderr)
+    print(text("busy", "Resolve 正在处理上一批发送，请稍后重试。"), file=sys.stderr)
     sys.exit(4)
 check_project()
 events = request["events"]
@@ -248,7 +275,7 @@ def set_color(item, c):
     if ok:
         colored += 1
     else:
-        metadata_warnings.append(c.get("path", "") + ": 输入色彩空间设置失败")
+        metadata_warnings.append(c.get("path", "") + ": " + text("color", "输入色彩空间设置失败"))
 
 def check_timecode(item, c):
     global timecodes
@@ -279,7 +306,7 @@ for e in events:
             try:
                 mp.ImportMedia([c["path"] for c in todo])
             except Exception as error:
-                metadata_warnings.append("部分素材加入时出现错误：" + str(error))
+                metadata_warnings.append(text("importError", "部分素材加入时出现错误：") + str(error))
         existing = existing_clips(root)
     for c in e["clips"]:
         check_project()
@@ -301,11 +328,11 @@ for e in events:
                 previous = markers.get(frame, markers.get(str(frame)))
                 if previous:
                     if previous.get("name") != m["name"]:
-                        metadata_warnings.append(c["path"] + ": 标记位置已被使用，保留了原标记")
+                        metadata_warnings.append(c["path"] + ": " + text("markerUsed", "标记位置已被使用，保留了原标记"))
                 elif not item.AddMarker(frame, "Blue", m["name"], "", 1):
-                    metadata_warnings.append(c["path"] + ": 拍摄标记未能加入")
+                    metadata_warnings.append(c["path"] + ": " + text("markerFailed", "拍摄标记未能加入"))
             if c.get("roll") and not item.SetMetadata({"Reel Number": c["roll"], "Roll Card #": c["roll"]}):
-                metadata_warnings.append(c["path"] + ": 卷号未能写入")
+                metadata_warnings.append(c["path"] + ": " + text("rollFailed", "卷号未能写入"))
             proxy = c.get("proxy", "")
             if proxy:
                 if not item.GetClipProperty("Proxy Media Path"):
@@ -313,7 +340,7 @@ for e in events:
                 if identity(item.GetClipProperty("Proxy Media Path") or "") == identity(proxy):
                     proxies += 1
                 else:
-                    metadata_warnings.append(c["path"] + ": 代理未能链接")
+                    metadata_warnings.append(c["path"] + ": " + text("proxyFailed", "代理未能链接"))
         except Exception as error:
             metadata_warnings.append(c["path"] + ": " + str(error))
 check_project()

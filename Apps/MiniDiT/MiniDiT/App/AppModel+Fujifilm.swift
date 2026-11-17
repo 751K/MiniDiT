@@ -23,7 +23,7 @@ extension AppModel {
             let lib = try await FujiCameraLibrary.open(host: host, identity: HostIdentityStore.identity, progress: step, log: note)
             if Task.isCancelled { await lib.close(); throw CancellationError() }
             for n in await lib.listingNotes { log.add(n) }
-            let name = await lib.deviceInfo?.model ?? "富士相机"
+            let name = await lib.deviceInfo?.model ?? String(localized: "富士相机")
             primaryConnectionID = UUID()
             sessionCameraProfiles[Self.primarySource] = nil
             usesRemoteTransfer = false
@@ -31,7 +31,7 @@ extension AppModel {
             deviceInfo = await lib.deviceInfo
             cameraID = deviceInfo?.cameraID
             lastCamera = nil
-            attach(lib, name: name.isEmpty ? "富士相机" : name, host: nil)   // 和大疆一样不记地址：掉线后不走索尼的自动重连
+            attach(lib, name: name.isEmpty ? String(localized: "富士相机") : name, host: nil)   // 和大疆一样不记地址：掉线后不走索尼的自动重连
             await loadAll()
             refreshCaptureOne()
         } catch is CancellationError {

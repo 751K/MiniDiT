@@ -114,7 +114,7 @@ import SonyRemoteKit
 }
 
 @MainActor enum PremierePlugin {
-    static let version = "1.1.0"
+    static let version = "1.2.0"
     static var resource: URL? { Bundle.main.url(forResource: "PremierePlugin", withExtension: "bundle") }
     static func makePackage(source: URL? = nil, output: URL? = nil) async throws -> URL {
         guard let source = source ?? resource else { throw VideoDelivery.Failure(String(localized: "未找到 Premiere Pro 插件文件，请重新安装 MiniDiT。")) }

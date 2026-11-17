@@ -1,4 +1,5 @@
 import Foundation
+import SonyRemoteKit
 
 /// A configured target; importing freezes a copy of this identity into its batch.
 public struct BackupDestination: Codable, Identifiable, Sendable, Equatable {
@@ -50,7 +51,7 @@ extension ImportBatchRecord {
     public var targets: [BackupDestination] {
         if let backupTargets { return backupTargets }
         guard let backupRoot else { return [] }
-        return [.init(id: id, name: "备份", root: URL(filePath: backupRoot), volumeID: backupVolumeID)]
+        return [.init(id: id, name: String(localized: "备份", bundle: .miniDiT), root: URL(filePath: backupRoot), volumeID: backupVolumeID)]
     }
     public func pendingCount(for target: BackupDestination) -> Int {
         files.flatMap(\.assets).filter { !$0.hasBackup(at: target) || $0.error(for: target) != nil }.count

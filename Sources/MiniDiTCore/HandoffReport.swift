@@ -1,4 +1,5 @@
 import Foundation
+import SonyRemoteKit
 
 /// A report is a dated snapshot of recorded transfers, not a new verification or QC pass.
 public struct HandoffReport: Codable, Sendable {
@@ -58,7 +59,7 @@ public struct HandoffReport: Codable, Sendable {
     public var assetCount: Int { batches.reduce(0) { $0 + $1.assetCount } }
     public var bytes: UInt64 { batches.reduce(0) { $0 + $1.bytes } }
     public var needsAttention: Bool { !issues.isEmpty || rows.contains(where: \.needsAttention) || manifests.contains { $0.status != "included" } }
-    public var status: String { needsAttention ? "有待处理或未覆盖项" : "所选范围记录完整" }
+    public var status: String { needsAttention ? String(localized: "有待处理或未覆盖项", bundle: .miniDiT) : String(localized: "所选范围记录完整", bundle: .miniDiT) }
 
     public static func snapshot(batches records: [ImportBatchRecord], options: Options, now: Date = Date()) throws -> Self {
         let dateFormatter = ISO8601DateFormatter()
@@ -77,12 +78,12 @@ public struct HandoffReport: Codable, Sendable {
             result.batches.append(.init(id: batch.id.uuidString, started: timestamp(batch.startedAt), finished: timestamp(batch.finishedAt),
                 state: batch.state.rawValue, items: files.count, saved: files.filter { $0.state == .saved }.count,
                 proxyOnly: files.filter(\.proxyOnly).count, assetCount: assets.count, bytes: assets.reduce(0) { $0 + $1.size }, delivery: batch.delivery))
-            if batch.state != .completed { result.issues.append("导入 \(batch.id.uuidString)：状态为 \(batch.state.rawValue)，不按已完成任务交接。") }
-            if batch.backupRequested && batch.targets.isEmpty { result.issues.append("导入 \(batch.id.uuidString)：计划备份，但没有记录备份位置。") }
-            if files.contains(where: \.proxyOnly) { result.issues.append("导入 \(batch.id.uuidString)：包含仅代理素材，未覆盖对应原片。") }
-            if batch.files.contains(where: { $0.projectID != options.projectID }) { result.issues.append("导入 \(batch.id.uuidString)：本报告仅列所选项目；同批 ASC MHL 可能还包含其他项目。") }
-            for (id, error) in (batch.backupReportErrors ?? [:]).sorted(by: { $0.key < $1.key }) { result.issues.append("目标 \(id) 的校验清单未完成：\(error)") }
-            if batch.reports.isEmpty { result.issues.append("导入 \(batch.id.uuidString)：没有记录 ASC MHL 校验清单。") }
+            if batch.state != .completed { result.issues.append(String(localized: "导入 \(batch.id.uuidString)：状态为 \(batch.state.rawValue)，不按已完成任务交接。", bundle: .miniDiT)) }
+            if batch.backupRequested && batch.targets.isEmpty { result.issues.append(String(localized: "导入 \(batch.id.uuidString)：计划备份，但没有记录备份位置。", bundle: .miniDiT)) }
+            if files.contains(where: \.proxyOnly) { result.issues.append(String(localized: "导入 \(batch.id.uuidString)：包含仅代理素材，未覆盖对应原片。", bundle: .miniDiT)) }
+            if batch.files.contains(where: { $0.projectID != options.projectID }) { result.issues.append(String(localized: "导入 \(batch.id.uuidString)：本报告仅列所选项目；同批 ASC MHL 可能还包含其他项目。", bundle: .miniDiT)) }
+            for (id, error) in (batch.backupReportErrors ?? [:]).sorted(by: { $0.key < $1.key }) { result.issues.append(String(localized: "目标 \(id) 的校验清单未完成：\(error)", bundle: .miniDiT)) }
+            if batch.reports.isEmpty { result.issues.append(String(localized: "导入 \(batch.id.uuidString)：没有记录 ASC MHL 校验清单。", bundle: .miniDiT)) }
             let expectedAssets = assets.count + files.filter { $0.assets.isEmpty }.count
             for target in batch.targets {
                 let matching = assets.map { asset in
@@ -104,13 +105,16 @@ public struct HandoffReport: Codable, Sendable {
                 let sourceKey = [identity?.cardID?.uuidString ?? identity?.cameraID ?? identity?.connectionID.uuidString ?? file.source, identity?.volumeUUID ?? "", String(identity?.slot ?? 0), file.roll ?? ""].joined(separator: "|")
                 var source = sourceGroups[sourceKey] ?? Source(name: file.source, card: identity?.cardName ?? "", camera: identity?.cameraModel ?? "",
                     serial: identity?.cameraSerial ?? "", slot: identity?.slot.map(String.init) ?? "", roll: file.roll ?? "",
-                    identifier: identity?.cardID.map { "卡档案 " + $0.uuidString } ?? identity?.cameraID ?? identity?.connectionID.uuidString ?? "",
+                    identifier: identity?.cardID.map { String(localized: "卡档案 \($0.uuidString)", bundle: .miniDiT) } ?? identity?.cameraID ?? identity?.connectionID.uuidString ?? "",
                     items: 0, assets: 0, bytes: 0, knownDurationSeconds: 0, timedClips: 0)
                 source.items += 1; source.assets += file.assets.count; source.bytes += file.assets.reduce(0) { $0 + $1.size }
                 if let duration = file.durationSeconds, duration.isFinite, duration >= 0 { source.knownDurationSeconds += duration; source.timedClips += 1 }
                 sourceGroups[sourceKey] = source
-                if file.state != .saved || file.assets.isEmpty { result.issues.append("\(file.filename)：未完成保存，\(file.message ?? "没有已保存的文件记录")。") }
-                if let message = file.message, !message.isEmpty { result.issues.append("\(file.filename)：\(message)") }
+                if file.state != .saved || file.assets.isEmpty {
+                    let reason = file.message ?? String(localized: "没有已保存的文件记录", bundle: .miniDiT)
+                    result.issues.append(String(localized: "\(file.filename)：未完成保存，\(reason)。", bundle: .miniDiT))
+                }
+                if let message = file.message, !message.isEmpty { result.issues.append(String(localized: "\(file.filename)：\(message)", bundle: .miniDiT)) }
                 func row(_ asset: ImportedAssetRecord?, _ copy: ImportedCopyRecord?, target: BackupDestination?, historical: Bool = false) -> Row {
                     let root = target?.path ?? copy.map { copy in
                         (batch.workingRoots ?? []).filter { contains(copy.path, in: $0) }.max { $0.count < $1.count }
@@ -125,7 +129,7 @@ public struct HandoffReport: Codable, Sendable {
                         frameRate: file.frameRate ?? "", codec: file.codec ?? "", durationSeconds: file.durationSeconds,
                         fileState: file.state.rawValue, importedAt: timestamp(file.importedAt), proxyOnly: file.proxyOnly, message: file.message ?? "",
                         assetKind: asset?.kind.rawValue ?? "notSaved", size: asset?.size, expectedSourceBytes: file.expectedBytes, checksum: asset?.xxh64 ?? "",
-                        targetID: target?.id.uuidString ?? copy?.targetID?.uuidString ?? "working", targetName: target?.name ?? (historical ? "历史备份位置" : "工作位置"),
+                        targetID: target?.id.uuidString ?? copy?.targetID?.uuidString ?? "working", targetName: target?.name ?? (historical ? String(localized: "历史备份位置", bundle: .miniDiT) : String(localized: "工作位置", bundle: .miniDiT)),
                         role: target == nil && !historical ? "working" : "backup", required: historical ? false : target?.required ?? true,
                         root: root, relativePath: contains(path, in: root) ? String(path.dropFirst(root.count + (root == "/" ? 0 : 1))) : "", path: path,
                         verification: copy?.evidence.rawValue ?? "notVerified", verifiedAt: timestamp(copy?.verifiedAt),
@@ -158,7 +162,7 @@ public struct HandoffReport: Codable, Sendable {
             }
         }
         result.sources = sourceGroups.values.sorted { ($0.name, $0.roll, $0.card, $0.identifier) < ($1.name, $1.roll, $1.card, $1.identifier) }
-        if result.batches.isEmpty { result.issues.append("所选范围没有可导出的项目导入记录。") }
+        if result.batches.isEmpty { result.issues.append(String(localized: "所选范围没有可导出的项目导入记录。", bundle: .miniDiT)) }
         return result
     }
     static func valid(_ copy: ImportedCopyRecord, asset: ImportedAssetRecord) -> Bool {

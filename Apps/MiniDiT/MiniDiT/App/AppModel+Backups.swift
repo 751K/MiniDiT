@@ -17,7 +17,7 @@ extension AppModel {
            let targets = try? JSONDecoder().decode([BackupDestination].self, from: data) { return targets }
         // Preserve this installation's configured location when introducing the target list.
         guard let root = UserDefaults.standard.url(forKey: "backupFolder") else { return [] }
-        let result = [BackupDestination(name: root.lastPathComponent.isEmpty ? "备份 1" : root.lastPathComponent, root: root)]
+        let result = [BackupDestination(name: root.lastPathComponent.isEmpty ? String(localized: "备份 \(1)") : root.lastPathComponent, root: root)]
         if let data = try? JSONEncoder().encode(result) { UserDefaults.standard.set(data, forKey: "backupDestinations") }
         return result
     }
@@ -32,7 +32,7 @@ extension AppModel {
         guard !backupTargets.contains(where: { BackupDestination.overlaps($0.root, root) }) else {
             errorMessage = String(localized: "备份位置相同或互相包含，请选择另一个独立位置。"); return
         }
-        backupTargets.append(.init(name: root.lastPathComponent.isEmpty ? "备份 \(backupTargets.count + 1)" : root.lastPathComponent, root: root))
+        backupTargets.append(.init(name: root.lastPathComponent.isEmpty ? String(localized: "备份 \(backupTargets.count + 1)") : root.lastPathComponent, root: root))
     }
     func replaceBackupTarget(_ id: UUID, root: URL) {
         guard !backupTargets.contains(where: { $0.id != id && BackupDestination.overlaps($0.root, root) }),

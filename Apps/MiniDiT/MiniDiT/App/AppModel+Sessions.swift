@@ -63,6 +63,13 @@ struct ShootSession: Codable, Identifiable, Hashable {
     static func name(day: String, event: String?) -> String {
         NameTemplate.render(.session, day: day, event: event)
     }
+
+    /// 可视为同名的名字：界面语言的，以及旧版本中文生成的（「未命名」等）。
+    static func names(day: String, event: String?) -> [String] {
+        let current = name(day: day, event: event)
+        let legacy = NameTemplate.render(.session, day: day, event: event, legacy: true)
+        return current == legacy ? [current] : [current, legacy]
+    }
 }
 
 extension AppModel {
@@ -93,7 +100,8 @@ extension AppModel {
     func createSession(day: String, event: String?, content: ImportContent = .all) -> ShootSession {
         let name = ShootSession.name(day: day, event: event)
         rememberEvent(event)
-        if let s = sessions.first(where: { $0.name == name }) {
+        let names = ShootSession.names(day: day, event: event)
+        if let s = names.compactMap({ n in sessions.first { $0.name == n } }).first {
             selectSession(s.id)
             return s
         }

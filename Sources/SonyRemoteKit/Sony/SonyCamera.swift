@@ -86,7 +86,7 @@ public actor SonyCamera: RemoteCamera {
         (notifications, notify) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(32))
     }
 
-    public var displayName: String { cameraName.isEmpty ? "Sony 相机" : cameraName }
+    public var displayName: String { cameraName.isEmpty ? String(localized: "Sony 相机", bundle: .miniDiT) : cameraName }
     public var isProtocolV3: Bool { protocolVersion >= SonyProtocolVersion.v300 }
 
     // MARK: 连接

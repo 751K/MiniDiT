@@ -288,7 +288,7 @@ extension AppModel {
             let clash = list.filter { NameTemplate.sanitize($0.name) == base }.count > 1
             let tag = volumeName(s.id) ?? (isWiFiCamera(s.id) ? (s.id == Self.primarySource ? connectedHost : extra(s.id)?.camera?.host) : nil)
             var name = clash ? base + "-" + NameTemplate.sanitize(tag ?? "\(s.id + 1)") : base
-            if name.isEmpty { name = "来源 \(s.id + 1)" }
+            if name.isEmpty { name = String(localized: "来源 \(s.id + 1)") }
             out[s.id] = name
         }
         return out
@@ -302,7 +302,7 @@ extension AppModel {
         let src = source(of: item.id)
         guard let name = folders[src] else { return nil }
         guard splitBySlot, isWiFiCamera(src) else { return name }
-        return name + "/卡 \(item.storageID >> 16)"
+        return name + "/" + String(localized: "卡 \(item.storageID >> 16)")
     }
 
     /// 某台 Wi-Fi 相机上有照片的卡槽（来源行里的卡槽切换条用）。设了只导的卡槽即使现在没照片也列上，好改回来。

@@ -146,7 +146,7 @@ extension AppModel {
             agentPlans[token] = .init(expires: expires, fingerprint: agentImportFingerprint(), job: job)
             var paths: [String: AgentJSON] = [:]
             for file in job.files {
-                let roll = file.kind == .video ? (RollStore.shared.roll(of: file) ?? "〈卷号〉") : nil
+                let roll = file.kind == .video ? (RollStore.shared.roll(of: file) ?? String(localized: "〈卷号〉")) : nil
                 let folder = plannedFolder(for: file, roll: roll).path
                 paths[(file.kind == .video ? "video:" : "photo:") + folder] = .string(folder)
             }

@@ -1,6 +1,7 @@
 /* All communication stays in this user's MiniDiT support folder. No network or executable requests. */
 function createMailbox(fs, base, receiver, options = {}) {
-    const now = options.now || (() => Date.now() / 1000), version = "1.1.0";
+    const now = options.now || (() => Date.now() / 1000), version = "1.2.0";
+    const zh = options.zh !== false;
     let busy = false, processing = false;
     const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     async function read(path) { return JSON.parse(await fs.readFile(path, { encoding: "utf-8" })); }
@@ -28,7 +29,7 @@ function createMailbox(fs, base, receiver, options = {}) {
                 if (request.id !== id || request.protocolVersion !== 1 || !["identify", "import"].includes(request.action)) continue;
                 async function active() {
                     const lease = await read(dir + "/lease.json");
-                    if (request.expiresAt <= now() || lease.expiresAt <= now() || lease.id !== id) throw new Error("发送已停止，请在 MiniDiT 中重试。");
+                    if (request.expiresAt <= now() || lease.expiresAt <= now() || lease.id !== id) throw new Error(zh ? "发送已停止，请在 MiniDiT 中重试。" : "Sending stopped. Try again in MiniDiT.");
                 }
                 try { await active(); await fs.rename(dir + "/request.json", dir + "/processing.json"); } catch (_) { continue; }
                 try {

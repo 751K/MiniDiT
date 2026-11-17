@@ -2,6 +2,14 @@ const fs = require("fs"), ppro = require("premierepro"), uxp = require("uxp");
 const { createReceiver } = require("./receiver.js"), { createMailbox } = require("./mailbox.js");
 const base = require("os").homedir() + "/Library/Application Support/MiniDiT/Premiere";
 let worker, timer, heart, starting;
+/* 跟随 Premiere 的界面语言：zh 开头显示中文，其余显示英文。 */
+const zh = (() => {
+    let locale = "";
+    try { locale = uxp.host.uiLocale || ""; } catch (_) {}
+    if (!locale && typeof navigator !== "undefined") locale = navigator.language || "";
+    return /^zh/i.test(locale);
+})();
+const t = (c, e) => zh ? c : e;
 function status(text, project = "") { document.getElementById("status").textContent = text; document.getElementById("project").textContent = project; }
 async function identity(path) {
     try {
@@ -18,12 +26,12 @@ async function start() {
     if (starting) return starting;
     starting = (async () => {
         await fs.mkdir(base + "/requests", { recursive: true });
-        worker = createMailbox(fs, base, createReceiver(ppro, { identity, exists, makeParent }));
+        worker = createMailbox(fs, base, createReceiver(ppro, { identity, exists, makeParent, zh }), { zh });
         async function beat() {
             try {
                 const project = await worker.heartbeat();
-                status(worker.isBusy() ? "正在接收素材…" : "已连接，等待素材", project ? "当前项目：" + project.name : "");
-            } catch (error) { status("连接失败：" + String(error.message || error)); }
+                status(worker.isBusy() ? t("正在接收素材…", "Receiving media…") : t("已连接，等待素材", "Connected. Waiting for media."), project ? t("当前项目：", "Current project: ") + project.name : "");
+            } catch (error) { status(t("连接失败：", "Connection failed: ") + String(error.message || error)); }
         }
         await beat();
         timer = setInterval(() => { worker.tick().catch(error => status(String(error.message || error))); }, 500);
@@ -31,6 +39,7 @@ async function start() {
     })();
     try { await starting; } finally { starting = null; }
 }
+status(t("正在连接…", "Connecting…"));
 uxp.entrypoints.setup({
     plugin: { create: start, destroy() { clearInterval(timer); clearInterval(heart); } },
     panels: { minidit: { show: start } }

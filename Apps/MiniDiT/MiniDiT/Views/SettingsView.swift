@@ -458,7 +458,7 @@ struct SessionNamingSection: View {
         var rule: String? {
             switch self {
             case .dateEvent: NameTemplate.Kind.session.defaultValue
-            case .fullDateEvent: "{YYYY}-{MM}-{DD}-{事件}"
+            case .fullDateEvent: NameTemplate.localized("{YYYY}-{MM}-{DD}-{事件}")
             case .dateOnly: "{YYYY}-{MM}-{DD}"
             case .custom: nil
             }
@@ -466,7 +466,7 @@ struct SessionNamingSection: View {
         static func matching(_ value: String) -> Self {
             let clean = value.trimmingCharacters(in: .whitespaces)
             if clean.isEmpty { return .dateEvent }
-            return allCases.first { $0.rule == clean } ?? .custom
+            return allCases.first { $0.rule.map { NameTemplate.same(clean, $0) } ?? false } ?? .custom
         }
     }
     private var namingStyle: Binding<NamingStyle> {
@@ -512,7 +512,7 @@ struct SessionNamingSection: View {
                                     token("{YYYY}", detail: "年份，如 2026")
                                     token("{MM} / {DD}", detail: "两位月、日，如 01、09")
                                     token("{M} / {D}", detail: "月、日，如 1、9")
-                                    token("{事件}", detail: "新建项目时填写的事件")
+                                    token(NameTemplate.Token.event.localized, detail: "新建项目时填写的事件")
                                 }
                                 Text("仅影响新建项目的默认名称。")
                                     .font(Theme.Font.caption).foregroundStyle(.secondary)
@@ -556,7 +556,7 @@ struct MediaOrganizationOptions: View {
             }
             if video {
                 Divider()
-                if layout == .custom, NameTemplate.current(.video).contains("{卷号}") {
+                if layout == .custom, NameTemplate.uses(.roll, in: NameTemplate.current(.video)) {
                     Text("自定义规则已包含卷号，将按该规则分文件夹。")
                         .font(.caption).foregroundStyle(.secondary)
                 } else {
@@ -602,7 +602,7 @@ struct ImportDestinationPreview: View {
     }
 
     private var needsRoll: Bool {
-        model.splitVideoByRoll || (model.videoFolderLayout == .custom && NameTemplate.current(.video).contains("{卷号}"))
+        model.splitVideoByRoll || (model.videoFolderLayout == .custom && NameTemplate.uses(.roll, in: NameTemplate.current(.video)))
     }
 
     private var paths: [(String, URL)] {
@@ -626,7 +626,7 @@ struct ImportDestinationPreview: View {
                                                                    primaryRoot: primaryRoot, video: video)
                     } else {
                         var custom = FileImporter.backupFolder(for: item, root: root, event: model.currentSession?.event)
-                        if video { custom.append(path: "视频", directoryHint: .isDirectory) }
+                        if video { custom = ProjectMedia.videos.folder(in: custom) }
                         if let source = model.sourceFolder(for: item, in: model.sourceFolders()) {
                             custom.append(path: source, directoryHint: .isDirectory)
                         }

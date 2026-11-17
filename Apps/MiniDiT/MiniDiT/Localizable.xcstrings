@@ -82,12 +82,67 @@
         }
       }
     },
+    "%@  ·  可选": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@  ·  Optional"
+          }
+        }
+      }
+    },
+    "%@  ·  必需": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@  ·  Required"
+          }
+        }
+      }
+    },
     "%@ · %@": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "%@ · %@"
+          }
+        }
+      }
+    },
+    "%@ · %@：%@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · %@: %@"
+          }
+        }
+      }
+    },
+    "%@ · %@：%@；%@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · %@: %@; %@"
+          }
+        }
+      }
+    },
+    "%@ · 交接清单": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · Handoff Report"
           }
         }
       }
@@ -369,6 +424,17 @@
         }
       }
     },
+    "%@ 至 %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ to %@"
+          }
+        }
+      }
+    },
     "%@%lld 分": {
       "localizations": {
         "en": {
@@ -539,6 +605,17 @@
         }
       }
     },
+    "%@（时长未知）": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (duration unknown)"
+          }
+        }
+      }
+    },
     "%@（本地文件已保留）": {
       "localizations": {
         "en": {
@@ -619,6 +696,17 @@
         }
       }
     },
+    "%@：未完成保存，%@。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: not saved, %@."
+          }
+        }
+      }
+    },
     "%@：点按切换曝光模式": {
       "localizations": {
         "en": {
@@ -659,12 +747,45 @@
         }
       }
     },
+    "%lld / %lld 个导入项，%lld 个实体文件，%@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld / %lld import items · Files: %lld · %@"
+          }
+        }
+      }
+    },
     "%lld / %lld 个文件": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "%lld / %lld files"
+          }
+        }
+      }
+    },
+    "%lld 个导入项  /  第 %lld-%lld 项": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import items: %lld  /  items %lld–%lld"
+          }
+        }
+      }
+    },
+    "%lld 个导入项，%lld 个实体文件，%@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import items: %lld · Files: %lld · %@"
           }
         }
       }
@@ -823,12 +944,23 @@
         }
       }
     },
+    "%lld 次导入  /  %lld 个导入项  /  %lld 个实体文件  /  %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imports: %lld  /  Import items: %lld  /  Files: %lld  /  %@"
+          }
+        }
+      }
+    },
     "%lld 次导入 · %lld 个导入项": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld imports · %lld items"
+            "value": "Imports: %lld · Items: %lld"
           }
         }
       }
@@ -1169,6 +1301,17 @@
         }
       }
     },
+    "CSV 为 UTF-8，按实体文件的每个目标副本列行；Filename 为该文件实际名称，ImportItemFilename 为关联导入项名称，来源地址、来源预期大小和拍摄参数为该导入项记录。未保存文件及缺失目标也有行。为防表格软件把文本当作公式，危险起始字符添加单引号；原始字符串保存在 JSON 中。每次导出生成新报告 ID 和新目录，不覆盖旧报告。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The CSV is UTF-8 with one row per destination copy of each file. Filename is the file's actual name and ImportItemFilename is the related import item; source address, expected source size and shooting parameters come from that import item. Unsaved files and missing destinations also have rows. To keep spreadsheet apps from treating text as formulas, risky leading characters get a single quote; the original strings are kept in the JSON. Each export creates a new report ID and folder and never overwrites an earlier report."
+          }
+        }
+      }
+    },
     "Capture One": {
       "localizations": {
         "en": {
@@ -1249,6 +1392,16 @@
         }
       }
     },
+    "Capture One 会话": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capture One Sessions"
+          }
+        }
+      }
+    },
     "Capture One 会话根目录": {
       "localizations": {
         "en": {
@@ -1275,6 +1428,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Current Capture One document"
+          }
+        }
+      }
+    },
+    "Capture One 未确认 ICC 配置文件和曲线": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capture One did not confirm the ICC profile and curve"
           }
         }
       }
@@ -1454,6 +1617,16 @@
         }
       }
     },
+    "Lightroom 目录一直被占用": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Lightroom catalog stayed busy"
+          }
+        }
+      }
+    },
     "Log 与画面": {
       "localizations": {
         "en": {
@@ -1531,6 +1704,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "MiniDiT"
+          }
+        }
+      }
+    },
+    "MiniDiT  /  交接清单": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MiniDiT  /  Handoff Report"
           }
         }
       }
@@ -1644,6 +1828,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "P Program Auto"
+          }
+        }
+      }
+    },
+    "PDF 中的缩略图和抽帧从当前可访问且大小匹配的已记录副本生成，只用于识别素材。原片无法解码时可尝试代理并标明来源；无法读取时保留占位，不把缩略图当作核验结果。照片逐项分页，视频按已记录卷号分组并依次排列，不同视频留间隔，同一视频排满后换行，整份报告共用相同时间比例，无卷号时明确列为未记录卷号。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thumbnails and frames in the PDF are made from recorded copies that are accessible now and match in size, and are only for identifying media. If an original cannot be decoded, a proxy may be used and is marked as such; unreadable media keeps a placeholder. Thumbnails are not verification results. Photos are paginated item by item; videos are grouped by recorded roll and laid out in order, with a gap between clips and long clips wrapping to the next line, all at the same time scale. Videos without a roll are listed under No Roll Recorded."
           }
         }
       }
@@ -1780,12 +1975,52 @@
         }
       }
     },
+    "Resolve 中未找到原项目“%@”，未导入素材。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The original project “%@” wasn’t found in Resolve. No media was imported."
+          }
+        }
+      }
+    },
+    "Resolve 中的“%@”已非原项目，未导入素材。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” in Resolve is no longer the original project. No media was imported."
+          }
+        }
+      }
+    },
+    "Resolve 未提供项目标识，未导入素材。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resolve didn’t provide a project ID. No media was imported."
+          }
+        }
+      }
+    },
     "Resolve 未返回发送结果。": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Resolve didn't return a send result."
+          }
+        }
+      }
+    },
+    "Resolve 正在处理上一批发送，请稍后重试。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resolve is still processing the previous send. Try again later."
           }
         }
       }
@@ -1873,6 +2108,17 @@
         }
       }
     },
+    "Sony 相机": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sony Camera"
+          }
+        }
+      }
+    },
     "USB 相机": {
       "localizations": {
         "en": {
@@ -1910,6 +2156,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Failed to write XML: %@"
+          }
+        }
+      }
+    },
+    "XXH64 是记录的素材校验算法；与来源内容核对、本地读回核对和旧记录分别列示。Wi-Fi 来源无法取得相机端源文件校验值，不按原卡端到端核对承诺。仅代理任务明确不包含原片。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "XXH64 is the recorded media checksum algorithm. Comparison with the source, local read-back and legacy records are listed separately. Wi-Fi sources cannot provide a camera-side checksum, so no end-to-end check against the original card is claimed. Proxy-only jobs explicitly exclude originals."
           }
         }
       }
@@ -2022,6 +2279,36 @@
           "stringUnit": {
             "state": "translated",
             "value": "Give exactly one of value, label or step."
+          }
+        }
+      }
+    },
+    "{事件}": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{Event}"
+          }
+        }
+      }
+    },
+    "{卷号}": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{Roll}"
+          }
+        }
+      }
+    },
+    "{场次}": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{Scene}"
           }
         }
       }
@@ -2318,6 +2605,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "<Roll>"
+          }
+        }
+      }
+    },
+    "〈项目名称〉": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "<Project Name>"
           }
         }
       }
@@ -2790,6 +3087,17 @@
         }
       }
     },
+    "与来源内容核对": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compared with source"
+          }
+        }
+      }
+    },
     "与相机建立加密连接失败：%@": {
       "extractionState": "manual",
       "localizations": {
@@ -2993,6 +3301,28 @@
         }
       }
     },
+    "交接": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Handoff"
+          }
+        }
+      }
+    },
+    "交接备注": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Handoff Notes"
+          }
+        }
+      }
+    },
     "交接备注（可选）": {
       "localizations": {
         "en": {
@@ -3009,6 +3339,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "The handoff file was modified. Keep the existing file and check what Final Cut Pro received."
+          }
+        }
+      }
+    },
+    "交接清单": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Handoff Report"
           }
         }
       }
@@ -3158,7 +3499,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Import only %lld selected files · %lld days"
+            "value": "Import selected only · Files: %lld · Days: %lld"
           }
         }
       }
@@ -3259,6 +3600,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Proxy"
+          }
+        }
+      }
+    },
+    "代理未能链接": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "couldn’t link the proxy"
           }
         }
       }
@@ -3462,6 +3813,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Absolute path of the file to save to (optional)"
+          }
+        }
+      }
+    },
+    "保存结果": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved"
           }
         }
       }
@@ -4376,6 +4738,28 @@
         }
       }
     },
+    "卡档案 %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Card profile %@"
+          }
+        }
+      }
+    },
+    "卡档案 / 来源标识": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Card Profile / Source ID"
+          }
+        }
+      }
+    },
     "卡档案编号": {
       "localizations": {
         "en": {
@@ -4535,6 +4919,27 @@
         }
       }
     },
+    "卷号": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roll"
+          }
+        }
+      }
+    },
+    "卷号未能写入": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "couldn’t write the roll number"
+          }
+        }
+      }
+    },
     "卷标识": {
       "localizations": {
         "en": {
@@ -4545,12 +4950,56 @@
         }
       }
     },
+    "历史备份位置": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Past backup location"
+          }
+        }
+      }
+    },
     "历史导入": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Past Imports"
+          }
+        }
+      }
+    },
+    "历史已校验 %lld / %lld，当前可访问 %lld / %lld": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verified when recorded %lld / %lld, accessible now %lld / %lld"
+          }
+        }
+      }
+    },
+    "历史核验依据来自已保存的记录；导出时仅检查路径可读和文件大小，不重新计算素材内容校验值。同大小的内容变化无法由本次检查发现。离线目标保留过去的核验事实，但当前不可访问不等于可以完成交付。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Past verification comes from saved records. At export, only path readability and file size are checked; media checksums are not recalculated, so content changes that keep the same size are not detected. Offline destinations keep their past verification, but a copy that is not accessible now is not ready for delivery."
+          }
+        }
+      }
+    },
+    "历史记录": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Past record"
           }
         }
       }
@@ -4583,6 +5032,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Compression"
+          }
+        }
+      }
+    },
+    "原文件": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Original"
           }
         }
       }
@@ -5042,6 +5502,17 @@
         }
       }
     },
+    "可访问，大小一致": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accessible, size matches"
+          }
+        }
+      }
+    },
     "可选": {
       "localizations": {
         "en": {
@@ -5180,6 +5651,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Editing Apps"
+          }
+        }
+      }
+    },
+    "后期软件接收记录": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Editing App Delivery"
           }
         }
       }
@@ -5526,6 +6008,16 @@
         }
       }
     },
+    "备份 %lld": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backup %lld"
+          }
+        }
+      }
+    },
     "备份代理 %@": {
       "localizations": {
         "en": {
@@ -5588,6 +6080,17 @@
         }
       }
     },
+    "备份地址": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backup Location"
+          }
+        }
+      }
+    },
     "备份地址：": {
       "localizations": {
         "en": {
@@ -5638,6 +6141,17 @@
         }
       }
     },
+    "备份结果": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backup Result"
+          }
+        }
+      }
+    },
     "备份至 %@：%@": {
       "localizations": {
         "en": {
@@ -5666,6 +6180,17 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "备份记录": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backup Records"
           }
         }
       }
@@ -5814,6 +6339,28 @@
         }
       }
     },
+    "大小已变化": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Size changed"
+          }
+        }
+      }
+    },
+    "大小未记录": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Size not recorded"
+          }
+        }
+      }
+    },
     "大疆 Osmo Pocket 3 等相机：点“连接大疆相机”，Mac 会通过蓝牙找到相机并加入它的 Wi-Fi；首次连接需要在相机屏幕上点“允许”。连接期间 Mac 的 Wi-Fi 无法上网。": {
       "localizations": {
         "en": {
@@ -5861,6 +6408,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Memory Card"
+          }
+        }
+      }
+    },
+    "存储卡 %02d": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Memory Card %02d"
           }
         }
       }
@@ -6082,6 +6639,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Full Date + Event"
+          }
+        }
+      }
+    },
+    "实体文件包含原片、代理及 XML；多次导入按记录累计。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Files include originals, proxies and XML. Multiple imports are counted per record."
           }
         }
       }
@@ -6359,6 +6927,61 @@
         }
       }
     },
+    "导入 %@：包含仅代理素材，未覆盖对应原片。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import %@: includes proxy-only media; the matching originals are not covered."
+          }
+        }
+      }
+    },
+    "导入 %@：本报告仅列所选项目；同批 ASC MHL 可能还包含其他项目。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import %@: this report lists only the selected project; the batch's ASC MHL may also cover other projects."
+          }
+        }
+      }
+    },
+    "导入 %@：没有记录 ASC MHL 校验清单。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import %@: no ASC MHL checksum list was recorded."
+          }
+        }
+      }
+    },
+    "导入 %@：状态为 %@，不按已完成任务交接。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import %@: status is %@; not handed off as a completed job."
+          }
+        }
+      }
+    },
+    "导入 %@：计划备份，但没有记录备份位置。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import %@: backup was planned, but no backup destination was recorded."
+          }
+        }
+      }
+    },
     "导入 %lld 个文件": {
       "localizations": {
         "en": {
@@ -6386,7 +7009,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Import %lld files and proxies for %lld clips"
+            "value": "Import files: %lld · Clip proxies: %lld"
           }
         }
       }
@@ -6423,12 +7046,45 @@
         }
       }
     },
+    "导入与备份记录": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import and Backup Records"
+          }
+        }
+      }
+    },
+    "导入中": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importing"
+          }
+        }
+      }
+    },
     "导入中断": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Import Interrupted"
+          }
+        }
+      }
+    },
+    "导入位置": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import Location"
           }
         }
       }
@@ -6706,12 +7362,33 @@
         }
       }
     },
+    "导入时 Resolve 项目已切换，未向其他项目发送素材；可重试。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Resolve project changed during import. No media was sent to the other project; you can retry."
+          }
+        }
+      }
+    },
     "导入时同时备份": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Back up while importing"
+          }
+        }
+      }
+    },
+    "导入时间（UTC）": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imported (UTC)"
           }
         }
       }
@@ -6772,6 +7449,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Import Media"
+          }
+        }
+      }
+    },
+    "导入编号": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import ID"
           }
         }
       }
@@ -6842,6 +7530,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "The import history is missing content."
+          }
+        }
+      }
+    },
+    "导入设备": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import Devices"
           }
         }
       }
@@ -6932,6 +7631,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "The system didn't recognize the exported file as a Live Photo."
+          }
+        }
+      }
+    },
+    "导出时检查文件可读性及大小；本报告不重新核验内容。缩略图与视频抽帧仅用于识别素材，不表示已完成画面或声音 QC。详细范围说明见 README.txt。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "At export, files were checked for readability and size only; this report does not re-verify content. Thumbnails and video frames are for identifying media only and do not mean picture or sound QC was done. See README.txt for the full scope."
+          }
+        }
+      }
+    },
+    "导出时间（UTC）": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exported (UTC)"
           }
         }
       }
@@ -7138,6 +7859,17 @@
         }
       }
     },
+    "工作位置": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Working location"
+          }
+        }
+      }
+    },
     "工作流程": {
       "localizations": {
         "en": {
@@ -7154,6 +7886,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Near ← → Far"
+          }
+        }
+      }
+    },
+    "已中断": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interrupted"
           }
         }
       }
@@ -7595,6 +8338,17 @@
         }
       }
     },
+    "已结束": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finished"
+          }
+        }
+      }
+    },
     "已记录 %@ 条": {
       "localizations": {
         "en": {
@@ -7871,6 +8625,17 @@
         }
       }
     },
+    "当前不可访问": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not accessible now"
+          }
+        }
+      }
+    },
     "当前使用代理视频，导出画质以代理为准。": {
       "localizations": {
         "en": {
@@ -8085,6 +8850,17 @@
         }
       }
     },
+    "待处理与未覆盖项": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open and Uncovered Items"
+          }
+        }
+      }
+    },
     "待备份": {
       "localizations": {
         "en": {
@@ -8205,6 +8981,16 @@
         }
       }
     },
+    "所选一次导入（仅此项目）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selected import (this project only)"
+          }
+        }
+      }
+    },
     "所选导入": {
       "localizations": {
         "en": {
@@ -8221,6 +9007,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "The selected clip range is invalid. Set the in and out points again."
+          }
+        }
+      }
+    },
+    "所选范围没有可导出的项目导入记录。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The selected scope has no project import records to export."
+          }
+        }
+      }
+    },
+    "所选范围记录完整": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Records complete for the selected scope"
           }
         }
       }
@@ -8272,6 +9080,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Open PDF"
+          }
+        }
+      }
+    },
+    "打开 report.pdf 查看交接记录、照片缩略图与按卷号编排的视频胶片清单；files.csv 是完整文件与目标副本清单，manifest.json 保留结构化原始字段。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open report.pdf for the handoff records, photo thumbnails and video filmstrips by roll. files.csv lists every file and destination copy; manifest.json keeps the structured raw fields."
           }
         }
       }
@@ -8359,6 +9178,28 @@
         }
       }
     },
+    "报告只涵盖所选项目的导入记录，不代表已扫描或完整拷贝整张存储卡。导入项可包含重复尝试；文件数、字节及已知时长按这些记录累计，不能当作项目去重统计。未记录的拍摄参数留空，不从当前偏好补写历史。源拍摄日期原文保留在 CaptureDateRaw，UTC 字段为导入时已解析的时间，不是机身时钟已经校准的证明。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This report covers only the import records of the selected project. It does not mean the whole memory card was scanned or fully copied. Import items can include repeated attempts; file counts, bytes and known durations add up these records and are not deduplicated project totals. Shooting parameters that were not recorded are left blank and are not filled in from current preferences. The original capture date text is kept in CaptureDateRaw; UTC fields are the times parsed at import, not proof that the camera clock was set correctly."
+          }
+        }
+      }
+    },
+    "报告编号": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Report ID"
+          }
+        }
+      }
+    },
     "拉焦 %@": {
       "localizations": {
         "en": {
@@ -8411,6 +9252,17 @@
         }
       }
     },
+    "拍摄信息": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shooting metadata"
+          }
+        }
+      }
+    },
     "拍摄后自动导入当前项目": {
       "localizations": {
         "en": {
@@ -8437,6 +9289,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Camera Model"
+          }
+        }
+      }
+    },
+    "拍摄标记未能加入": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "couldn’t add the Shot Mark"
           }
         }
       }
@@ -9201,6 +10063,17 @@
         }
       }
     },
+    "数量": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Count"
+          }
+        }
+      }
+    },
     "整个项目": {
       "localizations": {
         "en": {
@@ -9211,12 +10084,44 @@
         }
       }
     },
+    "整个项目的已记录导入": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All recorded imports in the project"
+          }
+        }
+      }
+    },
+    "整理人": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prepared By"
+          }
+        }
+      }
+    },
     "整理人（可选）": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Prepared By (optional)"
+          }
+        }
+      }
+    },
+    "整理卷号为 MiniDiT 记录的卷号；卡档案编号不是存储卡硬件序列号。目标副本路径数量不代表物理磁盘独立性，也不代表异地备份。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rolls are the roll names recorded by MiniDiT. Card profile IDs are not memory card hardware serial numbers. The number of destination copy paths does not mean the copies are on independent physical disks or stored off-site."
           }
         }
       }
@@ -9321,6 +10226,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "The file can't be accessed. Connect the original storage location and try again: %@"
+          }
+        }
+      }
+    },
+    "文件未保存": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File not saved"
           }
         }
       }
@@ -9482,6 +10398,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "none"
+          }
+        }
+      }
+    },
+    "无可用预览": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No preview"
           }
         }
       }
@@ -9681,6 +10608,16 @@
         }
       }
     },
+    "无法打开 Resolve 项目“%@”，未导入素材。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Can’t open the Resolve project “%@”. No media was imported."
+          }
+        }
+      }
+    },
     "无法打开导入记录。": {
       "localizations": {
         "en": {
@@ -9749,6 +10686,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Can't play: %@"
+          }
+        }
+      }
+    },
+    "无法新建 Resolve 项目“%@”，未导入素材。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Can’t create the Resolve project “%@”. No media was imported."
           }
         }
       }
@@ -10024,6 +10971,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Date folders preview with the selected date; imports use each file's capture date."
+          }
+        }
+      }
+    },
+    "旧记录，无完整核验依据": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Legacy record, no full verification"
           }
         }
       }
@@ -10474,6 +11432,17 @@
         }
       }
     },
+    "有待处理或未覆盖项": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Has open or uncovered items"
+          }
+        }
+      }
+    },
     "有星级或 Shot Mark": {
       "extractionState": "manual",
       "localizations": {
@@ -10502,6 +11471,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Not Saved"
+          }
+        }
+      }
+    },
+    "未保存 · %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not saved · %@"
           }
         }
       }
@@ -10542,6 +11522,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Backup not enabled"
+          }
+        }
+      }
+    },
+    "未命名": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Untitled"
           }
         }
       }
@@ -10698,6 +11688,17 @@
         }
       }
     },
+    "未核验": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not verified"
+          }
+        }
+      }
+    },
     "未知原因": {
       "extractionState": "manual",
       "localizations": {
@@ -10842,6 +11843,28 @@
         }
       }
     },
+    "未记录副本": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No copy recorded"
+          }
+        }
+      }
+    },
+    "未记录卷号": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Roll Recorded"
+          }
+        }
+      }
+    },
     "未设置": {
       "localizations": {
         "en": {
@@ -10912,6 +11935,28 @@
         }
       }
     },
+    "未附入：%@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not included: %@"
+          }
+        }
+      }
+    },
+    "本地副本读回核对": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local copy read back"
+          }
+        }
+      }
+    },
     "本地控制消息超过大小限制。": {
       "extractionState": "manual",
       "localizations": {
@@ -10951,6 +11996,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Local Folder"
+          }
+        }
+      }
+    },
+    "本报告不执行画面、声音、同步、色彩或整卡目录结构 QC，也不自动授权清卡；整理人和备注为用户填写，不等于接收方签字。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This report does not perform picture, sound, sync, color or card folder structure QC, and does not authorize formatting cards. Prepared By and notes are entered by the user and are not a recipient's sign-off."
           }
         }
       }
@@ -10995,6 +12051,17 @@
         }
       }
     },
+    "本次范围未配置额外备份目标。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No additional backup destinations were configured for this scope."
+          }
+        }
+      }
+    },
     "机身序列号": {
       "localizations": {
         "en": {
@@ -11011,6 +12078,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Source"
+          }
+        }
+      }
+    },
+    "来源 %lld": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source %lld"
           }
         }
       }
@@ -11051,6 +12128,27 @@
           "stringUnit": {
             "state": "translated",
             "value": "Source Profile"
+          }
+        }
+      }
+    },
+    "来源记录": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sources"
+          }
+        }
+      }
+    },
+    "来源路径未提供": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source path not provided"
           }
         }
       }
@@ -11179,12 +12277,55 @@
         }
       }
     },
+    "标记位置已被使用，保留了原标记": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "marker position already in use; kept the existing marker"
+          }
+        }
+      }
+    },
     "校验 %@": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Verifying %@"
+          }
+        }
+      }
+    },
+    "校验时间（UTC）": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verified (UTC)"
+          }
+        }
+      }
+    },
+    "校验材料未附入：%@；%@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checksum file not included: %@; %@"
+          }
+        }
+      }
+    },
+    "校验材料缺少 ASC MHL 历史链：%@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checksum files lack the ASC MHL history chain: %@"
           }
         }
       }
@@ -12272,6 +13413,17 @@
         }
       }
     },
+    "没有已保存的文件记录": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no saved file record"
+          }
+        }
+      }
+    },
     "没有待续传任务。": {
       "localizations": {
         "en": {
@@ -12808,6 +13960,17 @@
         }
       }
     },
+    "照片清单": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Photo List"
+          }
+        }
+      }
+    },
     "照片直接存入同名 Capture One 会话的 Capture 文件夹。": {
       "localizations": {
         "en": {
@@ -13154,6 +14317,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Folder must be an absolute path."
+          }
+        }
+      }
+    },
+    "目标 %@ 的校验清单未完成：%@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checksum list for destination %@ is incomplete: %@"
           }
         }
       }
@@ -13886,6 +15060,17 @@
         }
       }
     },
+    "磁盘身份不符": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disk identity mismatch"
+          }
+        }
+      }
+    },
     "示例：%@": {
       "localizations": {
         "en": {
@@ -14006,6 +15191,16 @@
         }
       }
     },
+    "第%lld场": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scene %lld"
+          }
+        }
+      }
+    },
     "等待 Lightroom Classic 添加 %lld 个文件…": {
       "localizations": {
         "en": {
@@ -14075,6 +15270,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Filter"
+          }
+        }
+      }
+    },
+    "算法：XXH64。CSV 保留每个实体文件、每份目标副本的路径、校验值与核验记录。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Algorithm: XXH64. The CSV keeps the path, checksum and verification record of every file and every destination copy."
           }
         }
       }
@@ -14176,6 +15382,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Media ID out of range."
+          }
+        }
+      }
+    },
+    "素材不可访问或无法生成预览": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Media not accessible or no preview available"
           }
         }
       }
@@ -14375,12 +15592,33 @@
         }
       }
     },
+    "缺少有效核验记录": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No valid verification record"
+          }
+        }
+      }
+    },
     "联机拍摄": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Tethered Shooting"
+          }
+        }
+      }
+    },
+    "联机拍摄 · ": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tether · "
           }
         }
       }
@@ -14411,6 +15649,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Tethered Shooting (Sony): turn on “PC Remote” on the camera, then right-click the camera under Available Devices and choose “Tethered Shooting”, or connect and click “Tethered Shooting” at the top of the browser. Photos you take are imported into the current project automatically."
+          }
+        }
+      }
+    },
+    "联机缓存 · ": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tether Cache · "
           }
         }
       }
@@ -15104,6 +16352,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Absolute path of the video root folder"
+          }
+        }
+      }
+    },
+    "视频清单": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Video List"
           }
         }
       }
@@ -15952,6 +17211,16 @@
         }
       }
     },
+    "输入色彩空间设置失败": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "couldn’t set the input color space"
+          }
+        }
+      }
+    },
     "返回": {
       "localizations": {
         "en": {
@@ -16780,6 +18049,16 @@
         }
       }
     },
+    "部分素材加入时出现错误：": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some media couldn’t be added: "
+          }
+        }
+      }
+    },
     "配对完成后相机重启了 Wi-Fi，未能重新连上。请确认 Mac 仍连着相机的网络后重试。": {
       "extractionState": "manual",
       "localizations": {
@@ -17157,6 +18436,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Shade"
+          }
+        }
+      }
+    },
+    "附带的 ASC MHL 目录保留可取得的历史链及清单，未修改其中的路径或校验事实。其相对路径基于原素材目标根目录，报告文件夹不包含素材；在素材根目录中使用兼容工具复核。清单不可取得时会明确列出，不重新编造。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The included ASC MHL folders keep the history chain and manifests that were available, with paths and checksums unchanged. Their relative paths are based on the original destination root; the report folder contains no media, so re-check with a compatible tool in the media root. Manifests that could not be obtained are listed explicitly and are never recreated."
           }
         }
       }
@@ -18082,6 +19372,17 @@
         }
       }
     },
+    "；其中 %lld 项仅导代理": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "; %lld proxy only"
+          }
+        }
+      }
+    },
     "；因未备份，存储卡上的文件均已保留": {
       "localizations": {
         "en": {
@@ -18118,6 +19419,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "; saved %@, will resume when you continue"
+          }
+        }
+      }
+    },
+    "；恢复原设置失败：": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "; restoring the original settings failed: "
           }
         }
       }

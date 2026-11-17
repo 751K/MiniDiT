@@ -43,6 +43,23 @@ enum ImportFolderLayout: String, CaseIterable, Identifiable {
     }
 }
 
+extension ProjectMedia {
+    /// 新建分类文件夹（备份盘上的「照片」「视频」）时用的名字：界面语言。
+    var folderName: String { self == .photos ? String(localized: "照片") : String(localized: "视频") }
+    /// 认得的分类文件夹名：界面语言、旧版本的中文和英文。
+    var folderNames: [String] {
+        var names = [folderName]
+        for n in self == .photos ? ["照片", "Photos"] : ["视频", "Videos"] where !names.contains(n) { names.append(n) }
+        return names
+    }
+    /// `parent` 下这一类素材的文件夹：已有（任一语言）的沿用，没有时按界面语言新建。
+    func folder(in parent: URL) -> URL {
+        let fm = FileManager.default
+        let name = folderNames.first { fm.fileExists(atPath: parent.appending(path: $0).path) } ?? folderName
+        return parent.appending(path: name, directoryHint: .isDirectory)
+    }
+}
+
 /// 一批导入使用同一份路径规则，界面预览和实际拷贝共用。
 @MainActor
 struct ImportOrganization {
@@ -61,26 +78,29 @@ struct ImportOrganization {
         let layout = video ? videos : photos
         let template = video ? videoTemplate : photoTemplate
         let day = AppModel.dayKey(item)
-        let relative: String
-        switch layout {
-        case .session:
-            relative = sessionName ?? NameTemplate.render(sessionTemplate, allowsFolders: false,
-                                                          day: day, event: event, scene: scene)
-        case .date:
-            relative = NameTemplate.render("{YYYY}-{MM}-{DD}", allowsFolders: false,
-                                           day: day, event: nil, scene: nil)
-        case .flat:
-            relative = ""
-        case .custom:
-            relative = NameTemplate.render(template, allowsFolders: true, day: day,
-                                           event: event, scene: scene, roll: roll)
+        // 按界面语言生成；旧版中文名的文件夹已存在时沿用。
+        func named(_ legacy: Bool) -> String {
+            switch layout {
+            case .session:
+                sessionName ?? NameTemplate.render(sessionTemplate, allowsFolders: false,
+                                                   day: day, event: event, scene: scene, legacy: legacy)
+            case .date:
+                NameTemplate.render("{YYYY}-{MM}-{DD}", allowsFolders: false,
+                                    day: day, event: nil, scene: nil, legacy: legacy)
+            case .flat:
+                ""
+            case .custom:
+                NameTemplate.render(template, allowsFolders: true, day: day,
+                                    event: event, scene: scene, roll: roll, legacy: legacy)
+            }
         }
+        let relative = NameTemplate.existing(named(false), legacy: named(true), in: root)
         var result = root
         // 文件夹规则不能通过 "." / ".." 跳出用户选择的根目录。
         for part in relative.split(separator: "/") where part != "." && part != ".." {
             result.append(path: String(part), directoryHint: .isDirectory)
         }
-        if video, splitVideoByRoll, !(layout == .custom && template.contains("{卷号}")), let roll {
+        if video, splitVideoByRoll, !(layout == .custom && NameTemplate.uses(.roll, in: template)), let roll {
             result.append(path: NameTemplate.sanitize(roll), directoryHint: .isDirectory)
         }
         return result
@@ -89,7 +109,7 @@ struct ImportOrganization {
     static func mirroredBackup(root: URL, primaryFolder: URL, primaryRoot: URL, video: Bool) -> URL {
         let base = primaryRoot.standardizedFileURL.pathComponents
         let folder = primaryFolder.standardizedFileURL.pathComponents
-        var result = root.appending(path: video ? "视频" : "照片", directoryHint: .isDirectory)
+        var result = (video ? ProjectMedia.videos : .photos).folder(in: root)
         guard folder.starts(with: base) else { return result }
         for part in folder.dropFirst(base.count) { result.append(path: part, directoryHint: .isDirectory) }
         return result
@@ -142,10 +162,10 @@ extension AppModel {
         let root = item.kind == .video ? videoDestination : destination
         let dir: URL
         if item.kind != .video, captureOneMode == .newSession {
-            dir = sessionsFolder.appending(path: session?.name ?? "〈项目名称〉", directoryHint: .isDirectory)
+            dir = sessionsFolder.appending(path: session?.name ?? String(localized: "〈项目名称〉"), directoryHint: .isDirectory)
                 .appending(path: "Capture", directoryHint: .isDirectory)
         } else {
-            dir = importOrganization.folder(for: item, root: root, sessionName: session?.name ?? "〈项目名称〉",
+            dir = importOrganization.folder(for: item, root: root, sessionName: session?.name ?? String(localized: "〈项目名称〉"),
                                             event: session?.event, roll: roll)
         }
         let folders = sourceFolders()

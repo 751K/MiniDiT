@@ -15,7 +15,7 @@ public final class ICPassthroughDevice: PTPPassthroughDevice, @unchecked Sendabl
 
     private init(camera: ICCameraDevice) { self.camera = camera }
 
-    public var name: String { camera.name ?? "USB 相机" }
+    public var name: String { camera.name ?? String(localized: "USB 相机", bundle: .miniDiT) }
 
     /// 打开会话（系统层面的；相机上的 PTP 会话由 ptpcamerad 管）。
     @MainActor

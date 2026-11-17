@@ -39,6 +39,8 @@ files=[str(p) for p in sorted(objects.glob('*.o')) if p.name != 'MiniDiTApp.o']
 source=os.environ['FEATURE_SOURCE']
 cmd=['xcrun','swiftc','-parse-as-library','-swift-version','6','-module-name','MiniDiTFeatureChecks',
      '-I',str(product),'-I',str(root/'Vendor/CLibssh2.xcframework/macos-arm64/Headers'),
+     # App 链接了 Sparkle（自动更新）：检查程序也要能找到并加载它。
+     '-F',str(product),'-framework','Sparkle','-Xlinker','-rpath','-Xlinker',str(product),
      str(root/'Tests/AppFeatureChecks'/source),*files,
      str(product/'SonyRemoteKit.o'),str(product/'MiniDiTCore.o'),
      str(root/'Vendor/CLibssh2.xcframework/macos-arm64/libCLibssh2.a'),
