@@ -91,6 +91,12 @@ public enum SonyFormat {
         case 0x0008_8085: "S&Q A"
         case 0x0008_8086: "S&Q S"
         case 0x0008_8087: "S&Q M"
+        // α7 V 实测：远程写 0xC8093 后回读为 Interval P（在 SDK 里叫 Movie_IntervalRec）。
+        case 0x000C_8093: "间隔录像 P"
+        case 0x000C_8094: "间隔录像 A"
+        case 0x000C_8095: "间隔录像 S"
+        case 0x000C_8096: "间隔录像 M"
+        case 0x000C_8097: "间隔录像 智能自动"
         case 0x0000_8070: "照片效果"
         case 0x0000_8020: "调出记忆"
         default:
@@ -115,16 +121,24 @@ public enum SonyFormat {
         case 0xD1A2: return [1: "关", 2: "自动", 3: "弱"][v]
         case 0xD1A3, 0xD1A4: return [1: "关", 2: "自动"][v]
         case 0xD135: return [1: "S", 2: "M", 3: "L"][v]
-        // 触摸功能（SDK CrFunctionOfTouchOperation；α7 V 列出 1、5、8–11，没有单独的触摸快门）。
+        case 0xD15F: return [1: "卡槽 1", 2: "卡槽 2", 257: "同时记录", 258: "分类记录"][v]
+        // 触摸功能（SDK CrFunctionOfTouchOperation；α7 V 列出 1、5、8–11，名称已和机身核对，没有单独的触摸快门）。
         case 0xD283: return [1: "关", 2: "触摸快门", 3: "触摸对焦", 4: "触摸跟踪", 5: "触摸 AE", 6: "触摸快门 + AE",
                              7: "触摸快门", 8: "触摸对焦 + AE", 9: "触摸对焦", 10: "触摸跟踪 + AE", 11: "触摸跟踪"][v]
         case 0xD23F: return v == 0 ? "关" : nil
         case 0xD04D: return [1: "关", 2: "开"][v]
+        // 间隔录像的拍摄间隔：取值就是秒数（α7 V 实测 5 = 机身显示 5 秒）。
+        case 0xD055: return "\(v) 秒"
         case 0xE000: return [1: "关", 0x501: "开（Flexible ISO）"][v]
         case 0xD0E9: return v == 7 ? "黑白" : nil
         case 0xD03C:
             let i = v & 0xFF
-            switch v >> 8 { case 0: return "预设 \(i)"; case 1: return "用户 \(i)"; case 2: return "场景文件 \(i)"; default: return nil }
+            switch v >> 8 {
+            case 0: return SonyPropertyCatalog.basePresets[i] ?? "预设 \(i)"
+            case 1: return "用户 \(i)"
+            case 2: return "场景文件 \(i)"
+            default: return nil
+            }
         // 褪色、锐度、锐度范围、清晰度没有负值：不加「+」。
         case 0xD0FE, 0xD100, 0xD101, 0xD102: return "\(v)"
         default: return nil

@@ -84,23 +84,39 @@ extension TetherSession {
 
     /// 现在的对焦距离（录像模式用跟焦且相机给了换算表时才有）。
     var focusDistanceText: String? {
-        guard focusControl?.setCode == 0xE088, let t = distanceTable, let v = focusShown, let m = t.meters(at: v) else { return nil }
+        guard let c = focusControl, let t = distanceTable else { return nil }
+        // 录像模式按跟焦刻度（拖动时用目标值）；拍照模式调的是绝对位置，刻度不同，
+        // 但相机仍报告跟焦的当前位置 0xE089，用它查表（跟着镜头走，拖动时略有滞后）。
+        let v = c.setCode == 0xE088 ? focusShown : properties[0xE089]?.intValue
+        guard let v, let m = t.meters(at: v) else { return nil }
         return LensDistanceTable.text(m)
     }
 
-    /// 换算表只在录像模式、0xE086 = 1 时可读：条件满足且还没读过就读一次，不满足时清掉（换镜头、换模式后重读）。
+    private var lensName: String? {
+        if case let .string(s)? = properties[0xD07B]?.current, !s.isEmpty { return s }
+        return nil
+    }
+
+    private static func distanceTableKey(_ lens: String) -> String { "lensDistanceTable." + lens }
+
+    /// 换算表只在录像模式、0xE086 = 1 时可读：条件满足且还没读过就读一次，读到后按镜头型号存下来。
+    /// 拍照模式读不到，用这支镜头上次在录像模式读到的表（没读过就不显示距离）。换镜头、换模式后重读。
     func updateDistanceTable() {
+        let lens = lensName
         let usable = properties[0xE086]?.intValue == 1 && focusControl?.setCode == 0xE088
         guard usable else {
-            if distanceTable != nil { distanceTable = nil }
             distanceTableState = 0
+            let cached = lens.flatMap { UserDefaults.standard.data(forKey: Self.distanceTableKey($0)) }.flatMap(LensDistanceTable.parse)
+            if distanceTable != cached { distanceTable = cached }
             return
         }
         guard distanceTableState == 0 else { return }
         distanceTableState = 1
         Task {
             let data = try? await lensInformationRaw(type: 2)
-            distanceTable = data.flatMap(LensDistanceTable.parse)
+            let table = data.flatMap(LensDistanceTable.parse)
+            if let data, table != nil, let lens { UserDefaults.standard.set(data, forKey: Self.distanceTableKey(lens)) }
+            distanceTable = table
             distanceTableState = 2
         }
     }
@@ -226,7 +242,7 @@ extension TetherSession {
     }
 
     static func modeTitle(_ m: SonyPropertyCatalog.ShootingMode) -> String {
-        switch m { case .photo: "拍照"; case .movie: "录像"; case .sq: "S&Q" }
+        switch m { case .photo: "拍照"; case .movie: "录像"; case .sq: "S&Q"; case .interval: "间隔录像" }
     }
 
     // MARK: 远程取白

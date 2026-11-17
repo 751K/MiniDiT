@@ -46,7 +46,9 @@ public enum SonyPropertyCatalog {
         0x500E: [1: "M", 2: "P", 3: "A", 4: "S",
                  0x48000: "Auto", 0x10002: "P", 0x20003: "A", 0x30004: "S",
                  0x78054: "Movie Auto", 0x78050: "Movie P", 0x78051: "Movie A", 0x78052: "Movie S", 0x78053: "Movie M",
-                 0x9805D: "S&Q Auto", 0x98059: "S&Q P", 0x9805A: "S&Q A", 0x9805B: "S&Q S", 0x9805C: "S&Q M"],
+                 0x9805D: "S&Q Auto", 0x98059: "S&Q P", 0x9805A: "S&Q A", 0x9805B: "S&Q S", 0x9805C: "S&Q M",
+                 // 间隔录像（SDK CrExposure_Movie_IntervalRec_*，0x8093–0x8097）：α7 V 实测写 0xC8093 回读为 Interval P。
+                 0xC8097: "Interval Auto", 0xC8093: "Interval P", 0xC8094: "Interval A", 0xC8095: "Interval S", 0xC8096: "Interval M"],
         0x5013: [1: "Single"],
         // Creative Look：1–12 按菜单顺序（SKAARHOJ 的 SDK 控制表 1 ST、2 PT、3 NT 与之吻合），257–262 为自定义外观 1–6（SDK 偏移 256）。
         0xD0FA: [1: "ST", 2: "PT", 3: "NT", 4: "VV", 5: "VV2", 6: "FL", 7: "IN", 8: "SH", 9: "BW", 10: "SE", 11: "FL2", 12: "FL3",
@@ -59,6 +61,8 @@ public enum SonyPropertyCatalog {
         0xD15E: [1: "sRGB", 2: "AdobeRGB"],
         // 取白框大小（libgphoto2 / SDK：1 S、2 M、3 L）。
         0xD135: [1: "S", 2: "M", 3: "L"],
+        // 记录媒体：α7 V 实测 1 只记录到卡槽 1、2 只记录到卡槽 2、257 同时记录、258 分类记录。
+        0xD15F: [1: "Slot1", 2: "Slot2", 257: "Simultaneous", 258: "Sort"],
         // 图片配置文件：和 SDK 的 CrPictureProfile 一致（α7 V 列出 0、1–6、10、11、0x41–0x44，没有 PP7–9）。
         0xD23F: pictureProfile,
         // 伽马、色彩模式：和 SDK 一致，α7 V 实测 0x303 = S-Log3、8 = S-Gamut3.Cine（改 PP1 后对照机身菜单）。没有 S-Log2。
@@ -71,15 +75,15 @@ public enum SonyPropertyCatalog {
         // Log 拍摄（α7 V 用 0xE000 MovieShootingMode，只在 0x9209 带扩展参数时报告）：1 关、0x501 Flexible ISO（SDK CrLogShootingMode）。
         0xE000: [1: "Off", 0x501: "FlexibleISO"],
         0xE001: [1: "S-Gamut3.Cine", 2: "S-Gamut3"],
-        // 触摸功能（SDK CrFunctionOfTouchOperation，从 1 开始）。α7 V 列出 {9, 8, 11, 10, 5, 1}，当时是 11。
+        // 触摸功能（SDK CrFunctionOfTouchOperation，从 1 开始）。α7 V 列出 {9, 8, 11, 10, 5, 1}，名称已和机身核对。
         0xD283: [1: "Off", 2: "Shutter", 3: "Focus", 4: "Tracking", 5: "AE", 6: "ShutterAE", 7: "ShutterNoAE",
                  8: "FocusAE", 9: "FocusNoAE", 10: "TrackingAE", 11: "TrackingNoAE"],
         0xD222: [0x01: "PC", 0x10: "Card", 0x11: "Card+PC"],
         0xD25A: [0: "Camera", 1: "PC"],
         // α7 V 实测（改菜单前后对比）：RAW = 1、RAW+HEIF = 4；HEIF = 5 与 SDK 和 0xD269 一致。全局与分卡槽的属性同一套值。
-        // 压缩格式选 JPEG（0xD287 = 1）时的取值未测。
+        // 压缩格式选 JPEG（0xD287 = 1）时可选 {1 RAW, 3 JPEG}（实测 3 在机身上显示 JPEG）。
         0xD253: fileType, 0xD28B: fileType, 0xD28C: fileType,
-        // 画质：实测「超精细」= 1、「精细」= 2、「标准」= 3（4 = 轻量，由排除法），和 SDK 的 CrImageQuality（1 = 轻量）正好相反。
+        // 画质：实测「超精细」= 1、「精细」= 2、「标准」= 3、「轻量」= 4，和 SDK 的 CrImageQuality（1 = 轻量）正好相反。
         0xD252: quality, 0xD28D: quality, 0xD28E: quality,
         // 图像尺寸：实测 M = 2、S = 3，与 SDK 一致。
         0xD203: [1: "L", 2: "M", 3: "S"], 0xD28F: [1: "L", 2: "M", 3: "S"], 0xD290: [1: "L", 2: "M", 3: "S"],
@@ -97,6 +101,9 @@ public enum SonyPropertyCatalog {
         // S&Q 的记录帧率、录像设置：SDK 里和录像用同一套枚举。
         0xD0D0: movieFrameRate,
         0xD0D1: movieRecordingSetting,
+        // 间隔录像的记录帧率、录像设置：α7 V 在间隔录像下列出的取值（10/8、46…64）和录像的一致，按同一套枚举。
+        0xD151: movieFrameRate,
+        0xD152: movieRecordingSetting,
     ]
 
     static let movieFrameRate: [Int64: String] = [1: "120p", 2: "100p", 3: "60p", 4: "50p", 5: "30p", 6: "25p", 7: "24p",
@@ -119,6 +126,8 @@ public enum SonyPropertyCatalog {
         return Dictionary(uniqueKeysWithValues: names.enumerated().map { (Int64($0.offset + 1), $0.element) })
     }()
 
+    static let basePresets: [Int64: String] = [1: "S-Log3", 2: "s709", 3: "709(800%)"]
+
     static let pictureProfile: [Int64: String] = {
         var m: [Int64: String] = [0: "Off"]
         for i in 1...11 { m[Int64(i)] = "PP\(i)" }
@@ -126,7 +135,8 @@ public enum SonyPropertyCatalog {
         return m
     }()
 
-    static let fileType: [Int64: String] = [1: "RAW", 4: "RAW+HEIF", 5: "HEIF"]
+    /// 文件格式：α7 V 实测 1 RAW、2 RAW+JPEG、3 JPEG、4 RAW+HEIF、5 HEIF（RAW+JPEG 只在统一记录时列出）。
+    static let fileType: [Int64: String] = [1: "RAW", 2: "RAW+JPEG", 3: "JPEG", 4: "RAW+HEIF", 5: "HEIF"]
     static let quality: [Int64: String] = [1: "ExFine", 2: "Fine", 3: "Standard", 4: "Light"]
     static let rawCompression: [Int64: String] = [6: "Lossless", 7: "CompressedHQ", 1: "Compressed"]
 
@@ -146,7 +156,8 @@ public enum SonyPropertyCatalog {
         // Base Look：高字节是类型（0 预设、1 用户、2 场景文件、0x80 临时），低字节是序号。
         case 0xD03C:
             let i = v & 0xFF
-            switch v >> 8 { case 0: return "Preset\(i)"; case 1: return "User\(i)"; case 2: return "Scene\(i)"; default: return nil }
+            // α7 V 实测预设：1 S-Log3（不套 LUT）、2 s709、3 709(800%)。
+            switch v >> 8 { case 0: return basePresets[i] ?? "Preset\(i)"; case 1: return "User\(i)"; case 2: return "Scene\(i)"; default: return nil }
         case 0xD218: return v < 0 ? nil : "\(v)%"
         case 0xD21C, 0xD210: return colorTuning(code, v)
         default: return signedIntegers.contains(code) ? (v > 0 ? "+\(v)" : "\(v)") : nil
@@ -189,13 +200,15 @@ public enum SonyPropertyCatalog {
 
     // MARK: 拍照 / 录像
 
-    public enum ShootingMode: String, Sendable, CaseIterable { case photo, movie, sq }
+    public enum ShootingMode: String, Sendable, CaseIterable { case photo, movie, sq, interval }
 
     /// 各模式组里的曝光模式值（照片的 P/A/S 另收旧机型的 2/3/4）。
     static let exposureGroups: [ShootingMode: [String: [Int64]]] = [
         .photo: ["auto": [0x48000], "p": [0x10002, 2], "a": [0x20003, 3], "s": [0x30004, 4], "m": [1]],
         .movie: ["auto": [0x78054], "p": [0x78050], "a": [0x78051], "s": [0x78052], "m": [0x78053]],
         .sq: ["auto": [0x9805D], "p": [0x98059], "a": [0x9805A], "s": [0x9805B], "m": [0x9805C]],
+        // 间隔录像（视频延时，直接出成片）：α7 V 实测远程写 0xC8093 后回读为 Interval P。
+        .interval: ["auto": [0xC8097], "p": [0xC8093], "a": [0xC8094], "s": [0xC8095], "m": [0xC8096]],
     ]
 
     /// 曝光模式值 → (拍照 / 录像, 曝光字母 auto/p/a/s/m)。不认识的返回 nil。

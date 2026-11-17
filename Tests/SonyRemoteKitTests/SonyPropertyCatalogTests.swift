@@ -41,6 +41,10 @@ import FakeSonyCamera
         #expect(SonyPropertyCatalog.parse(0xD21C, "A2", allowed: []) == 200 && SonyPropertyCatalog.parse(0xD210, "M0.25", allowed: []) == 191)
         #expect(SonyPropertyCatalog.parse(0xD210, "G7", allowed: []) == 220 && SonyPropertyCatalog.parse(0xD21C, "0", allowed: []) == 192)
         #expect(SonyPropertyCatalog.parse(0xD253, "RAW+HEIF", allowed: [1, 4, 5]) == 4)
+        // α7 V 实测：压缩格式为 JPEG 时 3 = JPEG；画质 4 = 轻量；Base Look 预设 1 = S-Log3、3 = 709(800%)。
+        #expect(SonyPropertyCatalog.label(0xD28B, 3) == "JPEG" && SonyPropertyCatalog.label(0xD28D, 4) == "Light")
+        #expect(SonyPropertyCatalog.label(0xD253, 2) == "RAW+JPEG" && SonyFormat.settingLabel(0xD15F, 258) == "分类记录")
+        #expect(SonyFormat.settingLabel(0xD03C, 1) == "S-Log3" && SonyPropertyCatalog.label(0xD03C, 3) == "709(800%)")
         #expect(SonyPropertyCatalog.parse(0xD252, "ExFine", allowed: [1, 2, 3, 4]) == 1)
     }
 
@@ -146,7 +150,7 @@ import FakeSonyCamera
         // α7 V 实测：PP1 的伽马 0x303、色彩模式 8 在机身上显示 S-Log3 / S-Gamut3.Cine。
         #expect(SonyPropertyCatalog.label(0xD0E1, 0x303) == "S-Log3" && SonyPropertyCatalog.label(0xD0E9, 8) == "S-Gamut3.Cine")
         #expect(SonyPropertyCatalog.label(0xD23F, 11) == "PP11" && SonyPropertyCatalog.label(0xD23F, 0x42) == "PP-LUT2")
-        #expect(SonyFormat.settingLabel(0xD23F, 0) == "关" && SonyFormat.settingLabel(0xD03C, 257) == "用户 1" && SonyFormat.settingLabel(0xD03C, 2) == "预设 2")
+        #expect(SonyFormat.settingLabel(0xD23F, 0) == "关" && SonyFormat.settingLabel(0xD03C, 257) == "用户 1" && SonyFormat.settingLabel(0xD03C, 2) == "s709")
         #expect(SonyPropertyCatalog.label(0xD03C, 0x0105) == "User5" && SonyPropertyCatalog.label(0xD052, 120) == "120fps")
         #expect(SonyFormat.settingLabel(0xE000, 0x501) == "开（Flexible ISO）" && SonyPropertyCatalog.label(0xE001, 1) == "S-Gamut3.Cine")
     }
