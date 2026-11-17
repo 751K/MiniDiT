@@ -2,7 +2,9 @@
 
 MiniDiT 是一个 Mac 应用，用来把相机里的照片和视频导进电脑：通过 Wi-Fi、USB 或读卡器连上相机，挑好素材，导进项目文件夹，顺便备份、校验，再交给 Capture One、Lightroom Classic、DaVinci Resolve 等后期软件。
 
-> 现在是 0.1，主要在索尼 α7 V 上用过。佳能、富士、尼康和大疆的存储卡可以用读卡器导入；它们的无线连接已经写好，但还没拿真机试过。需要 Apple 芯片的 Mac 和 macOS 14 以上。后续计划见 [docs/MiniDiT-ROADMAP.md](docs/MiniDiT-ROADMAP.md)。
+![连上相机后浏览素材：左边是设备和筛选，右边按日期列出照片](Website/minidit/public/images/feature-wireless-native-wide.webp)
+
+> 现在是 0.1.1，主要在索尼 α7 V 上用过。佳能、富士、尼康和大疆的存储卡可以用读卡器导入；它们的无线连接已经写好，但还没拿真机试过。需要 Apple 芯片的 Mac 和 macOS 14 以上。后续计划见 [docs/MiniDiT-ROADMAP.md](docs/MiniDiT-ROADMAP.md)。
 >
 > Sony / 索尼是索尼集团的商标，MiniDiT 与索尼没有关联。PTP/IP 和索尼的扩展协议是根据公开资料自己实现的，参考过 libgphoto2、alpha2go 等开源项目，没有用它们的代码。
 
@@ -17,6 +19,8 @@ MiniDiT 是一个 Mac 应用，用来把相机里的照片和视频导进电脑�
 - 佳能、富士、尼康、大疆的 Wi-Fi（试验）：按各家协议实现了浏览和下载，操作步骤见[功能清单](docs/MiniDiT-FEATURES.md)。
 - 可以同时打开几台相机和几张卡，按拍摄时间混在一起看。相机掉线会自动重连，导入中断后能接着传。
 
+![联机拍摄窗口：实时取景、示波器和矢量示波器，底部是相机参数，右边是刚拍的照片和导入去向](docs/images/tether.webp)
+
 **浏览**
 
 - 按日期列出，RAW 和 JPG/HIF 合成一格，也可以按时间间隔分场次。
@@ -27,12 +31,16 @@ MiniDiT 是一个 Mac 应用，用来把相机里的照片和视频导进电脑�
 
 **项目、备份与校验**
 
+![项目视图：左边是拍摄项目，照片和视频分开列出](Website/minidit/public/images/feature-project-native.webp)
+
 - 导入前要先选一个项目。照片和视频可以存在不同的地方，各自用自己的目录规则。
 - 可以设多个备份位置，每个位置单独校验、单独记录，一个失败不影响其他位置。
 - 用 xxHash64 核对文件，备份写完后再读一遍；每个文件夹都生成 ASC MHL 校验清单。Wi-Fi 来源拿不到相机端的校验值，只能核对收到的内容。
 - 缺了的备份可以之后补齐，只要还有一份完好的副本，就不用再找原卡。
 - 可以导出交接清单（PDF、CSV 和 ASC MHL），见[交接清单](docs/HANDOFF.md)。
 - 用读卡器时，可以在导入后删掉卡上的照片，只删校验过、备份完的。
+
+![导入并备份完成的照片会标上“已备份”](Website/minidit/public/images/feature-backup-native.webp)
 
 **交给后期**
 
@@ -106,3 +114,5 @@ MiniDiT 带有命令行工具和 MCP 服务，脚本或 agent 可以用它查项
 ## 许可证
 
 [MIT](LICENSE)。随应用分发的 OpenSSL、libssh2 和 Sparkle 使用各自的许可证，见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)，也可以在应用的「MiniDiT › 关于 MiniDiT」里查看。
+
+截图里的照片来自 Unsplash，仅作演示，署名见 [PHOTO-CREDITS.md](Website/minidit/PHOTO-CREDITS.md)。
