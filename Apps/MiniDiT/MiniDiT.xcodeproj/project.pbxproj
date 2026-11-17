@@ -180,7 +180,8 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_APP_SANDBOX = NO;
-				ENABLE_HARDENED_RUNTIME = NO;
+				CODE_SIGN_ENTITLEMENTS = MiniDiT/MiniDiT.entitlements;
+				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = MiniDiT;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.photography";
@@ -194,7 +195,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 0.1;
-				PRODUCT_BUNDLE_IDENTIFIER = com.kong.SonyImport;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kong.MiniDiT;
 				PRODUCT_NAME = MiniDiT;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 6.0;
@@ -204,6 +205,8 @@
 		B200000000000000000000F1 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				/* 只支持 Apple 芯片：内置的 SSH 库（Vendor/CLibssh2.xcframework）只编了 arm64。 */
+				ARCHS = arm64;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_IDENTITY = "Apple Development";
@@ -212,7 +215,8 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_APP_SANDBOX = NO;
-				ENABLE_HARDENED_RUNTIME = NO;
+				CODE_SIGN_ENTITLEMENTS = MiniDiT/MiniDiT.entitlements;
+				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = MiniDiT;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.photography";
@@ -226,7 +230,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 0.1;
-				PRODUCT_BUNDLE_IDENTIFIER = com.kong.SonyImport;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kong.MiniDiT;
 				PRODUCT_NAME = MiniDiT;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 6.0;
