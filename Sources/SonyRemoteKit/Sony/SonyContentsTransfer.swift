@@ -27,6 +27,12 @@ public enum SonyContentsTransfer {
         let client = PTPIPClient(host: host, port: port, identity: identity, tunnel: tunnel)
         progress(tunnel == nil ? "正在建立 PTP/IP 连接…" : "正在通过加密通道建立 PTP/IP 连接…")
         try await client.connect()
+        return try await openLibrary(transport: client, readyTimeout: readyTimeout, progress: progress)
+    }
+
+    /// 用已经连好的传输（Wi-Fi 或 USB）切到内容传输模式；失败时断开传输并抛错。
+    public static func openLibrary(transport client: any PTPTransport, readyTimeout: TimeInterval = 8,
+                                   progress: @escaping @Sendable (String) -> Void = { _ in }) async throws -> PTPCameraLibrary {
         do {
             let caps = await SonySDIO.capabilities(client)
 
@@ -59,7 +65,7 @@ public enum SonyContentsTransfer {
     }
 
     /// 轮询 0xD295，直到相机报告内容传输就绪。
-    private static func waitUntilReady(_ client: PTPIPClient, timeout: TimeInterval) async throws {
+    private static func waitUntilReady(_ client: any PTPTransport, timeout: TimeInterval) async throws {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             let r = try await client.transaction(SonyOperation.getAllExtDevicePropInfo)

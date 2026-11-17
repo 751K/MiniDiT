@@ -29,10 +29,10 @@ struct MiniDiTApp: App {
                 Divider()
                 Button(model.isTethering ? "显示联机拍摄窗口" : "联机拍摄") {
                     if model.isTethering { model.tetherWindowRequest += 1 }
-                    else if let c = model.tetherCandidate { model.startTether(c) }
+                    else { model.startTetherFromCurrent() }
                 }
                 .keyboardShortcut("t", modifiers: [.command, .shift])
-                .disabled(!model.isTethering && (model.tetherCandidate == nil || model.progress != nil))
+                .disabled(!model.isTethering && (!model.canStartTether || model.progress != nil))
             }
             CommandMenu("选择") {
                 Button("选择全部新照片") { model.selectNew(in: Set(model.days.map(\.id))) }

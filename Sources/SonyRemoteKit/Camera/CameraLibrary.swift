@@ -176,7 +176,7 @@ func openForResume(_ url: URL, offset: UInt64) throws -> (FileHandle, UInt64) {
 
 public actor PTPCameraLibrary: CameraLibrary {
     public func refresh() async { infoCache = [:] }
-    private let client: PTPIPClient
+    private let client: any PTPTransport
     private let largeObjectReads: Bool
     private let fixedChunk: UInt32?
     private let onClose: @Sendable () async -> Void
@@ -189,7 +189,7 @@ public actor PTPCameraLibrary: CameraLibrary {
     /// - largeObjectReads: 用索尼 0x9211 分块下载（内容传输模式下可用，支持 ≥4GB）。
     /// - deviceInfo: 连接时读到的型号和序列号（尼康等），没有时 nil。
     /// - chunkSize: 固定的分块下载大小（佳能要 1 MB）；nil 时按 contentChunkMB，默认 16 MB。
-    public init(client: PTPIPClient, largeObjectReads: Bool = false, deviceInfo: CameraDeviceInfo? = nil,
+    public init(client: any PTPTransport, largeObjectReads: Bool = false, deviceInfo: CameraDeviceInfo? = nil,
                 chunkSize: UInt32? = nil, onClose: @escaping @Sendable () async -> Void = {}) {
         self.info = deviceInfo
         self.fixedChunk = chunkSize

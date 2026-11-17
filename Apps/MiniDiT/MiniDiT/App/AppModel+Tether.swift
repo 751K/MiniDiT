@@ -15,6 +15,20 @@ extension AppModel {
         url.standardizedFileURL.path.hasPrefix(TetherSpool.base.standardizedFileURL.path + "/")
     }
 
+    /// 浏览页 / 菜单的「联机拍摄」：当前连着的索尼相机（Wi-Fi 或 USB）。
+    var canStartTether: Bool { !isTethering && (tetherCandidate != nil || usbTetherCandidate != nil) }
+
+    func startTetherFromCurrent() {
+        if let c = tetherCandidate { startTether(c) } else if let u = usbTetherCandidate { startTether(usb: u) }
+    }
+
+    /// 当前主来源是 USB 连着的索尼相机。
+    var usbTetherCandidate: USBCamera? {
+        guard sourceKind == .camera, !isTethering, let u = lastUSBCamera, usbCameras.contains(u) else { return nil }
+        let model = deviceInfo?.model ?? u.name
+        return USBCameraOpener.isSony(name: model, manufacturer: deviceInfo?.manufacturer) ? u : nil
+    }
+
     /// 可以联机拍摄的相机：当前连着的索尼 Wi-Fi 相机（不含大疆、尼康）。
     var tetherCandidate: FoundCamera? {
         guard sourceKind == .camera, let cam = lastCamera, !isTethering else { return nil }
@@ -65,24 +79,32 @@ extension AppModel {
     }
 
     private func startTetherAsync(_ cam: FoundCamera, settle: Bool) async {
+        await beginTether(label: cam.host, knownName: cam.knownName, settle: settle) { step in
+            let tunnel = try await self.prepareTunnel(cam)
+            return try await SonyCamera.connect(host: cam.host, identity: HostIdentityStore.identity,
+                                                tunnel: tunnel, progress: step)
+        }
+    }
+
+    /// 连上相机（Wi-Fi 或 USB，由 connect 决定）并开始联机：主来源换成联机缓存，新照片自动导入。
+    func beginTether(label: String, knownName: String?, settle: Bool,
+                     connect: (@escaping @Sendable (String) -> Void) async throws -> SonyCamera) async {
         phase = .connecting
-        connectingHost = cam.host
+        connectingHost = label
         defer { connectingHost = nil }
         errorMessage = nil
         notice = nil
-        log.add("联机拍摄：连接 \(cam.host)")
+        log.add("联机拍摄：连接 \(label)")
         let step: @Sendable (String) -> Void = { s in Task { @MainActor in self.status = s; self.log.add(s) } }
         var camera: SonyCamera?
         do {
             // 刚断开导入用的连接：相机要过一会儿才放开会话。
             if settle { try await Task.sleep(for: .milliseconds(1500)) }
-            let tunnel = try await prepareTunnel(cam)
-            let c = try await SonyCamera.connect(host: cam.host, identity: HostIdentityStore.identity,
-                                                 tunnel: tunnel, progress: step)
+            let c = try await connect(step)
             camera = c
             try Task.checkCancellation()
             let cameraName = await c.displayName
-            let name = cam.knownName ?? cameraName
+            let name = knownName ?? cameraName
             let spool = try TetherSpool.create(camera: name)
             let session = TetherSession(camera: c, name: name, spool: spool) { [weak self] s in self?.log.add(s) }
             primaryConnectionID = UUID()
@@ -111,7 +133,7 @@ extension AppModel {
         } catch {
             await camera?.disconnect()
             log.add("联机拍摄连接失败：\(error.localizedDescription) ｜ \(String(reflecting: error))")
-            errorMessage = "无法开始联机拍摄（\(error.localizedDescription)）。请确认相机已开启“电脑遥控”，且没有被其他设备连接。"
+            errorMessage = "无法开始联机拍摄（\(error.localizedDescription)）。请确认相机已开启“电脑遥控”（USB 连接时把 USB 连接方式设为“PC 遥控”），且没有被其他设备连接。"
             phase = .idle
         }
         status = ""

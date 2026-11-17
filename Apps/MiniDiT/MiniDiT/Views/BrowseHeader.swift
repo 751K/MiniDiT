@@ -20,10 +20,10 @@ struct BrowseHeader: View {
             }
             .lineLimit(1)
             Spacer(minLength: 8)
-            if model.isTethering || model.tetherCandidate != nil {
+            if model.isTethering || model.canStartTether {
                 Button {
                     if model.isTethering { model.tetherWindowRequest += 1 }
-                    else if let c = model.tetherCandidate { model.startTether(c) }
+                    else { model.startTetherFromCurrent() }
                 } label: {
                     Label(model.isTethering ? "联机拍摄窗口" : "联机拍摄", systemImage: "camera.aperture")
                 }

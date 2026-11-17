@@ -49,7 +49,7 @@ extension AppModel {
                     }
                 } else {
                     let host = source == Self.primarySource ? connectedHost : extra(source)?.camera?.host
-                    address = [host.map { "Wi-Fi \($0)" } ?? "相机", "卡 \(item.storageID >> 16)", path ?? item.filename].joined(separator: " · ")
+                    address = [host.map { "Wi-Fi \($0)" } ?? (source == Self.primarySource && lastUSBCamera != nil ? "USB" : "相机"), "卡 \(item.storageID >> 16)", path ?? item.filename].joined(separator: " · ")
                 }
                 addresses[run.fileID(job, item)] = address
                 identities[run.fileID(job, item)] = identity

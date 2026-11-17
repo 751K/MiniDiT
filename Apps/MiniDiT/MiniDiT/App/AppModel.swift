@@ -500,6 +500,16 @@ final class AppModel {
     var tether: TetherSession?
     /// 上次联机的相机（断开后「重新连接」用）。
     var lastTetherCamera: FoundCamera?
+
+    // MARK: USB 有线连接（AppModel+USB）
+
+    /// 当前插着、能透传 PTP 命令的 USB 相机。
+    var usbCameras: [USBCamera] = []
+    /// 当前主来源是哪台 USB 相机（浏览页的「联机拍摄」用）。
+    var lastUSBCamera: USBCamera?
+    @ObservationIgnored var usbBrowser: USBCameraBrowser?
+    /// 正在使用的 USB 会话：相机被拔掉时通知它断开。
+    @ObservationIgnored var activeUSBDevice: ICPassthroughDevice?
     /// 加一 = 请求打开联机拍摄窗口。
     var tetherWindowRequest = 0
     /// 拍到新照片后自动导入当前项目。
@@ -536,6 +546,7 @@ final class AppModel {
             connectTask = Task { await autoConnectLast() }
         }
         startCameraWatch()
+        startUSBWatch()
         startLibraryWatch()
         startAgentControl()
     }

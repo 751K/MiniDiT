@@ -168,7 +168,7 @@ public struct PTPObjectInfo: Sendable, Equatable {
     }
 }
 
-extension PTPIPClient {
+extension PTPTransport {
     public func storageIDs() async throws -> [UInt32] {
         var r = PTPReader(try await transaction(PTPOperation.getStorageIDs).data)
         // 0x00010000 这类低 16 位为 0 的 ID 表示「卡槽空 / 不可用」。

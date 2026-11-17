@@ -61,7 +61,8 @@ extension AppModel {
         }
         let host = id == Self.primarySource ? connectedHost : extra(id)?.camera?.host
         let serial = identity.cameraSerial.map { String($0.suffix(4)) } ?? "序列号未知"
-        return ["Wi-Fi", host, serial].compactMap { $0 }.joined(separator: " · ")
+        let link = id == Self.primarySource && lastUSBCamera != nil ? "USB" : "Wi-Fi"
+        return [link, host, serial].compactMap { $0 }.joined(separator: " · ")
     }
     func importDeviceName(_ id: Int) -> String {
         if cardRoot(for: id) != nil { return sourceName(id) }

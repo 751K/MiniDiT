@@ -86,6 +86,7 @@ struct ConnectView: View {
                         Text("富士 X / GFX 相机（试验性）：在相机的播放菜单中打开“无线通信”，Mac 加入相机的 Wi-Fi 后点“连接富士相机”；首次连接时在相机上按 OK 确认。")
                         Text("大疆 Osmo Pocket 3 等相机：点“连接大疆相机”，Mac 会通过蓝牙找到相机并加入它的 Wi-Fi；首次连接需要在相机屏幕上点“允许”。连接期间 Mac 的 Wi-Fi 无法上网。")
                         Text("联机拍摄（索尼）：在相机上开启“电脑遥控”，然后在可用设备的相机上点右键选择“联机拍摄”，或连接后点浏览页顶部的“联机拍摄”。拍摄的照片会自动导入当前项目。")
+                        Text("USB 连接：用数据线把相机接到 Mac，相机会出现在可用设备里。把相机的 USB 连接方式设为“MTP”或“PC 遥控”（索尼）；设为“大容量存储”时，存储卡会像读卡器一样出现。索尼相机在“PC 遥控”模式下还可以右键选择“联机拍摄”。")
                         Text("也可以直接插入读卡器，选择存储卡开始导入。")
                             .foregroundStyle(.secondary)
                     }
@@ -131,12 +132,19 @@ struct ConnectView: View {
         var out: [SourceTile.Model] = []
         let busy = model.phase == .searching || model.phase == .connecting
         if model.phase == .connecting, let h = model.connectingHost {
-            let name = model.found.first { $0.host == h }?.knownName ?? model.knownCameras.first { $0.host == h }?.displayName ?? "相机"
+            let name = model.found.first { $0.host == h }?.knownName ?? model.knownCameras.first { $0.host == h }?.displayName
+                ?? model.usbCameras.first { $0.name == h }?.name ?? "相机"
             return [.init(id: "c:" + h, kind: .camera, name: name, detail: "正在连接…", state: .busy, action: nil)]
         }
         for url in model.cards {
             out.append(.init(id: "card:" + url.path, kind: .card, name: url.lastPathComponent, detail: "读卡器",
                              state: busy ? .quiet : .online, action: { model.openCard(url) }))
+        }
+        // USB 接着的相机排在 Wi-Fi 前面：插着线就是要用它。
+        for cam in model.usbCameras {
+            out.append(.init(id: "usb:" + cam.id, kind: .camera, name: cam.name, detail: "USB",
+                             state: busy ? .quiet : .online, action: busy ? nil : { model.connectUSB(cam) },
+                             tether: busy || !cam.isSony ? nil : { model.startTether(usb: cam) }))
         }
         var shown = Set<String>()
         for cam in model.found {

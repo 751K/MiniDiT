@@ -195,6 +195,7 @@ final class TetherSession {
             defer { shooting = false }
             do {
                 try await camera.capture()
+                log("拍摄：" + (await camera.lastCaptureTrace))
                 focusLocked = false
                 await download()
             } catch {
@@ -297,6 +298,7 @@ final class TetherSession {
         defer { shooting = false }
         let before = Set(spool.files())
         try await camera.capture()
+        log("拍摄：" + (await camera.lastCaptureTrace))
         focusLocked = false
         let deadline = Date().addingTimeInterval(timeout)
         var seen: [URL] = []

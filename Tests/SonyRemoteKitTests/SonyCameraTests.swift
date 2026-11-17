@@ -69,6 +69,13 @@ import FakeSonyCamera
         await cam.disconnect()
     }
 
+    /// AF-C 的合焦值（5、6、7）也算有结果：之前只认 AF-S 的 2、3，AF-C 时一直按着全按等满 1 秒，连拍模式下拍了 16 张。
+    @Test func focusIndicationIncludesContinuousAF() {
+        #expect(SonyCamera.focusSettled(2) && SonyCamera.focusSettled(3))
+        #expect(SonyCamera.focusSettled(5) && SonyCamera.focusSettled(6) && SonyCamera.focusSettled(7))
+        #expect(!SonyCamera.focusSettled(1))
+    }
+
     @Test func captureAndDownload() async throws {
         let (cam, fake, state) = try await makeCamera()
         defer { fake.stop() }

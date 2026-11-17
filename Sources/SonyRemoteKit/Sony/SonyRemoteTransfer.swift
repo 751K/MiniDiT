@@ -127,7 +127,7 @@ public actor SonyRemoteTransferLibrary: CameraLibrary {
         let item: CameraContentItem
     }
 
-    private let client: PTPIPClient
+    private let client: any PTPTransport
     private let slots: [UInt32]
     private var entries: [UInt32: Entry] = [:]
     private var slotHandles: [UInt32: [UInt32]] = [:]
@@ -143,7 +143,7 @@ public actor SonyRemoteTransferLibrary: CameraLibrary {
     private var thumbNoted = false
     public let deviceInfo: CameraDeviceInfo?
 
-    init(client: PTPIPClient, slots: [UInt32], notes: [String], deviceInfo: CameraDeviceInfo? = nil) {
+    init(client: any PTPTransport, slots: [UInt32], notes: [String], deviceInfo: CameraDeviceInfo? = nil) {
         self.client = client
         self.deviceInfo = deviceInfo
         self.slots = slots
@@ -165,6 +165,12 @@ public actor SonyRemoteTransferLibrary: CameraLibrary {
         let client = PTPIPClient(host: host, port: port, identity: identity, tunnel: tunnel)
         progress(tunnel == nil ? "正在建立 PTP/IP 连接…" : "正在通过加密通道建立 PTP/IP 连接…")
         try await client.connect()
+        return try await open(transport: client, progress: progress)
+    }
+
+    /// 用已经连好的传输（Wi-Fi 或 USB）打开远程传输；失败时断开传输并抛错。
+    public static func open(transport client: any PTPTransport,
+                            progress: @escaping @Sendable (String) -> Void = { _ in }) async throws -> SonyRemoteTransferLibrary {
         do {
             var notes: [String] = []
             let info = await fetchDeviceInfo(client)
@@ -210,7 +216,7 @@ public actor SonyRemoteTransferLibrary: CameraLibrary {
     }
 
     /// GetDeviceInfo（失败返回 nil）。
-    static func fetchDeviceInfo(_ client: PTPIPClient) async -> CameraDeviceInfo? {
+    public static func fetchDeviceInfo(_ client: any PTPTransport) async -> CameraDeviceInfo? {
         guard let r = try? await client.transaction(PTPOperation.getDeviceInfo, requireOK: false),
               r.code == PTPResponse.ok else { return nil }
         return CameraDeviceInfo.parse(r.data)

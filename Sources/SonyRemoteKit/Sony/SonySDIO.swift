@@ -40,7 +40,7 @@ public enum SonyFunctionMode: UInt32, Sendable {
 /// 索尼 SDIO 握手，遥控模式和传输模式共用。
 enum SonySDIO {
     /// 打开会话。传了 mode 时用 SDIO_OpenSession(0x9210)，相机不认识就退回标准 OpenSession。
-    static func openSession(_ client: PTPIPClient, mode: SonyFunctionMode?) async throws {
+    static func openSession(_ client: any PTPTransport, mode: SonyFunctionMode?) async throws {
         var sessionID: UInt32 = 1
         var useSDIO = mode != nil
         for _ in 0..<10 {
@@ -70,7 +70,7 @@ enum SonySDIO {
     }
 
     /// SDIO_Connect 1、2 → GetExtDeviceInfo → SDIO_Connect 3。
-    static func handshake(_ client: PTPIPClient) async throws -> SonyDatasets.ExtDeviceInfo {
+    static func handshake(_ client: any PTPTransport) async throws -> SonyDatasets.ExtDeviceInfo {
         _ = try? await client.transaction(PTPOperation.getDeviceInfo)
         try await client.transaction(SonyOperation.sdioConnect, [1, 0, 0])
         try await client.transaction(SonyOperation.sdioConnect, [2, 0, 0])
@@ -90,7 +90,7 @@ enum SonySDIO {
     }
 
     /// 读取 DigitalImagingDesc.xml 里与传输相关的能力标记（诊断用，失败返回空）。
-    static func capabilities(_ client: PTPIPClient) async -> [String: String] {
+    static func capabilities(_ client: any PTPTransport) async -> [String: String] {
         guard let r = try? await client.transaction(SonyOperation.getDeviceDescriptionFile, [2], requireOK: false),
               r.code == PTPResponse.ok, let xml = String(data: r.data, encoding: .utf8) else { return [:] }
         var out: [String: String] = [:]

@@ -56,7 +56,7 @@ public enum SonyCameraError: Error, LocalizedError, Sendable {
 
 /// 通过 PTP/IP + 索尼 SDIO 扩展遥控 α 系列相机。
 public actor SonyCamera: RemoteCamera {
-    private let client: PTPIPClient
+    private let client: any PTPTransport
     private let cameraName: String
     private var protocolVersion: UInt16 = SonyProtocolVersion.v300
     private var supportedCodes: Set<UInt16> = []
@@ -68,6 +68,8 @@ public actor SonyCamera: RemoteCamera {
     private var extendedPropsRejected = false
     /// 最近一帧取景附带的对焦框信息（相机没给时为 nil）。
     public private(set) var focalFrames: FocalFrameInfo?
+    /// 最近一次拍摄的过程（对焦指示、按键时长），写进联机日志排查用。
+    public private(set) var lastCaptureTrace = ""
     private var eventTask: Task<Void, Never>?
 
     public nonisolated let notifications: AsyncStream<CameraNotification>
@@ -76,7 +78,7 @@ public actor SonyCamera: RemoteCamera {
     /// 连接后约 3 秒才能首次拍摄（libgphoto2 对 A7 IV 等机型的经验值）。
     private let startupDelay: TimeInterval
 
-    private init(client: PTPIPClient, name: String, startupDelay: TimeInterval) {
+    private init(client: any PTPTransport, name: String, startupDelay: TimeInterval) {
         self.client = client
         self.startupDelay = startupDelay
         self.cameraName = name
@@ -101,6 +103,19 @@ public actor SonyCamera: RemoteCamera {
             return cam
         } catch {
             await client.disconnect()
+            throw error
+        }
+    }
+
+    /// 用已经连好的传输（例如 USB 的 `PTPUSBClient`）做索尼的握手。
+    public static func connect(transport: any PTPTransport, startupDelay: TimeInterval = 3,
+                               progress: @escaping @Sendable (String) -> Void = { _ in }) async throws -> SonyCamera {
+        let cam = SonyCamera(client: transport, name: await transport.cameraName, startupDelay: startupDelay)
+        do {
+            try await cam.handshake(progress: progress)
+            return cam
+        } catch {
+            await transport.disconnect()
             throw error
         }
     }
@@ -533,6 +548,8 @@ public actor SonyCamera: RemoteCamera {
         propsFetchedAt = .distantPast
     }
 
+    /// 拍一张：半按等合焦，再短按全按（150 ms）。
+    /// 全按不能一直按着等合焦：连拍模式下按多久就拍多久（实测 α7 V 连拍「高+」按 1 秒拍了 16 张）。
     public func capture() async throws {
         try await waitForStartup()
         if !halfPressed {
@@ -540,20 +557,26 @@ public actor SonyCamera: RemoteCamera {
             halfPressed = true
         }
         do {
-            try await control(SonyControl.shutterFullPress, SonyControl.down)
-            // 非手动对焦时最多等 1 秒合焦。
+            // 非手动对焦时最多等 1 秒合焦（AF-S 报 2 / 3，AF-C 报 5 / 6 / 7）；没等到也照样拍，交给相机的释放优先设置。
+            let start = Date()
+            var seen: [String] = []
             let manualFocus = props[SonyProperty.focusMode]?.intValue == 1
             if !manualFocus {
                 let deadline = Date().addingTimeInterval(1)
                 while Date() < deadline {
                     try await refreshProperties(force: true)
                     let f = props[SonyProperty.focusFound]?.intValue
-                    if f == 2 || f == 3 || pendingCount > 0 { break }
+                    seen.append(f.map { String($0) } ?? "-")
+                    if let f, Self.focusSettled(f) { break }
                     try await Task.sleep(for: .milliseconds(80))
                 }
-            } else {
-                try await Task.sleep(for: .milliseconds(100))
             }
+            let press = UserDefaults.standard.integer(forKey: "tetherFullPressMs")
+            // 实测 α7 V（USB，连拍「高+」）：35 ms 相机不响应，150 ms 每次正好一张。可用 tetherFullPressMs 调。
+            let ms = (1...2000).contains(press) ? press : 150
+            try await control(SonyControl.shutterFullPress, SonyControl.down)
+            try await Task.sleep(for: .milliseconds(ms))
+            lastCaptureTrace = "对焦指示 \(seen.joined(separator: ","))，半按 \(Int(Date().timeIntervalSince(start) * 1000)) ms 后全按 \(ms) ms"
         } catch {
             _ = try? await control(SonyControl.shutterFullPress, SonyControl.up)
             _ = try? await control(SonyControl.shutterHalfPress, SonyControl.up)
@@ -564,6 +587,11 @@ public actor SonyCamera: RemoteCamera {
         try await control(SonyControl.shutterHalfPress, SonyControl.up)
         halfPressed = false
         propsFetchedAt = .distantPast
+    }
+
+    /// 对焦指示（0xD213）是否已经有结果：AF-S 合焦 / 失败（2、3），AF-C 跟踪 / 合焦 / 失败（5、6、7）。1 = 还在找。
+    static func focusSettled(_ indication: Int64) -> Bool {
+        [2, 3, 5, 6, 7].contains(indication)
     }
 
     public func setRecording(_ on: Bool) async throws {

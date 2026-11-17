@@ -335,6 +335,7 @@ extension AppModel {
         reconnectTask?.cancel()
         offline = false
         lastCamera = nil
+        lastUSBCamera = nil
         interrupted = nil
         let lib = library
         library = nil
