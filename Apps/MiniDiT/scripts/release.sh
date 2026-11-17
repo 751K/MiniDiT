@@ -12,7 +12,7 @@
 #   VERSION=0.2 sh release.sh
 #   NOTARIZE=0 sh release.sh 只签名打包，不公证（先检查签名用）
 #   BUILD=42 sh release.sh   指定构建号（默认取提交数；没有 .git 时用日期时间）
-# 结果在 Apps/MiniDiT/build/release/MiniDiT-<版本>.dmg、appcast.xml。之后用 publish-release.sh 发布。
+# 结果在 Apps/MiniDiT/build/release：MiniDiT-<版本>.dmg、appcast.xml。之后用 publish-release.sh 发布。
 set -eu
 DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 OUT="$DIR/build/release"

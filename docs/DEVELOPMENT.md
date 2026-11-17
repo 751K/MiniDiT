@@ -16,7 +16,7 @@ open Apps/MiniDiT/MiniDiT.xcodeproj
 
 Debug 和 Release 都开着强化运行时，不开沙盒（沙盒会挡住 PTP/IP、SSH、USB 透传和往 Resolve 发脚本）。`MiniDiT/MiniDiT.entitlements` 只声明强化运行时下还要单独申请的两项：Apple Events（让 Capture One 导入）和照片图库（导出实况照片）。
 
-发给别人用的版本由 `Apps/MiniDiT/scripts/release.sh` 生成：Developer ID 签名 → 公证 → 钉上公证结果 → 做成 DMG，DMG 也签名、公证。Developer ID 证书不用事先建：导出时用自动签名，Xcode 会用 已登录的开发者账号申请一张存进钥匙串，以后复用。公证凭据要存一次：`xcrun notarytool store-credentials minidit-notary --team-id HGXZB3UC25 --keychain ~/Library/Keychains/login.keychain-db`，按提示粘贴在 appleid.apple.com 生成的 App 专用密码。
+发给别人用的版本由 `Apps/MiniDiT/scripts/release.sh` 生成：Developer ID 签名 → 公证 → 钉上公证结果 → 做成 DMG 并公证 → 写出自动更新清单 `appcast.xml`。Developer ID 证书不用事先建：导出时用自动签名，Xcode 会用已登录的开发者账号申请一张存进钥匙串，以后复用。公证凭据要存一次：`xcrun notarytool store-credentials minidit-notary --team-id HGXZB3UC25 --keychain ~/Library/Keychains/login.keychain-db`，按提示粘贴在 appleid.apple.com 生成的 App 专用密码。
 
 ```bash
 sh Apps/MiniDiT/scripts/release.sh               # 版本号取工程里的 MARKETING_VERSION
@@ -24,7 +24,16 @@ VERSION=0.2 sh Apps/MiniDiT/scripts/release.sh
 NOTARIZE=0 sh Apps/MiniDiT/scripts/release.sh    # 只签名打包，先检查签名
 ```
 
-结果在 `Apps/MiniDiT/build/release/MiniDiT-<版本>.dmg`。构建号默认取提交数（没有 `.git` 时用日期时间），可用 `BUILD=` 指定。公证被拒时脚本会打出 Apple 返回的日志。
+结果在 `Apps/MiniDiT/build/release/`：`MiniDiT-<版本>.dmg` 和 `appcast.xml`。构建号默认取提交数（没有 `.git` 时用日期时间），可用 `BUILD=` 指定，每次发布必须比上一版大。公证被拒时脚本会打出 Apple 返回的日志。
+
+### 自动更新
+
+App 用 [Sparkle](https://sparkle-project.org) 检查更新：读最新 GitHub Release 里的 `appcast.xml`（地址和公钥在 `Apps/MiniDiT/Info.plist`），只安装用同一把 EdDSA 私钥签过名、同一个开发者团队签名的版本。Debug 版不启动更新器。
+
+- 私钥由 Sparkle 的 `generate_keys` 生成，存在发布者的登录钥匙串里，`release.sh` 用 `sign_update` 给 DMG 签名（Sparkle 命令行工具默认在 `~/Tools/Sparkle-2.10.1/bin`，可用 `SPARKLE_BIN` 改）。私钥要另外备份（`generate_keys -x <文件>`）：丢了以后，已安装的 App 就收不到更新。
+- 更新说明：有 `Apps/MiniDiT/release-notes/<版本>.html` 时写进 `appcast.xml`，在更新窗口里显示。
+- 发布：`sh Apps/MiniDiT/scripts/publish-release.sh`，把 DMG 和 `appcast.xml` 上传成 GitHub Release `v<版本>`（`NOTES_FILE=` 指定发布页说明）。仓库是公开的，App 才能读到。
+- 本地测试：`defaults write com.kong.MiniDiT updateFeedURL http://127.0.0.1:<端口>/appcast.xml` 让 Release 版从本地地址检查更新（清单里的下载地址也要改成本地的），测完 `defaults delete com.kong.MiniDiT updateFeedURL`。
 
 ## 开发
 
@@ -109,6 +118,7 @@ Apps/MiniDiT/MiniDiT/
   Camera/                       搜索相机、钥匙串账号、连过的相机
   Import/                       单个文件的导入、导入记录、Capture One、Lightroom Classic、Resolve、FCP
   Views/                        三栏浏览、设备与筛选、项目及照片/视频分类、设置向导、设置；Theme.swift 是统一的颜色、字号和分段控件
+Apps/MiniDiT/scripts/           release.sh：签名、公证、打包；publish-release.sh：发布到 GitHub；install-cli.sh：安装 minidit 命令
 Sources/SonyRemoteKit/          协议层（无界面）：SSH 隧道、PTP/IP、索尼 SDIO、内容传输和远程传输
 Sources/MiniDiTCore/            和界面无关的逻辑：拍摄分组、选择、媒体筛选、导入记录匹配、原文件拖出、xxHash64
 Sources/FakeSonyCamera/         模拟索尼相机（测试和联调用），命令行工具在 Sources/fake-sony-camera/
@@ -137,6 +147,7 @@ docs/                           协议笔记、功能规划、功能清单、界
 
 交接报告：`HandoffReport.snapshot` 只读取给定项目的已冻结批次并执行文件可读性/大小检查，不重算素材哈希；后台导出入口位于 `HandoffExportSheet`。`HandoffPDF` 使用 Core Graphics/Core Text 原生分页，照片用 Image I/O 读取缩略图，视频用 AVFoundation 从记录内可访问副本抽帧，按整份报告的统一时间比例绘制连续胶片条；逐项回传进度并检查取消。图像按 JPEG 压缩嵌入，避免大量素材产生过大的 PDF。`HandoffPackage.write` 使用独立暂存目录，生成 PDF/CSV/JSON 并收集 MHL 历史后原子移入唯一新目录，取消只清理本次目录。`HandoffReportTests` 和 `run.sh --multi-backup --render` 覆盖失败、仅代理、历史核验/当前状态、CSV/PDF、版本保留、真实四类实体文件及补备份后重新导出。报告输出不修改 journal 和媒体。
 
+
 ### 视频软件发送与重试
 
 `Tests/AppFeatureChecks/run.sh --video-delivery --render` 使用隔离临时卡、项目、偏好域和数据库，执行原片/代理/XML 的实际文件导入，再注入软件成功、失败和部分接收响应。覆盖计划快照、重开后无原卡重试、原 Resolve 项目绑定、连续点击、旧批次回执隔离、缺失文件、未知 FCP 接收结果及已修改交接文件保护；`--render` 在 `/tmp/minidit-delivery-ui` 输出明暗外观。
@@ -144,6 +155,7 @@ docs/                           协议笔记、功能规划、功能清单、界
 同一检查还运行 `ResolveDeliveryChecks.py`，将生产 Resolve 脚本的媒体池逻辑放入确定性的 API 替身，验证部分导入恢复、全媒体池去重、用户移动媒体夹、路径别名、标记保留、代理/元数据恢复、项目切换和并发锁。它不连接真实 Resolve，也不修改 FCP 资源库。真实软件端导入仍需另行实测。模型与文件预检查由 `VideoDeliveryTests` 覆盖。
 
 发送记录及状态语义见 [后期软件发送](SOFTWARE-DELIVERY.md)。
+
 
 ### Premiere Pro
 
@@ -154,6 +166,7 @@ docs/                           协议笔记、功能规划、功能清单、界
 检查：`Tests/AppFeatureChecks/run.sh --premiere` 验证原生通信、租约、错误任务回执拒绝、超时/取消清理及 CCX 完整性；`--video-delivery --render` 同时覆盖 PR 的实际临时卡导入、冻结计划、部分接收、换项目拦截、重启后无原卡重试和回执隔离。`node --test Tests/AppFeatureChecks/PremierePluginChecks.cjs` 直接执行生产接收器和邮箱代码，使用官方 API 形状的替身覆盖素材箱、部分导入、跨素材箱去重、用户代理/标记保留、项目切换、过期租约和重复轮询。`PremiereHandoffTests` 覆盖目录分组、同名不同文件、规范路径、代理与标记的持久化。
 
 真实 PR 安装与导入尚未验证；不得将这些隔离检查写成 PR 实测。API 和产品边界见 [Premiere Pro 连接](PREMIERE.md)。
+
 
 ### 实况照片导出
 
