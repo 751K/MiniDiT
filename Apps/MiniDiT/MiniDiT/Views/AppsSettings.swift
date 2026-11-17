@@ -23,7 +23,7 @@ struct AppsSettings: View {
                     LightroomRow(app: lr, inUse: model.captureOneMode == .lightroom)
                 }
                 ForEach(apps.filter { $0.kind != .captureOne && $0.kind != .lightroom && !$0.kind.isEditor }) { app in
-                    FolderAppRow(app: app, usage: model.captureOneMode == .off && model.openAfterImport.appKind == app.kind ? "导入后打开" : nil)
+                    FolderAppRow(app: app, usage: model.captureOneMode == .off && model.openAfterImport.appKind == app.kind ? String(localized: "导入后打开") : nil)
                 }
             } header: {
                 Text("照片后期")
@@ -33,7 +33,7 @@ struct AppsSettings: View {
                     if app.kind == .premiere { PremiereConnectionRow(app: app) }
                     else {
                         let on = app.kind == .resolve ? model.sendToResolve : app.kind == .jianying ? model.sendToJianying : model.sendToFCP
-                        let usage = switch app.kind { case .resolve, .premiere: "导入后加入同名项目"; case .jianying: "导入后加入同名草稿"; default: model.fcpProjectAs == .library ? "导入后加入同名资源库" : "导入后加入同名事件" }
+                        let usage = switch app.kind { case .resolve, .premiere: String(localized: "导入后加入同名项目"); case .jianying: String(localized: "导入后加入同名草稿"); default: model.fcpProjectAs == .library ? String(localized: "导入后加入同名资源库") : String(localized: "导入后加入同名事件") }
                         FolderAppRow(app: app, usage: app.isInstalled && on ? usage : nil)
                     }
                 }
@@ -96,7 +96,7 @@ struct AppInfo: Identifiable {
             case .resolve: "DaVinci Resolve"
             case .finalCut: "Final Cut Pro"
             case .premiere: "Adobe Premiere Pro"
-            case .jianying: "剪映专业版"
+            case .jianying: String(localized: "剪映专业版")
             }
         }
         /// Bundle ID 的前缀（版本号会出现在 ID 里，比如 captureone16、bridge2025）。
@@ -208,22 +208,22 @@ private struct LightroomRow: View {
                 // 每个软件一行状态：正常是灰字，需要处理时才有橙色警告。
                 switch status {
                 case .appMissing:
-                    StatusLine(text: "未安装")
+                    StatusLine(text: String(localized: "未安装"))
                 case .pluginMissing:
-                    StatusLine(text: "尚未安装 MiniDiT 插件", warning: true)
+                    StatusLine(text: String(localized: "尚未安装 MiniDiT 插件"), warning: true)
                 case .pluginOutdated:
-                    StatusLine(text: "插件需更新至 \(LightroomPlugin.version)", warning: true)
+                    StatusLine(text: String(localized: "插件需更新至 \(LightroomPlugin.version)"), warning: true)
                 case .starting:
-                    StatusLine(text: "正在唤醒插件…")
+                    StatusLine(text: String(localized: "正在唤醒插件…"))
                 case .needsRestart:
-                    StatusLine(text: "插件未运行，请重新打开 Lightroom Classic", warning: true)
+                    StatusLine(text: String(localized: "插件未运行，请重新打开 Lightroom Classic"), warning: true)
                 case .notRunning:
-                    StatusLine(text: "插件 \(LightroomPlugin.version) · 未运行")
+                    StatusLine(text: String(localized: "插件 \(LightroomPlugin.version) · 未运行"))
                 case .ready(let catalog):
-                    StatusLine(text: "插件 \(LightroomPlugin.version) · 当前目录：\(catalog)")
+                    StatusLine(text: String(localized: "插件 \(LightroomPlugin.version) · 当前目录：\(catalog)"))
                 }
                 let pending = LightroomBridge.pendingJobs
-                if pending > 0 { StatusLine(text: "尚有 \(pending) 个文件等待添加") }
+                if pending > 0 { StatusLine(text: String(localized: "尚有 \(pending) 个文件等待添加")) }
                 if let message { StatusLine(text: message) }
             }
             Spacer(minLength: 8)
@@ -249,10 +249,10 @@ private struct LightroomRow: View {
     private func install() {
         do {
             let restart = try LightroomBridge.installPlugin()
-            message = restart ? "插件已安装。请退出并重新打开 Lightroom Classic，插件方可生效。"
-                              : "插件已安装，下次打开 Lightroom Classic 时将自动加载。"
+            message = restart ? String(localized: "插件已安装。请退出并重新打开 Lightroom Classic，插件方可生效。")
+                              : String(localized: "插件已安装，下次打开 Lightroom Classic 时将自动加载。")
         } catch {
-            message = "安装失败：\(error.localizedDescription)"
+            message = String(localized: "安装失败：\(error.localizedDescription)")
         }
         refresh()
     }
@@ -274,14 +274,14 @@ private struct CaptureOneRow: View {
                     if let v = app.version { Text(v).foregroundStyle(.secondary) }
                 }
                 if !app.isInstalled {
-                    StatusLine(text: "未安装")
+                    StatusLine(text: String(localized: "未安装"))
                 } else if !app.isRunning {
-                    StatusLine(text: "未运行")
+                    StatusLine(text: String(localized: "未运行"))
                 } else {
                     switch permission {
-                    case .denied: StatusLine(text: "未允许 MiniDiT 控制", warning: true)
-                    case .notAsked: StatusLine(text: "首次导入时将请求授权")
-                    default: StatusLine(text: document.map { "当前\($0.kind)：\($0.name)" } ?? "正在运行")
+                    case .denied: StatusLine(text: String(localized: "未允许 MiniDiT 控制"), warning: true)
+                    case .notAsked: StatusLine(text: String(localized: "首次导入时将请求授权"))
+                    default: StatusLine(text: document.map { String(localized: "当前\($0.kindTitle)：\($0.name)") } ?? String(localized: "正在运行"))
                     }
                 }
             }
@@ -352,13 +352,13 @@ struct PremiereConnectionRow: View {
                     Text("Adobe Premiere Pro")
                     if let version = app.version { Text(version).foregroundStyle(.secondary) }
                 }
-                if !app.isInstalled { StatusLine(text: "未安装") }
-                else if !supported { StatusLine(text: "需更新至 25.6 或更高版本", warning: true) }
+                if !app.isInstalled { StatusLine(text: String(localized: "未安装")) }
+                else if !supported { StatusLine(text: String(localized: "需更新至 25.6 或更高版本"), warning: true) }
                 else if let h = heartbeat, h.isFresh, app.isRunning {
-                    if h.pluginVersion != PremierePlugin.version || h.protocolVersion != 1 { StatusLine(text: "MiniDiT 插件需更新", warning: true) }
-                    else if h.busy { StatusLine(text: "正在接收素材") }
-                    else { StatusLine(text: "已连接") }
-                } else { StatusLine(text: app.isRunning ? "请打开 Premiere Pro 中的 MiniDiT 面板" : "已安装 · 未运行") }
+                    if h.pluginVersion != PremierePlugin.version || h.protocolVersion != 1 { StatusLine(text: String(localized: "MiniDiT 插件需更新"), warning: true) }
+                    else if h.busy { StatusLine(text: String(localized: "正在接收素材")) }
+                    else { StatusLine(text: String(localized: "已连接")) }
+                } else { StatusLine(text: app.isRunning ? String(localized: "请打开 Premiere Pro 中的 MiniDiT 面板") : String(localized: "已安装 · 未运行")) }
                 if let message { StatusLine(text: message) }
             }
             Spacer(minLength: 8)
@@ -369,8 +369,8 @@ struct PremiereConnectionRow: View {
                         defer { installing = false }
                         do {
                             let package = try await PremierePlugin.makePackage()
-                            guard NSWorkspace.shared.open(package) else { throw MiniDiTCore.VideoDelivery.Failure("请用 Adobe Creative Cloud 打开插件安装文件。") }
-                            message = "安装后，在 Premiere Pro 的“窗口 › UXP 插件”中打开 MiniDiT。"
+                            guard NSWorkspace.shared.open(package) else { throw MiniDiTCore.VideoDelivery.Failure(String(localized: "请用 Adobe Creative Cloud 打开插件安装文件。")) }
+                            message = String(localized: "安装后，在 Premiere Pro 的“窗口 › UXP 插件”中打开 MiniDiT。")
                         } catch { message = error.localizedDescription }
                     }
                 }.disabled(installing)

@@ -1,4 +1,5 @@
 import Foundation
+import SonyRemoteKit
 
 /// 剪映专业版草稿：导入的视频只登记在草稿的素材区，时间线留空，由用户自己挑选。
 ///
@@ -55,9 +56,9 @@ public enum JianyingDraft {
         let fm = FileManager.default
         var isDirectory: ObjCBool = false
         guard fm.fileExists(atPath: root.path, isDirectory: &isDirectory), isDirectory.boolValue else {
-            throw Failure(message: "未找到剪映的草稿文件夹，请先打开一次剪映专业版。")
+            throw Failure(message: String(localized: "未找到剪映的草稿文件夹，请先打开一次剪映专业版。", bundle: .miniDiT))
         }
-        guard !handoff.clips.isEmpty else { throw Failure(message: "没有可以加入剪映的视频。") }
+        guard !handoff.clips.isEmpty else { throw Failure(message: String(localized: "没有可以加入剪映的视频。", bundle: .miniDiT)) }
         let name = draftName(handoff.name)
         let folder = root.appending(path: name, directoryHint: .isDirectory)
         guard fm.fileExists(atPath: folder.path) else {

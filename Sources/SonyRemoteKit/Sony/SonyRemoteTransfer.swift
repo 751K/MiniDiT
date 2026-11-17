@@ -45,7 +45,7 @@ public struct SonyContent: Sendable, Equatable {
         guard r.remaining >= listHeader + 4 else { throw PTPDecodeError.truncated(needed: listHeader + 4, available: r.remaining) }
         try r.seek(to: listHeader)
         let n = Int(try r.u32())
-        guard n <= 10_000 else { throw PTPDecodeError.invalid("内容数量 \(n) 不合理") }
+        guard n <= 10_000 else { throw PTPDecodeError.invalid(String(localized: "内容数量 \(n) 不合理", bundle: .miniDiT)) }
         var out: [SonyContent] = []
         for _ in 0..<n {
             let type = try r.u32(), id = try r.u32()
@@ -58,7 +58,7 @@ public struct SonyContent: Sendable, Equatable {
             let marks = Int(try r.u32())
             try r.skip(marks)
             let fileCount = Int(try r.u32())
-            guard fileCount <= 64 else { throw PTPDecodeError.invalid("文件数量 \(fileCount) 不合理") }
+            guard fileCount <= 64 else { throw PTPDecodeError.invalid(String(localized: "文件数量 \(fileCount) 不合理", bundle: .miniDiT)) }
             var files: [File] = []
             for _ in 0..<fileCount {
                 let fid = UInt16(truncatingIfNeeded: try r.u32())   // u16 + 2 字节填充
@@ -110,8 +110,8 @@ public enum SonyRemoteTransferError: Error, LocalizedError, Sendable {
 
     public var errorDescription: String? {
         switch self {
-        case .notSupported: return "相机不支持远程传输"
-        case .cardsUnavailable(let s): return "相机暂时不开放存储卡（\(s)）"
+        case .notSupported: return String(localized: "相机不支持远程传输", bundle: .miniDiT)
+        case .cardsUnavailable(let s): return String(localized: "相机暂时不开放存储卡（\(s)）", bundle: .miniDiT)
         }
     }
 }
@@ -163,7 +163,7 @@ public actor SonyRemoteTransferLibrary: CameraLibrary {
                             tunnel: CameraSSHTunnel? = nil,
                             progress: @escaping @Sendable (String) -> Void = { _ in }) async throws -> SonyRemoteTransferLibrary {
         let client = PTPIPClient(host: host, port: port, identity: identity, tunnel: tunnel)
-        progress(tunnel == nil ? "正在建立 PTP/IP 连接…" : "正在通过加密通道建立 PTP/IP 连接…")
+        progress(tunnel == nil ? String(localized: "正在建立 PTP/IP 连接…", bundle: .miniDiT) : String(localized: "正在通过加密通道建立 PTP/IP 连接…", bundle: .miniDiT))
         try await client.connect()
         return try await open(transport: client, progress: progress)
     }
@@ -179,9 +179,9 @@ public actor SonyRemoteTransferLibrary: CameraLibrary {
             notes.append("远程传输：相机列出 \(ops.count) 个操作，" +
                          "0x923B–0x923E \([SonyOperation.getCapturedDateList, SonyOperation.getContentsInfoList, SonyOperation.getContentsData, SonyOperation.getContentsCompressedData].allSatisfy(ops.contains) ? "都有" : "不全")")
 
-            progress("正在打开会话…")
+            progress(String(localized: "正在打开会话…", bundle: .miniDiT))
             try await SonySDIO.openSession(client, mode: nil)
-            progress("正在进行索尼 SDIO 握手…")
+            progress(String(localized: "正在进行索尼 SDIO 握手…", bundle: .miniDiT))
             _ = try await SonySDIO.handshake(client)
 
             // 操作列表拿到了却没有远程传输操作：不要乱发（猜错参数可能让相机死机）。
@@ -189,7 +189,7 @@ public actor SonyRemoteTransferLibrary: CameraLibrary {
                 throw SonyRemoteTransferError.notSupported
             }
 
-            progress("正在检查卡槽…")
+            progress(String(localized: "正在检查卡槽…", bundle: .miniDiT))
             var available: [UInt32] = []
             var failures: [String] = []
             for slot: UInt32 in [1, 2] {
@@ -232,7 +232,7 @@ public actor SonyRemoteTransferLibrary: CameraLibrary {
     public static func storageID(slot: UInt32) -> UInt32 { slot << 16 | 1 }
 
     public func folders() async throws -> [CameraFolder] {
-        slots.map { CameraFolder(id: $0, storageID: Self.storageID(slot: $0), name: "卡槽 \($0)", isVideo: false, isFlat: true) }
+        slots.map { CameraFolder(id: $0, storageID: Self.storageID(slot: $0), name: String(localized: "卡槽 \($0)", bundle: .miniDiT), isVideo: false, isFlat: true) }
     }
 
     public func handles(in folder: CameraFolder) async throws -> [UInt32] {
@@ -383,8 +383,8 @@ public actor SonyRemoteTransferLibrary: CameraLibrary {
                                                  [e.contentID, e.slot << 24 | UInt32(e.fileID),
                                                   UInt32(done & 0xFFFF_FFFF), UInt32(done >> 32), want | last])
             waits.append(Date().timeIntervalSince(ts))
-            guard !r.data.isEmpty else { throw PTPDecodeError.invalid("相机返回了空数据块") }
-            guard r.data.count <= Int(want) else { throw PTPDecodeError.invalid("相机多发了数据：\(r.data.count)/\(want)") }
+            guard !r.data.isEmpty else { throw PTPDecodeError.invalid(String(localized: "相机返回了空数据块", bundle: .miniDiT)) }
+            guard r.data.count <= Int(want) else { throw PTPDecodeError.invalid(String(localized: "相机多发了数据：\(r.data.count)/\(want)", bundle: .miniDiT)) }
             try fh.write(contentsOf: r.data)
             done += UInt64(r.data.count)
             progress(done, size)

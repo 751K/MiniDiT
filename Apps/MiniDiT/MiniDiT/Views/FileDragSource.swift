@@ -71,7 +71,7 @@ struct FileDragSource: NSViewRepresentable {
                     ?? ImportHistory.shared.backupFile(item, camera: model.camera(of: item.id))
                 let route = model.route(item.id)
                 guard local != nil || route != nil else {
-                    model.errorMessage = "无法拖出 \(item.filename)：来源已断开，请重新连接后再试。"
+                    model.errorMessage = String(localized: "无法拖出 \(item.filename)：来源已断开，请重新连接后再试。")
                     return
                 }
                 let file = FileExport(item: model.localItem(item), library: route?.library, localCopy: local)
@@ -140,7 +140,7 @@ private final class ExportPromise: NSObject, NSFilePromiseProviderDelegate, Send
                 completion.finish(nil)
             } catch {
                 completion.finish(error)
-                await onError("拖出 \(filename) 失败：\(error.localizedDescription)")
+                await onError(String(localized: "拖出 \(filename) 失败：\(error.localizedDescription)"))
             }
         }
     }

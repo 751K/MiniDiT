@@ -35,7 +35,7 @@ struct ViewfinderAidOptions: Equatable, Sendable {
 
     enum PeakingColor: String, CaseIterable, Sendable {
         case red, yellow, white, blue
-        var title: String { ["red": "红色", "yellow": "黄色", "white": "白色", "blue": "蓝色"][rawValue]! }
+        var title: String { ["red": String(localized: "红色"), "yellow": String(localized: "黄色"), "white": String(localized: "白色"), "blue": String(localized: "蓝色")][rawValue]! }
         var rgb: (UInt8, UInt8, UInt8) {
             switch self {
             case .red: (255, 40, 40)
@@ -48,7 +48,7 @@ struct ViewfinderAidOptions: Equatable, Sendable {
 
     enum PeakingLevel: Int, CaseIterable, Sendable {
         case high = 1, mid, low
-        var title: String { ["高", "中", "低"][rawValue - 1] }
+        var title: String { [String(localized: "高"), String(localized: "中"), String(localized: "低")][rawValue - 1] }
         /// 标出画面里最锐利的这部分边缘（比例）：只用固定门限时，亮场景里所有高反差边缘都会被标出。
         var fraction: Double { [0.08, 0.04, 0.02][rawValue - 1] }
         /// Sobel 梯度（|gx| + |gy|，0–2040）的下限：整体失焦时梯度都低，不至于硬标出一片。
@@ -70,22 +70,22 @@ struct ViewfinderAidOptions: Equatable, Sendable {
 
     /// 给按钮提示用的说明。
     var zebraText: String {
-        zebraMode == .lowerLimit ? "\(zebraLevel)% 以上" : "\(zebraCenter)% ±\(zebraRange)%"
+        zebraMode == .lowerLimit ? String(localized: "\(zebraLevel)% 以上") : "\(zebraCenter)% ±\(zebraRange)%"
     }
 
     enum HistogramMode: String, CaseIterable, Sendable {
         case luma, rgb
-        var title: String { self == .luma ? "亮度" : "RGB（红绿蓝叠加）" }
+        var title: String { self == .luma ? String(localized: "亮度") : String(localized: "RGB（红绿蓝叠加）") }
     }
 
     enum WaveformMode: String, CaseIterable, Sendable {
         case luma, rgb, parade
-        var title: String { ["luma": "亮度", "rgb": "RGB 叠加", "parade": "RGB 分量（红绿蓝并排）"][rawValue]! }
+        var title: String { ["luma": String(localized: "亮度"), "rgb": String(localized: "RGB 叠加"), "parade": String(localized: "RGB 分量（红绿蓝并排）")][rawValue]! }
     }
 
     enum FalseColorMode: String, CaseIterable, Sendable {
         case stops, percent
-        var title: String { self == .stops ? "按档位（相对 18% 中灰）" : "按亮度百分比" }
+        var title: String { self == .stops ? String(localized: "按档位（相对 18% 中灰）") : String(localized: "按亮度百分比") }
     }
 }
 
@@ -382,15 +382,15 @@ enum ViewfinderAnalysis {
 
     /// 按亮度百分比：中间调保持灰度，只给几个关键区间上色。
     static let percentScale: [(upTo: Int, rgb: RGB?, label: String)] = [
-        (2, (130, 40, 170), "≤2% 死黑"),
-        (10, (40, 90, 230), "2–10% 暗部"),
+        (2, (130, 40, 170), String(localized: "≤2% 死黑")),
+        (10, (40, 90, 230), String(localized: "2–10% 暗部")),
         (38, nil, ""),
-        (48, (40, 180, 70), "38–48% 中灰"),
+        (48, (40, 180, 70), String(localized: "38–48% 中灰")),
         (52, nil, ""),
-        (58, (240, 130, 180), "52–58% 肤色"),
+        (58, (240, 130, 180), String(localized: "52–58% 肤色")),
         (94, nil, ""),
-        (99, (240, 220, 0), "94–99% 高光"),
-        (100, (230, 30, 30), "100% 过曝"),
+        (99, (240, 220, 0), String(localized: "94–99% 高光")),
+        (100, (230, 30, 30), String(localized: "100% 过曝")),
     ]
 
     /// 按档位：以 18% 中灰为 0 档，每档一种颜色（每档覆盖 ±0.5 档）。
@@ -401,7 +401,7 @@ enum ViewfinderAnalysis {
         (-3, (30, 130, 230), "−3"),
         (-2, (30, 185, 200), "−2"),
         (-1, (85, 85, 85), "−1"),
-        (0, (50, 185, 75), "0 中灰"),
+        (0, (50, 185, 75), String(localized: "0 中灰")),
         (1, (175, 175, 175), "+1"),
         (2, (240, 215, 50), "+2"),
         (3, (245, 145, 35), "+3"),

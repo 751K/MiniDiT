@@ -12,14 +12,14 @@ public enum PTPIPTransportError: Error, LocalizedError, Sendable {
 
     public var errorDescription: String? {
         switch self {
-        case .connectTimeout: "连接相机超时，请确认手机和相机在同一 Wi-Fi，且相机已开启「PC 遥控」。"
-        case .connectionFailed(let s): "连接失败：\(s)"
-        case .closed: "与相机的连接已断开。"
+        case .connectTimeout: String(localized: "连接相机超时，请确认手机和相机在同一 Wi-Fi，且相机已开启「PC 遥控」。", bundle: .miniDiT)
+        case .connectionFailed(let s): String(localized: "连接失败：\(s)", bundle: .miniDiT)
+        case .closed: String(localized: "与相机的连接已断开。", bundle: .miniDiT)
         case .initFailed(let r):
-            "相机拒绝了连接（代码 \(r)）。请确认：①相机「访问认证」已关闭；②通过路由器连接时已在相机上完成配对；③手机上的 Creators' App 没有连着相机。"
-        case .unexpectedPacket(let s): "收到意外的数据包：\(s)"
-        case .packetTooLarge(let n): "数据包长度异常：\(n)"
-        case .responseTimeout: "相机长时间没有响应，连接已断开。请检查 Wi-Fi 信号后重新连接。"
+            String(localized: "相机拒绝了连接（代码 \(r)）。请确认：①相机「访问认证」已关闭；②通过路由器连接时已在相机上完成配对；③手机上的 Creators' App 没有连着相机。", bundle: .miniDiT)
+        case .unexpectedPacket(let s): String(localized: "收到意外的数据包：\(s)", bundle: .miniDiT)
+        case .packetTooLarge(let n): String(localized: "数据包长度异常：\(n)", bundle: .miniDiT)
+        case .responseTimeout: String(localized: "相机长时间没有响应，连接已断开。请检查 Wi-Fi 信号后重新连接。", bundle: .miniDiT)
         }
     }
 }

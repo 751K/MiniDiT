@@ -38,30 +38,30 @@ struct MenuBarPanel: View {
                 if model.library != nil {
                     ForEach(model.sources) { s in
                         row(icon: s.isCard ? "sdcard" : "camera", title: s.name,
-                            detail: s.offline ? "已断开，正在重新连接…" : s.detail) { open() }
+                            detail: s.offline ? String(localized: "已断开，正在重新连接…") : s.detail) { open() }
                     }
                 }
                 ForEach(model.unopenedCards, id: \.self) { url in
                     row(icon: "sdcard", title: url.lastPathComponent,
-                        detail: model.library == nil ? "读卡器 · 点按以打开" : "读卡器 · 点按以同时打开") {
+                        detail: model.library == nil ? String(localized: "读卡器 · 点按以打开") : String(localized: "读卡器 · 点按以同时打开")) {
                         dismiss()
                         model.openInsertedCard(url)
                     }
                 }
                 if model.library == nil, model.unopenedCards.isEmpty {
-                    row(icon: "magnifyingglass", title: "连接相机或存储卡…", detail: nil) { open() }
+                    row(icon: "magnifyingglass", title: String(localized: "连接相机或存储卡…"), detail: nil) { open() }
                 }
             }
             .padding(6)
             Divider()
             VStack(alignment: .leading, spacing: 2) {
-                row(icon: "macwindow", title: "打开 MiniDiT 窗口", detail: nil) { open() }
+                row(icon: "macwindow", title: String(localized: "打开 MiniDiT 窗口"), detail: nil) { open() }
                 SettingsLink {
-                    rowLabel(icon: "gearshape", title: "设置…", detail: nil)
+                    rowLabel(icon: "gearshape", title: String(localized: "设置…"), detail: nil)
                 }
                 .buttonStyle(MenuRowStyle())
                 .simultaneousGesture(TapGesture().onEnded { dismiss(); NSApp.activate(ignoringOtherApps: true) })
-                row(icon: "power", title: model.progress != nil ? "退出（将中断导入）" : "退出 MiniDiT", detail: nil) {
+                row(icon: "power", title: model.progress != nil ? String(localized: "退出（将中断导入）") : String(localized: "退出 MiniDiT"), detail: nil) {
                     NSApp.terminate(nil)
                 }
             }
@@ -84,7 +84,7 @@ struct MenuBarPanel: View {
 
     private var title: String {
         if model.library == nil { return "MiniDiT" }
-        return model.isMultiSource ? "\(model.sources.count) 个来源" : (model.sources.first?.name ?? "MiniDiT")
+        return model.isMultiSource ? String(localized: "\(model.sources.count) 个来源") : (model.sources.first?.name ?? "MiniDiT")
     }
 
     private func open() {

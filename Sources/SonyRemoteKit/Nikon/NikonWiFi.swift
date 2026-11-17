@@ -19,10 +19,10 @@ public enum NikonWiFi {
         public var errorDescription: String? {
             switch self {
             case .pairedToAnotherComputer:
-                "相机当前的网络配置已与另一台电脑配对。请在相机的“连接到电脑”中切换到为这台 Mac 建立的配置，或新建一个配置后重试。"
-            case .notConfirmed: "相机上没有确认配对。请重新连接，核对配对码后在相机上确认。"
-            case .reconnectFailed: "配对完成后相机重启了 Wi-Fi，未能重新连上。请确认 Mac 仍连着相机的网络后重试。"
-            case .noStorage: "未能读取相机的存储卡。请确认已插卡，且相机的连接类型允许电脑访问。"
+                String(localized: "相机当前的网络配置已与另一台电脑配对。请在相机的“连接到电脑”中切换到为这台 Mac 建立的配置，或新建一个配置后重试。", bundle: .miniDiT)
+            case .notConfirmed: String(localized: "相机上没有确认配对。请重新连接，核对配对码后在相机上确认。", bundle: .miniDiT)
+            case .reconnectFailed: String(localized: "配对完成后相机重启了 Wi-Fi，未能重新连上。请确认 Mac 仍连着相机的网络后重试。", bundle: .miniDiT)
+            case .noStorage: String(localized: "未能读取相机的存储卡。请确认已插卡，且相机的连接类型允许电脑访问。", bundle: .miniDiT)
             }
         }
     }
@@ -61,7 +61,7 @@ public enum NikonWiFi {
                                    needsPairing: Bool?, pairingTimeout: TimeInterval = 120,
                                    showCode: @escaping @Sendable (String) -> Void,
                                    progress: @escaping @Sendable (String) -> Void = { _ in }) async throws -> PTPCameraLibrary {
-        progress("正在建立 PTP/IP 连接…")
+        progress(String(localized: "正在建立 PTP/IP 连接…", bundle: .miniDiT))
         var client = try await connect(host: host, port: port, identity: identity)
         if needsPairing != false {
             // 配对码必须是 OpenSession 之后的第一条命令。
@@ -69,7 +69,7 @@ public enum NikonWiFi {
             if let r, r.code == PTPResponse.ok, let code = pairingCode(r.data) {
                 showCode(code)
                 try await client.transaction(confirmPairing, [0x2001])
-                progress("配对码 \(code)：请确认与相机屏幕上显示的一致，然后在相机上确认配对。")
+                progress(String(localized: "配对码 \(code)：请确认与相机屏幕上显示的一致，然后在相机上确认配对。", bundle: .miniDiT))
                 let events = client.events
                 let confirmed = await withTaskGroup(of: Bool.self) { group in
                     group.addTask {
@@ -83,16 +83,16 @@ public enum NikonWiFi {
                 }
                 await client.disconnect()   // 不发 CloseSession：相机会自己重置连接
                 guard confirmed else { throw Failure.notConfirmed }
-                progress("配对完成，等待相机重新打开 Wi-Fi…")
+                progress(String(localized: "配对完成，等待相机重新打开 Wi-Fi…", bundle: .miniDiT))
                 client = try await reconnect(host: host, port: port, identity: identity)
             } else if needsPairing == true {
-                progress("相机没有给出配对码，按已配对继续")
+                progress(String(localized: "相机没有给出配对码，按已配对继续", bundle: .miniDiT))
             }
         }
         do {
             let info = await deviceInfo(client)
             guard let storages = try? await client.storageIDs(), !storages.isEmpty else { throw Failure.noStorage }
-            progress("正在读取存储卡…")
+            progress(String(localized: "正在读取存储卡…", bundle: .miniDiT))
             let opened = client
             return PTPCameraLibrary(client: opened, deviceInfo: info, onClose: { await opened.shutdown() })
         } catch {

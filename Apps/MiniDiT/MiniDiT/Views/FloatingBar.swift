@@ -13,7 +13,7 @@ struct FloatingBar: View {
             if model.importJournal.repairTask != nil {
                 capsule(maxWidth: 560) {
                     ProgressView().controlSize(.small)
-                    twoLines("正在补备份", model.importJournal.repairProgress)
+                    twoLines(String(localized: "正在补备份"), model.importJournal.repairProgress)
                     secondaryButton("取消") { model.importJournal.repairTask?.cancel() }
                 }
             } else if let p = model.progress {
@@ -42,7 +42,9 @@ struct FloatingBar: View {
                             HStack(spacing: 8) {
                                 Text(target.target.name).lineLimit(1)
                                 Spacer(minLength: 8)
-                                Text("\(target.verified)/\(target.total)" + (target.failed > 0 ? " · \(target.failed) 项待补" : target.copying ? " · 正在备份" : ""))
+                                Text(target.failed > 0 ? String(localized: "\(target.verified)/\(target.total) · \(target.failed) 项待补")
+                                     : target.copying ? String(localized: "\(target.verified)/\(target.total) · 正在备份")
+                                     : "\(target.verified)/\(target.total)")
                                     .monospacedDigit()
                             }
                             .font(Theme.Font.caption)
@@ -56,18 +58,18 @@ struct FloatingBar: View {
             } else if let i = model.interrupted {
                 capsule(maxWidth: 560) {
                     statusIcon(warning: true)
-                    twoLines("导入已中断，已完成 \(i.done) / \(i.total) 个文件",
-                             (model.sourcesOffline ? "相机已断开，" : "") + "未完成的 \(i.total - i.done) 个文件仍处于选中状态"
-                             + (i.savedBytes > 0 ? "；已保存 \(Self.bytes(i.savedBytes))，继续时将从断点续传" : ""))
+                    twoLines(String(localized: "导入已中断，已完成 \(i.done) / \(i.total) 个文件"),
+                             (model.sourcesOffline ? String(localized: "相机已断开，") : "") + String(localized: "未完成的 \(i.total - i.done) 个文件仍处于选中状态")
+                             + (i.savedBytes > 0 ? String(localized: "；已保存 \(Self.bytes(i.savedBytes))，继续时将从断点续传") : ""))
                     secondaryButton("放弃") { model.dismissInterrupted() }
-                    mainButton("继续导入", disabled: model.sourcesOffline) { model.continueImport() }
+                    mainButton(String(localized: "继续导入"), disabled: model.sourcesOffline) { model.continueImport() }
                 }
             } else if let r = model.lastResult, r.c1Failed, model.grid.selected.isEmpty {
                 capsule(maxWidth: 560) {
                     statusIcon(warning: true)
-                    twoLines("未能交由 Capture One 导入", "\(r.files) 个文件已存储至电脑，无需重新下载")
+                    twoLines(String(localized: "未能交由 Capture One 导入"), String(localized: "\(r.files) 个文件已存储至电脑，无需重新下载"))
                     secondaryButton("稍后") { model.dismissResult() }
-                    mainButton(model.pendingCaptureOneSessions.isEmpty ? "重新导入 C1" : "重试打开 C1",
+                    mainButton(model.pendingCaptureOneSessions.isEmpty ? String(localized: "重新导入 C1") : String(localized: "重试打开 C1"),
                                disabled: model.retryingCaptureOne) { model.retryCaptureOne() }
                 }
             } else if !model.grid.selected.isEmpty {
@@ -82,7 +84,7 @@ struct FloatingBar: View {
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                     } else {
-                        twoLines("已选 \(model.countText(model.grid.selected)) · \(Self.bytes(model.selectionBytes(of: files)))", pickedDetail(files))
+                        twoLines(String(localized: "已选 \(model.countText(model.grid.selected)) · \(Self.bytes(model.selectionBytes(of: files)))"), pickedDetail(files))
                     }
                     ImportOptions()
                     mainButton(importLabel, disabled: model.sourcesOffline || model.phase != .ready) { model.beginImport() }
@@ -107,7 +109,7 @@ struct FloatingBar: View {
                     }
                     Button { model.dismissResult() } label: { Image(systemName: "xmark").frame(height: 20) }
                     .glassButton().controlSize(.extraLarge)
-                    .accessibilityLabel("关闭")
+                    .accessibilityLabel("关闭导入结果")
                 }
             } else if model.phase == .ready {
                 pill { Text("勾选日期或点选照片（⇧ 连选，⌘ 加选）").foregroundStyle(.secondary) }
@@ -116,26 +118,26 @@ struct FloatingBar: View {
         .animation(.snappy(duration: 0.2), value: model.grid.selected.isEmpty)
     }
 
-    private var importLabel: String { model.currentSession == nil ? "新建项目" : "导入" }
+    private var importLabel: String { model.currentSession == nil ? String(localized: "新建项目") : String(localized: "导入") }
 
     private func pickedDetail(_ files: [CameraContentItem]) -> String {
-        if model.sourcesOffline { return "相机重新连接后方可导入" }
+        if model.sourcesOffline { return String(localized: "相机重新连接后方可导入") }
         let days = Set(files.map(AppModel.dayKey)).count
-        var s = "仅导入所选 \(files.count) 个文件 · \(days) 天 · "
+        var s = String(localized: "仅导入所选 \(files.count) 个文件 · \(days) 天") + " · "
         if let cur = model.currentSession {
-            s += "归入项目“\(cur.name)”"
+            s += String(localized: "归入项目“\(cur.name)”")
         } else {
-            s += "请先选择或新建项目"
+            s += String(localized: "请先选择或新建项目")
         }
         if model.backupEnabled {
-            s += model.backupAvailable ? " · 备份至 \(model.enabledBackupTargets.count) 个位置" : " · 部分必需备份位置未连接"
+            s += " · " + (model.backupAvailable ? String(localized: "备份至 \(model.enabledBackupTargets.count) 个位置") : String(localized: "部分必需备份位置未连接"))
         }
-        if model.isMultiSource { s += model.splitBySlot && model.canSplitBySlot ? " · 按来源和卡槽分子文件夹" : " · 按来源分子文件夹" }
-        if model.proxyOnlyWiFi && model.selectionHasWiFiVideo { s += " · 视频只导代理" }
-        if model.willDeleteFromSource { s += " · 完成后删除存储卡上的照片" }
+        if model.isMultiSource { s += " · " + (model.splitBySlot && model.canSplitBySlot ? String(localized: "按来源和卡槽分子文件夹") : String(localized: "按来源分子文件夹")) }
+        if model.proxyOnlyWiFi && model.selectionHasWiFiVideo { s += " · " + String(localized: "视频只导代理") }
+        if model.willDeleteFromSource { s += " · " + String(localized: "完成后删除存储卡上的照片") }
         if let previous = model.lastResult {
-            if previous.failed > 0 { s += " · 上次 \(previous.failed) 个文件未完成" }
-            if previous.backupFailed > 0 { s += " · 上次 \(previous.backupFailed) 个备份失败" }
+            if previous.failed > 0 { s += " · " + String(localized: "上次 \(previous.failed) 个文件未完成") }
+            if previous.backupFailed > 0 { s += " · " + String(localized: "上次 \(previous.backupFailed) 个备份失败") }
         }
         return s
     }
@@ -144,47 +146,52 @@ struct FloatingBar: View {
     private func resultLines(_ r: AppModel.ImportResult) -> (String, String) {
         let title = Self.resultTitle(r)
         var rest = resultText(r).dropFirst(title.count)
-        while let c = rest.first, "，；、".contains(c) { rest = rest.dropFirst() }
+        while let c = rest.first, "，；、,; ".contains(c) { rest = rest.dropFirst() }
         return (title, String(rest))
     }
 
     /// 「已导入 12 个文件」；只导了代理时「已导入 3 个片段的代理」。
     static func resultTitle(_ r: AppModel.ImportResult) -> String {
-        r.files == 0 && r.proxyOnly > 0 ? "已导入 \(r.proxyOnly) 个片段的代理" : "已导入 \(r.files) 个文件"
+        r.files == 0 && r.proxyOnly > 0 ? String(localized: "已导入 \(r.proxyOnly) 个片段的代理") : String(localized: "已导入 \(r.files) 个文件")
     }
 
     private func resultText(_ r: AppModel.ImportResult) -> String {
         var s = Self.resultTitle(r)
-        if r.files > 0 && r.proxyOnly > 0 { s += "、\(r.proxyOnly) 个片段的代理" }
-        if r.proxyOnly > 0 { s += "，原片留在存储卡上" }
-        if let session = r.session { s += "，已存入 Capture One 会话“\(session)”" }
-        if let c = r.lightroom { s += "，收藏夹“\(c)”" + (model.lightroomStatus.map { "：" + $0 } ?? "") }
-        if r.resumed > 0 { s += "，其中 \(r.resumed) 个从断点续传" }
-        if r.failed > 0 { s += "，\(r.failed) 个失败" }
+        if r.files > 0 && r.proxyOnly > 0 { s += String(localized: "、\(r.proxyOnly) 个片段的代理") }
+        if r.proxyOnly > 0 { s += String(localized: "，原片留在存储卡上") }
+        if let session = r.session { s += String(localized: "，已存入 Capture One 会话“\(session)”") }
+        if let c = r.lightroom {
+            if let status = model.lightroomStatus { s += String(localized: "，收藏夹“\(c)”：\(status)") }
+            else { s += String(localized: "，收藏夹“\(c)”") }
+        }
+        if r.resumed > 0 { s += String(localized: "，其中 \(r.resumed) 个从断点续传") }
+        if r.failed > 0 { s += String(localized: "，\(r.failed) 个失败") }
         if !r.backupTargets.isEmpty {
-            s += "，" + r.backupTargets.map { "\($0.target.name)：\($0.verified)/\($0.total) 个文件已校验" }.joined(separator: "；")
+            let list = r.backupTargets.map { String(localized: "\($0.target.name)：\($0.verified)/\($0.total) 个文件已校验") }
+                .joined(separator: String(localized: "；"))
+            s += String(localized: "，\(list)")
         } else if let b = r.backedUp {
-            s += "，本次备份并校验 \(b) 个文件"
-            if r.backupFailed > 0 { s += "，\(r.backupFailed) 个备份失败" }
+            s += String(localized: "，本次备份并校验 \(b) 个文件")
+            if r.backupFailed > 0 { s += String(localized: "，\(r.backupFailed) 个备份失败") }
         } else {
-            s += "，仅存储一份"
+            s += String(localized: "，仅存储一份")
         }
         if r.cardReadOnly {
-            s += "；存储卡为只读，未删除文件"
+            s += String(localized: "；存储卡为只读，未删除文件")
         } else if r.deleteFailed > 0 {
-            s += "；\(r.deleteFailed) 个文件未能从存储卡上删除"
+            s += String(localized: "；\(r.deleteFailed) 个文件未能从存储卡上删除")
         } else if r.deleted == 0, r.keptOnCard > 0 {
-            s += r.backedUp == nil ? "；因未备份，存储卡上的文件均已保留" : "；存储卡上的文件均已保留"
+            s += r.backedUp == nil ? String(localized: "；因未备份，存储卡上的文件均已保留") : String(localized: "；存储卡上的文件均已保留")
         } else if let d = r.deleted {
-            s += "，已从存储卡删除 \(d) 个" + (r.keptOnCard > 0 ? "（保留 \(r.keptOnCard) 个）" : "")
+            s += r.keptOnCard > 0 ? String(localized: "，已从存储卡删除 \(d) 个（保留 \(r.keptOnCard) 个）") : String(localized: "，已从存储卡删除 \(d) 个")
         }
-        if !r.reports.isEmpty { s += "，已写入校验清单" }
+        if !r.reports.isEmpty { s += String(localized: "，已写入校验清单") }
         if let o = r.opened { s += o }
         for software in model.deliveryMessages.keys.sorted() where software != "Lightroom Classic" {
-            s += "；\(software)：\(model.deliveryMessages[software]!)"
+            s += String(localized: "；\(software)：\(model.deliveryMessages[software]!)")
         }
-        if r.hasWiFiSource { s += "；Wi-Fi 校验依据为接收内容与本地副本，未取得相机源文件校验值" }
-        if r.cancelled { s += r.savedBytes > 0 ? "（已取消；已保存 \(Self.bytes(r.savedBytes))，下次将从断点续传）" : "（已取消）" }
+        if r.hasWiFiSource { s += String(localized: "；Wi-Fi 校验依据为接收内容与本地副本，未取得相机源文件校验值") }
+        if r.cancelled { s += r.savedBytes > 0 ? String(localized: "（已取消；已保存 \(Self.bytes(r.savedBytes))，下次将从断点续传）") : String(localized: "（已取消）") }
         return s
     }
 
@@ -202,7 +209,7 @@ struct FloatingBar: View {
             .padding(.trailing, 6)
     }
 
-    private func secondaryButton(_ title: String, _ action: @escaping () -> Void) -> some View {
+    private func secondaryButton(_ title: LocalizedStringKey, _ action: @escaping () -> Void) -> some View {
         Button(title, action: action).glassButton().controlSize(.extraLarge).fixedSize()
     }
 
@@ -232,14 +239,14 @@ struct FloatingBar: View {
 
     /// 「剩余约 2 分 10 秒」；刚开始还算不出速度时显示「正在估算…」。
     static func timeLeft(_ s: Double?) -> String {
-        guard let s else { return "正在估算…" }
+        guard let s else { return String(localized: "正在估算…") }
         let n = Int(s.rounded())
-        if n < 5 { return "即将完成" }
-        if n < 60 { return "剩余约 \(n) 秒" }
+        if n < 5 { return String(localized: "即将完成") }
+        if n < 60 { return String(localized: "剩余约 \(n) 秒") }
         if n < 3600 {
             let sec = n % 60 / 10 * 10      // 秒数取整到 10，免得一直跳
-            return "剩余约 \(n / 60) 分" + (sec > 0 ? " \(sec) 秒" : "")
+            return sec > 0 ? String(localized: "剩余约 \(n / 60) 分 \(sec) 秒") : String(localized: "剩余约 \(n / 60) 分")
         }
-        return "剩余约 \(n / 3600) 小时 \(n % 3600 / 60) 分"
+        return String(localized: "剩余约 \(n / 3600) 小时 \(n % 3600 / 60) 分")
     }
 }

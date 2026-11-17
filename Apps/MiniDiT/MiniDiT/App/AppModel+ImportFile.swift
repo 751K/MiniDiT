@@ -39,7 +39,7 @@ extension AppModel {
                 }
             }, stage: { self.progress?.current = $0 }, issue: { issues.append($0) }) else {
                 log.add("只导代理：\(item.filename) 在相机上没有代理，跳过")
-                progress?.failed.append(item.filename + "（无代理）")
+                progress?.failed.append(String(localized: "\(item.filename)（无代理）"))
                 return .next
             }
             progress?.bytesDone = base + transferSize(item) * run.weight

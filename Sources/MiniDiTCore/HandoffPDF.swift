@@ -1,4 +1,5 @@
 import Foundation
+import SonyRemoteKit
 import CoreGraphics
 import CoreText
 import ImageIO
@@ -267,7 +268,7 @@ public enum HandoffPDF {
             let gap: CGFloat = 12, cell = (contentWidth - gap * 3) / 4, tile: CGFloat = 153
             for (index, item) in items.enumerated() {
                 try Task.checkCancellation()
-                progress("正在生成照片预览 \(index + 1) / \(items.count)…")
+                progress(String(localized: "正在生成照片预览 \(index + 1) / \(items.count)…", bundle: .miniDiT))
                 if index % 16 == 0 {
                     try newPage("照片清单")
                     try paragraph("照片", size: 23, bold: true)
@@ -364,7 +365,7 @@ public enum HandoffPDF {
                         let start = Double(frame) * frameSeconds
                         return min(0.999, (start + min(frameSeconds, max(0, known - start)) / 2) / known)
                     }
-                    progress("正在生成 \(roll) · \(item.name)…")
+                    progress(String(localized: "正在生成 \(roll) · \(item.name)…", bundle: .miniDiT))
                     let result = try autoreleasepool { try frames(item, fractions: fractions) }
                     let previews = result.0.map { $0.map(compressed) }
                     let box = CGRect(x: margin + part.x, y: height - filmY - stripHeight, width: part.width, height: stripHeight)

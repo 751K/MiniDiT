@@ -155,16 +155,16 @@ actor LookPacks {
         guard let expected = String(decoding: try Data(contentsOf: sums), as: UTF8.self).split(separator: "\n")
             .map({ $0.split(separator: " ", omittingEmptySubsequences: true) })
             .first(where: { $0.count == 2 && $0[1] == Substring(zipName) })?[0].lowercased() else {
-            throw Failure(message: "校验清单中没有 \(zipName)。")
+            throw Failure(message: String(localized: "校验清单中没有 \(zipName)。"))
         }
         let zip = try await download(places.release.appending(path: zipName), to: work.appending(path: zipName))
-        guard try sha256(zip) == expected else { throw Failure(message: "\(zipName) 校验值不符，未安装。") }
+        guard try sha256(zip) == expected else { throw Failure(message: String(localized: "\(zipName) 校验值不符，未安装。")) }
 
         let unpacked = work.appending(path: "unpacked")
         let ditto = Process(); ditto.executableURL = URL(filePath: "/usr/bin/ditto")
         ditto.arguments = ["-x", "-k", zip.path, unpacked.path]
         try ditto.run(); ditto.waitUntilExit()
-        guard ditto.terminationStatus == 0 else { throw Failure(message: "无法解压 \(zipName)。") }
+        guard ditto.terminationStatus == 0 else { throw Failure(message: String(localized: "无法解压 \(zipName)。")) }
 
         let root = unpacked.appending(path: camera.pack + "-Creative-Looks")
         let acr = root.appending(path: "Adobe Camera Raw and Lightroom"), c1 = root.appending(path: "Capture One")
@@ -174,7 +174,7 @@ actor LookPacks {
         var copied = 0
         for step in plan {
             let files = try fm.contentsOfDirectory(at: step.from, includingPropertiesForKeys: nil).filter { $0.pathExtension.lowercased() == step.ext }
-            guard !files.isEmpty else { throw Failure(message: "\(zipName) 中缺少 \(step.ext.uppercased()) 文件。") }
+            guard !files.isEmpty else { throw Failure(message: String(localized: "\(zipName) 中缺少 \(step.ext.uppercased()) 文件。")) }
             try fm.createDirectory(at: step.to, withIntermediateDirectories: true)
             // 同名文件在任何子文件夹里已经有了就不再装一份，免得软件里出现重复的配置文件。
             let existing = names(in: step.to)
@@ -192,7 +192,7 @@ actor LookPacks {
         if url.isFileURL { try FileManager.default.copyItem(at: url, to: target); return target }
         let (temp, response) = try await URLSession.shared.download(from: url)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            throw Failure(message: "下载 \(url.lastPathComponent) 失败（\((response as? HTTPURLResponse)?.statusCode ?? 0)）。")
+            throw Failure(message: String(localized: "下载 \(url.lastPathComponent) 失败（\((response as? HTTPURLResponse)?.statusCode ?? 0)）。"))
         }
         try FileManager.default.moveItem(at: temp, to: target)
         return target

@@ -27,7 +27,7 @@ struct PreviewOverlay: View {
                         VStack(spacing: 14) {
                             if let progress = model.previewVideoProgress {
                                 ProgressView(value: progress).frame(width: 240).tint(.white)
-                                Text("正在缓存\(model.previewIsProxy ? "代理" : "原片")预览… \(Int(progress * 100))%")
+                                Text(model.previewIsProxy ? "正在缓存代理预览… \(Int(progress * 100))%" : "正在缓存原片预览… \(Int(progress * 100))%")
                                 Text("关闭预览即可取消，不计入导入记录").font(Theme.Font.caption).foregroundStyle(.white.opacity(0.6))
                             } else if let message = model.previewVideoMessage {
                                 Image(systemName: "video").font(.system(size: 36))
@@ -118,7 +118,7 @@ struct PreviewOverlay: View {
                         Text("· " + gear).truncationMode(.tail)
                     }
                     if let shot, let r = model.rating(of: shot), r != 0 {
-                        Text("· " + (r < 0 ? "标为删除" : String(repeating: "★", count: min(r, 5))))
+                        Text("· " + (r < 0 ? String(localized: "标为删除") : String(repeating: "★", count: min(r, 5))))
                     }
                     if shot?.isVideo == true, let c = shot.flatMap({ model.clipInfos[$0.primary] }) {
                         if !c.shotMarks.isEmpty {
@@ -133,11 +133,11 @@ struct PreviewOverlay: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             HStack(spacing: 0) {
-                arrow("chevron.left", "上一张（←）", disabled: index == 0) { model.previewStep(-1) }
+                arrow("chevron.left", String(localized: "上一张（←）"), disabled: index == 0) { model.previewStep(-1) }
                 Text("\(index + 1) / \(count)")
                     .font(.system(size: 12).monospacedDigit()).foregroundStyle(.white.opacity(0.72))
                     .frame(minWidth: 68)
-                arrow("chevron.right", "下一张（→）", disabled: atEnd) { model.previewStep(1) }
+                arrow("chevron.right", String(localized: "下一张（→）"), disabled: atEnd) { model.previewStep(1) }
             }
             .padding(.trailing, 8)
 
@@ -175,12 +175,12 @@ struct PreviewOverlay: View {
     private func metaText(shot: Shot?, item: CameraContentItem?) -> String {
         [model.isMultiSource ? model.sourceLabel(model.source(of: model.previewShot ?? 0)) : "",
          shot.map(model.badge(of:)) ?? "", ThumbCell.time(item)].filter { !$0.isEmpty }.joined(separator: " · ")
-            + (model.previewLoaded ? "" : " · 正在加载大图…")
+            + (model.previewLoaded ? "" : " · " + String(localized: "正在加载大图…"))
     }
 
     /// 标记在片段里的位置「0:03」。
     static func markTime(_ frame: Int, _ c: ClipInfo) -> String {
-        guard let f = ClipInfo.fpsValue(c.formatFps), f > 0 else { return "第 \(frame) 帧" }
+        guard let f = ClipInfo.fpsValue(c.formatFps), f > 0 else { return String(localized: "第 \(frame) 帧") }
         let s = Int(Double(frame) / f)
         return String(format: "%d:%02d", s / 60, s % 60)
     }

@@ -1,5 +1,6 @@
 #if os(macOS)
 import Foundation
+import SonyRemoteKit
 import Darwin
 
 /// Local, same-user only. No TCP port, credentials file or remote listener.
@@ -9,17 +10,17 @@ public enum AgentSocket {
     public static let maximumFrame = 2 * 1024 * 1024
 
     public static func secureDirectory(_ path: String) throws {
-        if mkdir(path, 0o700) != 0, errno != EEXIST { throw failure("无法创建本地控制目录") }
+        if mkdir(path, 0o700) != 0, errno != EEXIST { throw failure(String(localized: "无法创建本地控制目录", bundle: .miniDiT)) }
         var info = stat()
         guard lstat(path, &info) == 0, (info.st_mode & S_IFMT) == S_IFDIR,
               info.st_uid == geteuid(), info.st_mode & 0o077 == 0 else {
-            throw AgentControlError("unsafe_endpoint", "本地控制目录的所有者或权限不正确。")
+            throw AgentControlError("unsafe_endpoint", String(localized: "本地控制目录的所有者或权限不正确。", bundle: .miniDiT))
         }
     }
     static func address(_ path: String) throws -> sockaddr_un {
         var address = sockaddr_un(); address.sun_family = sa_family_t(AF_UNIX)
         let bytes = Array(path.utf8) + [UInt8(0)]
-        guard bytes.count <= MemoryLayout.size(ofValue: address.sun_path) else { throw AgentControlError("invalid_endpoint", "Socket 路径过长。") }
+        guard bytes.count <= MemoryLayout.size(ofValue: address.sun_path) else { throw AgentControlError("invalid_endpoint", String(localized: "Socket 路径过长。", bundle: .miniDiT)) }
         address.sun_len = UInt8(MemoryLayout<sockaddr_un>.size)
         withUnsafeMutableBytes(of: &address.sun_path) { $0.copyBytes(from: bytes) }
         return address
@@ -44,7 +45,7 @@ public enum AgentSocket {
         while result.count <= maximumFrame {
             let n = recv(fd, &buffer, buffer.count, 0)
             if n < 0, errno == EINTR { continue }
-            guard n > 0 else { throw AgentControlError("connection_closed", "连接已关闭或请求超时。") }
+            guard n > 0 else { throw AgentControlError("connection_closed", String(localized: "连接已关闭或请求超时。", bundle: .miniDiT)) }
             if let end = buffer[..<n].firstIndex(of: 10) {
                 result.append(contentsOf: buffer[..<end])
                 guard result.count <= maximumFrame else { break }
@@ -52,17 +53,17 @@ public enum AgentSocket {
             }
             result.append(contentsOf: buffer[..<n])
         }
-        throw AgentControlError("message_too_large", "本地控制消息超过大小限制。")
+        throw AgentControlError("message_too_large", String(localized: "本地控制消息超过大小限制。", bundle: .miniDiT))
     }
     public static func writeFrame(_ data: Data, to fd: Int32) throws {
-        guard data.count <= maximumFrame else { throw AgentControlError("message_too_large", "结果过大，请减小分页大小。") }
+        guard data.count <= maximumFrame else { throw AgentControlError("message_too_large", String(localized: "结果过大，请减小分页大小。", bundle: .miniDiT)) }
         let frame = data + Data([10])
         try frame.withUnsafeBytes { bytes in
             var offset = 0
             while offset < frame.count {
                 let n = send(fd, bytes.baseAddress!.advanced(by: offset), frame.count - offset, 0)
                 if n < 0, errno == EINTR { continue }
-                guard n > 0 else { throw failure("无法写入本地控制连接") }
+                guard n > 0 else { throw failure(String(localized: "无法写入本地控制连接", bundle: .miniDiT)) }
                 offset += n
             }
         }
@@ -73,17 +74,17 @@ public enum AgentSocket {
     public static func request(_ request: AgentControlRequest, path: String = path, timeout: Int = 10) throws -> AgentJSON {
         try secureDirectory((path as NSString).deletingLastPathComponent)
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard fd >= 0 else { throw failure("无法打开本地控制连接") }
+        guard fd >= 0 else { throw failure(String(localized: "无法打开本地控制连接", bundle: .miniDiT)) }
         defer { close(fd) }; configure(fd, timeout: timeout)
         guard try withAddress(path, { connect(fd, $0, $1) }) == 0 else {
-            throw AgentControlError("app_not_running", "无法连接 MiniDiT，请先运行 minidit launch 或打开应用。")
+            throw AgentControlError("app_not_running", String(localized: "无法连接 MiniDiT，请先运行 minidit launch 或打开应用。", bundle: .miniDiT))
         }
-        guard sameUser(fd) else { throw AgentControlError("permission_denied", "MiniDiT 服务不属于当前用户。") }
+        guard sameUser(fd) else { throw AgentControlError("permission_denied", String(localized: "MiniDiT 服务不属于当前用户。", bundle: .miniDiT)) }
         try writeFrame(JSONEncoder().encode(request), to: fd)
         let response = try JSONDecoder().decode(AgentControlResponse.self, from: readFrame(fd))
-        guard response.id == request.id else { throw AgentControlError("invalid_response", "响应 ID 不匹配。") }
+        guard response.id == request.id else { throw AgentControlError("invalid_response", String(localized: "响应 ID 不匹配。", bundle: .miniDiT)) }
         if let error = response.error { throw error }
-        guard let result = response.result else { throw AgentControlError("invalid_response", "服务没有返回结果。") }
+        guard let result = response.result else { throw AgentControlError("invalid_response", String(localized: "服务没有返回结果。", bundle: .miniDiT)) }
         return result
     }
 }
@@ -100,18 +101,18 @@ public final class AgentSocketServer: @unchecked Sendable {
         self.endpoint = path; self.handler = handler
         try AgentSocket.secureDirectory((path as NSString).deletingLastPathComponent)
         let lockFD = open(path + ".lock", O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, 0o600)
-        guard lockFD >= 0 else { throw AgentSocket.failure("无法锁定本地控制接口") }
-        guard flock(lockFD, LOCK_EX | LOCK_NB) == 0 else { close(lockFD); throw AgentControlError("already_running", "已有 MiniDiT 控制服务。") }
+        guard lockFD >= 0 else { throw AgentSocket.failure(String(localized: "无法锁定本地控制接口", bundle: .miniDiT)) }
+        guard flock(lockFD, LOCK_EX | LOCK_NB) == 0 else { close(lockFD); throw AgentControlError("already_running", String(localized: "已有 MiniDiT 控制服务。", bundle: .miniDiT)) }
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard fd >= 0 else { close(lockFD); throw AgentSocket.failure("无法建立本地控制接口") }
+        guard fd >= 0 else { close(lockFD); throw AgentSocket.failure(String(localized: "无法建立本地控制接口", bundle: .miniDiT)) }
         do {
             var info = stat()
             if lstat(path, &info) == 0 {
-                guard (info.st_mode & S_IFMT) == S_IFSOCK, info.st_uid == geteuid() else { throw AgentControlError("unsafe_endpoint", "本地控制路径不是当前用户的 socket。") }
-                guard unlink(path) == 0 else { throw AgentSocket.failure("无法清理旧 socket") }
+                guard (info.st_mode & S_IFMT) == S_IFSOCK, info.st_uid == geteuid() else { throw AgentControlError("unsafe_endpoint", String(localized: "本地控制路径不是当前用户的 socket。", bundle: .miniDiT)) }
+                guard unlink(path) == 0 else { throw AgentSocket.failure(String(localized: "无法清理旧 socket", bundle: .miniDiT)) }
             }
             guard try AgentSocket.withAddress(path, { bind(fd, $0, $1) }) == 0,
-                  chmod(path, 0o600) == 0, listen(fd, 8) == 0 else { throw AgentSocket.failure("无法监听本地控制接口") }
+                  chmod(path, 0o600) == 0, listen(fd, 8) == 0 else { throw AgentSocket.failure(String(localized: "无法监听本地控制接口", bundle: .miniDiT)) }
         } catch { close(fd); close(lockFD); throw error }
         self.listener = fd; self.lock = lockFD
         _ = fcntl(fd, F_SETFD, FD_CLOEXEC)
@@ -135,7 +136,7 @@ public final class AgentSocketServer: @unchecked Sendable {
                         }
                     } catch {
                         defer { close(client); slots.signal() }
-                        let failure = AgentControlResponse(id: "", error: .init("invalid_request", "无效或过大的请求。"))
+                        let failure = AgentControlResponse(id: "", error: .init("invalid_request", String(localized: "无效或过大的请求。", bundle: .miniDiT)))
                         if let data = try? JSONEncoder().encode(failure) { try? AgentSocket.writeFrame(data, to: client) }
                     }
                 }

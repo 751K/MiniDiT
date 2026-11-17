@@ -19,29 +19,31 @@ extension AppModel {
         updateBackupProgress(run.token, final: true)
         let wasLost = lostDuringImport || (progress.map { !$0.failed.isEmpty } ?? false) && offline
         let done = run.done
-        var summary = done.isEmpty && run.proxyOnlyDone > 0 ? "导入 \(run.proxyOnlyDone) 个片段的代理"
-            : "导入 \(done.count) 个文件" + (run.proxyOnlyDone > 0 ? "、\(run.proxyOnlyDone) 个片段的代理" : "")
-        if let p = progress, p.reused > 0 { summary += "，其中 \(p.reused) 个使用本地已有文件" }
-        if let p = progress, p.skipped > 0 { summary += "，\(p.skipped) 个已存在于目标文件夹" }
-        if let p = progress, !p.failed.isEmpty { summary += "，\(p.failed.count) 个失败" }
-        if let deleted = deletion.deleted { summary += "，已从存储卡删除 \(deleted) 个" }
+        var summary = done.isEmpty && run.proxyOnlyDone > 0 ? String(localized: "导入 \(run.proxyOnlyDone) 个片段的代理")
+            : run.proxyOnlyDone > 0 ? String(localized: "导入 \(done.count) 个文件、\(run.proxyOnlyDone) 个片段的代理")
+            : String(localized: "导入 \(done.count) 个文件")
+        if let p = progress, p.reused > 0 { summary += String(localized: "，其中 \(p.reused) 个使用本地已有文件") }
+        if let p = progress, p.skipped > 0 { summary += String(localized: "，\(p.skipped) 个已存在于目标文件夹") }
+        if let p = progress, !p.failed.isEmpty { summary += String(localized: "，\(p.failed.count) 个失败") }
+        if let deleted = deletion.deleted { summary += String(localized: "，已从存储卡删除 \(deleted) 个") }
         if !importBackupProgress.isEmpty {
-            summary += "，" + importBackupProgress.map { "\($0.target.name)：\($0.verified)/\($0.total) 个文件已校验" }.joined(separator: "；")
+            let backups = importBackupProgress.map { String(localized: "\($0.target.name)：\($0.verified)/\($0.total) 个文件已校验") }
+            summary += String(localized: "，\(backups.joined(separator: String(localized: "；")))")
         } else {
-            summary += "，未备份"
+            summary += String(localized: "，未备份")
         }
-        for note in run.lookNotes { summary += "，" + note }
-        if Task.isCancelled { summary += "（已取消）" }
+        for note in run.lookNotes { summary += String(localized: "，\(note)") }
+        if Task.isCancelled { summary += String(localized: "（已取消）") }
         lastBatch = run.saved
         lastFolders = Self.importFolders(photos: done.filter { $0.item.kind != .video }.map(\.url),
                                          videos: done.filter { $0.item.kind == .video }.map(\.url))
         let sessionNames = Set(run.captureOneFiles.keys.map(\.name)).sorted()
-        let sessionText = sessionNames.isEmpty ? nil : sessionNames.joined(separator: "”“")
-        let lightroomText = run.lightroomCollections.isEmpty ? nil : run.lightroomCollections.joined(separator: "”“")
+        let sessionText = sessionNames.isEmpty ? nil : sessionNames.joined(separator: String(localized: "”“"))
+        let lightroomText = run.lightroomCollections.isEmpty ? nil : run.lightroomCollections.joined(separator: String(localized: "”“"))
         var openedText: String?
         var c1Failed = false
         if mode == .newSession {
-            if let sessionText { summary += "，已存入会话“\(sessionText)”的 Capture 文件夹" }
+            if let sessionText { summary += String(localized: "，已存入会话“\(sessionText)”的 Capture 文件夹") }
             if !Task.isCancelled, !wasLost, !run.captureOneFiles.isEmpty {
                 let handoff = await finishCaptureOneSessions(run.captureOneFiles)
                 summary += handoff.message
@@ -50,7 +52,8 @@ extension AppModel {
             }
         } else if mode == .lightroom {
             if !run.lightroomJobs.isEmpty {
-                summary += "，已交由 Lightroom Classic 导入" + (lightroomText.map { "（收藏夹“\($0)”）" } ?? "")
+                summary += lightroomText.map { String(localized: "，已交由 Lightroom Classic 导入（收藏夹“\($0)”）") }
+                    ?? String(localized: "，已交由 Lightroom Classic 导入")
                 watchLightroom(run.lightroomJobs)
             }
         } else if mode != .off && !run.saved.isEmpty {
@@ -61,7 +64,7 @@ extension AppModel {
             openedText = openFolders(lastFolders, in: openAfterImport)
             if let openedText { summary += openedText }
         }
-        if mode != .newSession && mode != .off && mode != .lightroom && !run.saved.isEmpty { c1Failed = summary.contains("Capture One 导入失败") }
+        if mode != .newSession && mode != .off && mode != .lightroom && !run.saved.isEmpty { c1Failed = summary.contains(Self.captureOneImportFailedText) }
         lastSummary = summary
         if wasLost {
             interrupted = Interrupted(done: done.count, total: picked.count, sessions: mode.namesGroups ? run.opened : [:],
@@ -128,7 +131,7 @@ extension AppModel {
                 guard target.availability == .available else { throw BackupRepair.Failure.targetUnavailable }
                 run.reports.append(try MHLWriter.append(root: target.root, entries: entries))
             } catch {
-                progress?.backupFailed.append(target.name + "（校验清单）")
+                progress?.backupFailed.append(String(localized: "\(target.name)（校验清单）"))
                 log.add("写备份清单失败 \(target.name)：\(error.localizedDescription)")
                 _ = run.journal.update(run.token) { b in
                     if b.backupReportErrors == nil { b.backupReportErrors = [:] }
@@ -187,7 +190,8 @@ extension AppModel {
                 result.cardReadOnly = true
                 continue
             }
-            progress?.current = "删除存储卡上的 \(items[h]?.filename ?? "")"
+            let filename = items[h]?.filename ?? ""
+            progress?.current = String(localized: "删除存储卡上的 \(filename)")
             do { try await card.delete(r.local); n += 1 }
             catch { result.failed += 1; log.add("删除失败 \(items[h]?.filename ?? "\(h)")：\(error.localizedDescription)") }
         }

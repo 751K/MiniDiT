@@ -28,10 +28,10 @@ extension AppModel {
                 var ord: [UInt32] = []
                 var localHandles: [UInt32] = []
                 for f in folders {
-                    status = "正在读取\(f.name)…"
+                    status = String(localized: "正在读取\(f.name)…")
                     let hs = try await lib.handles(in: f)
                     for (i, h) in hs.enumerated() {
-                        if i % 200 == 0 && i > 0 { status = "正在读取\(f.name)：\(i)/\(hs.count)" }
+                        if i % 200 == 0 && i > 0 { status = String(localized: "正在读取\(f.name)：\(i)/\(hs.count)") }
                         guard let item = try? await lib.item(h), item.kind != .other else { continue }
                         guard generation == libraryGeneration, !Task.isCancelled else { return }
                         let key = "\(sourceIdentity(sid))|\(item.storageID >> 16)|\(item.filename)|\(item.captureDateRaw)|\(item.size)"
@@ -105,8 +105,8 @@ extension AppModel {
         } catch {
             guard generation == libraryGeneration, !Task.isCancelled else { return }
             log.add("读取存储卡失败：\(error.localizedDescription)")
-            if quietly { refreshMessage = "自动刷新未完成，可点重新读取再试" }
-            else { errorMessage = "读取存储卡失败：\(error.localizedDescription)" }
+            if quietly { refreshMessage = String(localized: "自动刷新未完成，可点重新读取再试") }
+            else { errorMessage = String(localized: "读取存储卡失败：\(error.localizedDescription)") }
             phase = .ready
         }
         status = ""
@@ -129,12 +129,22 @@ extension AppModel {
     }
 
     static func dayTitle(_ key: String) -> String {
-        guard key != "unknown" else { return "无日期" }
+        guard key != "unknown" else { return String(localized: "无日期") }
         let f = DateFormatter(); f.dateFormat = "yyyyMMdd"; f.locale = Locale(identifier: "en_US_POSIX")
         f.timeZone = TimeZone(identifier: "UTC")
         guard let d = f.date(from: key) else { return key }
-        let out = DateFormatter(); out.locale = Locale(identifier: "zh_CN"); out.timeZone = TimeZone(identifier: "UTC")
-        out.dateFormat = Calendar.current.component(.year, from: Date()) == Int(key.prefix(4)) ? "M月d日 EEE" : "yyyy年M月d日 EEE"
+        let out = DateFormatter(); out.timeZone = TimeZone(identifier: "UTC")
+        let thisYear = Calendar.current.component(.year, from: Date()) == Int(key.prefix(4))
+        // 中文界面保持原格式；其他语言按界面语言的习惯显示。
+        let language = Bundle.main.preferredLocalizations.first ?? "zh-Hans"
+        if language.hasPrefix("zh") {
+            out.locale = Locale(identifier: "zh_CN")
+            out.dateFormat = thisYear ? "M月d日 EEE" : "yyyy年M月d日 EEE"
+        } else {
+            // 星期放在最后，侧栏的 DayTitle 按最后一个空格拆开对齐。
+            out.locale = Locale(identifier: language)
+            out.dateFormat = thisYear ? "MMM d EEE" : "MMM d, yyyy EEE"
+        }
         return out.string(from: d)
     }
 
@@ -169,7 +179,7 @@ extension AppModel {
 
     /// 缩略图角标：只列筛选留下的文件类型（只看 RAW 时显示「RAW」，不是「RAW+HIF」）。
     func badge(of shot: Shot) -> String {
-        if shot.isVideo, let d = clipInfos[shot.primary]?.durationText { return "视频 " + d }
+        if shot.isVideo, let d = clipInfos[shot.primary]?.durationText { return String(localized: "视频 \(d)") }
         return Shot.badge(importFiles(of: shot).compactMap { items[$0]?.kind })
     }
 
@@ -263,7 +273,7 @@ extension AppModel {
 
     /// 场次的标题：「第 2 场 · 14:05–16:30」。
     static func sceneTitle(_ s: ShootingScene) -> String {
-        s.timeRange.isEmpty ? "第 \(s.number) 场" : "第 \(s.number) 场 · \(s.timeRange)"
+        s.timeRange.isEmpty ? String(localized: "第 \(s.number) 场") : String(localized: "第 \(s.number) 场 · \(s.timeRange)")
     }
 
     func updateGridOrder() {
@@ -283,16 +293,18 @@ extension AppModel {
         let all = days.flatMap(\.shots)
         let videos = Set(all.filter { shots[$0]?.isVideo == true })
         guard !videos.isEmpty else {
-            return (newShotCount > 0 ? "\(newShotCount.formatted()) 张新照片" : "无新照片", "共 \(all.count.formatted()) 张")
+            return (newShotCount > 0 ? String(localized: "\(newShotCount.formatted()) 张新照片") : String(localized: "无新照片"),
+                    String(localized: "共 \(all.count.formatted()) 张"))
         }
         let newVideos = videos.filter { !isImported(shot: $0) }.count
         let newPhotos = newShotCount - newVideos
         var parts: [String] = []
-        if newPhotos > 0 { parts.append("\(newPhotos.formatted()) 张新照片") }
-        if newVideos > 0 { parts.append("\(newVideos.formatted()) 个新片段") }
+        if newPhotos > 0 { parts.append(String(localized: "\(newPhotos.formatted()) 张新照片")) }
+        if newVideos > 0 { parts.append(String(localized: "\(newVideos.formatted()) 个新片段")) }
         let photos = all.count - videos.count
-        let total = (photos > 0 ? "共 \(photos.formatted()) 张照片、" : "共 ") + "\(videos.count.formatted()) 个片段"
-        return (parts.isEmpty ? "无新内容" : parts.joined(separator: " · "), total)
+        let total = photos > 0 ? String(localized: "共 \(photos.formatted()) 张照片、\(videos.count.formatted()) 个片段")
+            : String(localized: "共 \(videos.count.formatted()) 个片段")
+        return (parts.isEmpty ? String(localized: "无新内容") : parts.joined(separator: " · "), total)
     }
 
     /// 右边显示的内容：点中的日期整天显示；只点中了某几场的，这一天只显示那几场。
@@ -419,11 +431,11 @@ extension AppModel {
     }
 
     static func countText(photos p: Int, videos v: Int, fresh: Bool = false, noun: Bool = false) -> String {
-        let n = fresh ? "新" : ""
-        let photo = "\(p.formatted()) 张\(n)照片", clip = "\(v.formatted()) 个\(n)片段"
-        if v == 0 { return fresh || noun ? photo : "\(p.formatted()) 张" }
+        let photo = fresh ? String(localized: "\(p.formatted()) 张新照片") : String(localized: "\(p.formatted()) 张照片")
+        let clip = fresh ? String(localized: "\(v.formatted()) 个新片段") : String(localized: "\(v.formatted()) 个片段")
+        if v == 0 { return fresh || noun ? photo : String(localized: "\(p.formatted()) 张") }
         if p == 0 { return clip }
-        return photo + "、" + clip
+        return String(localized: "\(photo)、\(clip)")
     }
     /// 这批文件要传的字节数。调用方先取一次 `selectedFiles()`，别在同一个 body 里反复取。
     func selectionBytes(of files: [CameraContentItem]) -> UInt64 {

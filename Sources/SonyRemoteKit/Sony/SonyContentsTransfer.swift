@@ -6,8 +6,8 @@ public enum SonyContentsTransferError: Error, LocalizedError, Sendable {
     public var errorDescription: String? {
         switch self {
         case .storageUnavailable(let caps):
-            var s = "相机没有开放存储卡访问。请确认：①相机固件已更新到最新；②相机里有存储卡；③相机处于「遥控拍摄」Wi-Fi 连接。"
-            if let media = caps["X_PTP_MediaServerSupport"] { s += "\n（相机报告 MediaServerSupport = \(media)）" }
+            var s = String(localized: "相机没有开放存储卡访问。请确认：①相机固件已更新到最新；②相机里有存储卡；③相机处于「遥控拍摄」Wi-Fi 连接。", bundle: .miniDiT)
+            if let media = caps["X_PTP_MediaServerSupport"] { s += String(localized: "\n（相机报告 MediaServerSupport = \(media)）", bundle: .miniDiT) }
             return s
         }
     }
@@ -25,7 +25,7 @@ public enum SonyContentsTransfer {
                                    readyTimeout: TimeInterval = 8,
                                    progress: @escaping @Sendable (String) -> Void = { _ in }) async throws -> PTPCameraLibrary {
         let client = PTPIPClient(host: host, port: port, identity: identity, tunnel: tunnel)
-        progress(tunnel == nil ? "正在建立 PTP/IP 连接…" : "正在通过加密通道建立 PTP/IP 连接…")
+        progress(tunnel == nil ? String(localized: "正在建立 PTP/IP 连接…", bundle: .miniDiT) : String(localized: "正在通过加密通道建立 PTP/IP 连接…", bundle: .miniDiT))
         try await client.connect()
         return try await openLibrary(transport: client, readyTimeout: readyTimeout, progress: progress)
     }
@@ -36,12 +36,12 @@ public enum SonyContentsTransfer {
         do {
             let caps = await SonySDIO.capabilities(client)
 
-            progress("正在打开传输会话…")
+            progress(String(localized: "正在打开传输会话…", bundle: .miniDiT))
             try await SonySDIO.openSession(client, mode: .contentsTransfer)
-            progress("正在进行索尼 SDIO 握手…")
+            progress(String(localized: "正在进行索尼 SDIO 握手…", bundle: .miniDiT))
             _ = try await SonySDIO.handshake(client)
 
-            progress("正在切换到内容传输模式…")
+            progress(String(localized: "正在切换到内容传输模式…", bundle: .miniDiT))
             try await client.transaction(SonyOperation.setContentsTransferMode, [2, 1, 0])
             try await waitUntilReady(client, timeout: readyTimeout)
 
@@ -51,7 +51,7 @@ public enum SonyContentsTransfer {
                 throw SonyContentsTransferError.storageUnavailable(capabilities: caps)
             }
 
-            progress("正在读取存储卡…")
+            progress(String(localized: "正在读取存储卡…", bundle: .miniDiT))
             return PTPCameraLibrary(client: client, largeObjectReads: true, onClose: {
                 // 先退出传输模式（最多等 2 秒），再关闭会话。
                 await client.setResponseTimeout(2)

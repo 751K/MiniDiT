@@ -111,7 +111,7 @@ public struct ClipInfo: Sendable, Hashable {
         let profile = c.split(separator: "_").last.map(String.init) ?? ""
         if profile.contains("422") { parts.append("4:2:2") } else if profile.contains("420") { parts.append("4:2:0") }
         if profile.contains("10") || profile.hasPrefix("H422") { parts.append("10bit") }
-        if profile.contains("422I") || profile.contains("INTRA") { parts.append("帧内") }
+        if profile.contains("422I") || profile.contains("INTRA") { parts.append(String(localized: "帧内", bundle: .miniDiT)) }
         return parts.joined(separator: " ")
     }
 

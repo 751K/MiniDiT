@@ -19,9 +19,9 @@ enum DJIWiFi {
         case noInterface, joinFailed(ssid: String, password: String)
         var errorDescription: String? {
             switch self {
-            case .noInterface: "这台 Mac 没有可用的 Wi-Fi。"
+            case .noInterface: String(localized: "这台 Mac 没有可用的 Wi-Fi。")
             case .joinFailed(let ssid, let password):
-                "无法自动加入相机的 Wi-Fi“\(ssid)”。请在菜单栏的 Wi-Fi 中手动加入（密码：\(password)），保持相机开机，然后再次连接。"
+                String(localized: "无法自动加入相机的 Wi-Fi“\(ssid)”。请在菜单栏的 Wi-Fi 中手动加入（密码：\(password)），保持相机开机，然后再次连接。")
             }
         }
     }

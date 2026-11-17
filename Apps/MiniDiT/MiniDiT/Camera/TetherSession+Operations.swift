@@ -7,6 +7,9 @@ import SonyRemoteKit
 /// 联机窗口和 CLI / MCP 共用的操作：切换拍照 / 录像、远程取白、改任意属性、本次拍摄的照片列表。
 /// 出错时抛 AgentControlError（错误码 + 中文说明），界面直接显示说明，agent 原样返回。
 extension TetherSession {
+    /// 自定义白平衡失败时，错误信息后面接上操作过程（JSON）；界面只显示分隔符前面的部分。
+    static var traceSeparator: String { String(localized: " 过程：") }
+
     // MARK: 改属性（界面用）
 
     /// 改一个属性并回读确认；失败时显示在窗口里。
@@ -191,9 +194,9 @@ extension TetherSession {
 
     /// 点按取景画面：相机按机身的触摸功能对焦或开始跟踪。相机报告不可用（0xD284 = 0）时直接说明原因。
     func touchFocus(at p: CGPoint) async throws -> (x: Int, y: Int) {
-        guard !lost else { throw AgentControlError("not_connected", "相机已断开。") }
+        guard !lost else { throw AgentControlError("not_connected", String(localized: "相机已断开。")) }
         if properties[0xD284]?.intValue == 0 {
-            throw AgentControlError("touch_unavailable", "相机现在不接受远程触摸：请检查机身的「触摸操作」是否打开，以及对焦模式和对焦区域。")
+            throw AgentControlError("touch_unavailable", String(localized: "相机现在不接受远程触摸：请检查机身的「触摸操作」是否打开，以及对焦模式和对焦区域。"))
         }
         let c = Self.touchCoordinates(p)
         do { try await remoteTouch(x: c.x, y: c.y) } catch { throw AppModel.cameraError(error) }
@@ -204,7 +207,7 @@ extension TetherSession {
 
     /// 取消触摸对焦 / 跟踪。
     func cancelTouchFocus() async throws {
-        guard !lost else { throw AgentControlError("not_connected", "相机已断开。") }
+        guard !lost else { throw AgentControlError("not_connected", String(localized: "相机已断开。")) }
         do { try await cancelRemoteTouch() } catch { throw AppModel.cameraError(error) }
         touchPoint = nil
         await refresh()
@@ -242,19 +245,19 @@ extension TetherSession {
     func switchMode(to target: SonyPropertyCatalog.ShootingMode, exposure: String? = nil, timeout: TimeInterval = 8) async throws -> ModeSwitch {
         let code = SonyProperty.exposureProgramMode
         let all = try await freshProperties()
-        guard let d = all[code], let current = d.intValue else { throw AgentControlError("unknown_property", "相机没有报告曝光模式。") }
+        guard let d = all[code], let current = d.intValue else { throw AgentControlError("unknown_property", String(localized: "相机没有报告曝光模式。")) }
         guard let letter = exposure?.lowercased() ?? SonyPropertyCatalog.shootingMode(current)?.exposure else {
-            throw AgentControlError("invalid_params", "当前曝光模式（\(SonyFormat.exposureProgram(current))）无法对应，请指定 auto、p、a、s 或 m。")
+            throw AgentControlError("invalid_params", String(localized: "当前曝光模式（\(SonyFormat.exposureProgram(current))）无法对应，请指定 auto、p、a、s 或 m。"))
         }
         guard let value = SonyPropertyCatalog.exposureProgram(target, exposure: letter, allowed: d.allowedValues) else {
-            throw AgentControlError("invalid_value", "相机不支持\(Self.modeTitle(target))的 \(letter.uppercased()) 模式。")
+            throw AgentControlError("invalid_value", String(localized: "相机不支持\(Self.modeTitle(target))的 \(letter.uppercased()) 模式。"))
         }
-        busy = "正在切换到\(Self.modeTitle(target))…"
+        busy = String(localized: "正在切换到\(Self.modeTitle(target))…")
         defer { busy = nil }
         var priorityChanged = false
         if d.getSet == 1, d.isEnabled == 2, value != current {
             guard let pk = all[SonyProperty.priorityMode], pk.isWritable, pk.intValue == 0 else {
-                throw AgentControlError("not_writable", "曝光模式由相机拨盘控制，且无法把 PriorityKey 改成 PC 优先。")
+                throw AgentControlError("not_writable", String(localized: "曝光模式由相机拨盘控制，且无法把 PriorityKey 改成 PC 优先。"))
             }
             do { _ = try await setVerified(SonyProperty.priorityMode, .int(1), timeout: 5) } catch { throw AppModel.cameraError(error) }
             priorityChanged = true
@@ -266,7 +269,7 @@ extension TetherSession {
     }
 
     static func modeTitle(_ m: SonyPropertyCatalog.ShootingMode) -> String {
-        switch m { case .photo: "拍照"; case .movie: "录像"; case .sq: "S&Q"; case .interval: "间隔录像" }
+        switch m { case .photo: String(localized: "拍照"); case .movie: String(localized: "录像"); case .sq: "S&Q"; case .interval: String(localized: "间隔录像") }
     }
 
     // MARK: 远程取白
@@ -286,7 +289,7 @@ extension TetherSession {
     /// probe 时只进入待机再取消。每一步的状态记在 trace 里；出错或超时会尝试取消待机，错误消息附 trace。
     func customWhiteBalance(slot: Int, position: Int64? = nil, probe: Bool = false,
                             timeout: TimeInterval = 15) async throws -> (result: CustomWBResult?, probe: CustomWBProbe?) {
-        busy = probe ? "正在检查取白…" : "正在取白：请让相机对准灰卡…"
+        busy = probe ? String(localized: "正在检查取白…") : String(localized: "正在取白：请让相机对准灰卡…")
         defer { busy = nil }
         var trace: [AgentJSON] = []
         var last: [String: AgentJSON] = [:]
@@ -312,25 +315,25 @@ extension TetherSession {
             try? await customWBButton(.cancel)
             _ = try? await snapshot("cancel")
             let data = (try? AgentJSON.array(trace).data()).map { String(decoding: $0, as: UTF8.self) } ?? ""
-            return AgentControlError(code, text + " 过程：" + data)
+            return AgentControlError(code, text + TetherSession.traceSeparator + data)
         }
 
         var all = try await snapshot("start")
-        guard all[0xD270] != nil else { throw AgentControlError("unsupported", "相机没有报告取白状态（0xD270），不支持远程取白。") }
+        guard all[0xD270] != nil else { throw AgentControlError("unsupported", String(localized: "相机没有报告取白状态（0xD270），不支持远程取白。")) }
         let wb: Int64 = 0x8020 + Int64(slot - 1)
-        guard all[0x5005]?.allowedValues.contains(wb) == true else { throw AgentControlError("invalid_value", "相机没有自定义 \(slot)。") }
+        guard all[0x5005]?.allowedValues.contains(wb) == true else { throw AgentControlError("invalid_value", String(localized: "相机没有自定义 \(slot)。")) }
         do { _ = try await setVerified(0x5005, .int(wb), timeout: 5) } catch { throw AppModel.cameraError(error) }
         let deadline = Date().addingTimeInterval(timeout)
         all = try await snapshot("wb")
         while all[0xD26D]?.intValue != 1 {
-            guard Date() < deadline else { throw await fail("custom_wb_unavailable", "相机没有允许进入取白待机（检查拍摄模式和菜单状态）。") }
+            guard Date() < deadline else { throw await fail("custom_wb_unavailable", String(localized: "相机没有允许进入取白待机（检查拍摄模式和菜单状态）。")) }
             try await Task.sleep(for: .milliseconds(200))
             all = try await snapshot("poll")
         }
-        do { try await customWBButton(.standby) } catch { throw await fail("camera_error", "进入取白待机失败：\(AppModel.cameraError(error).message)") }
+        do { try await customWBButton(.standby) } catch { throw await fail("camera_error", String(localized: "进入取白待机失败：\(AppModel.cameraError(error).message)")) }
         all = try await snapshot("standby")
         while !(state(all) == 1 && all[0xD26F]?.intValue == 1) {
-            guard Date() < deadline else { throw await fail("custom_wb_timeout", "相机没有进入取白待机。") }
+            guard Date() < deadline else { throw await fail("custom_wb_timeout", String(localized: "相机没有进入取白待机。")) }
             try await Task.sleep(for: .milliseconds(200))
             all = try await snapshot("poll")
         }
@@ -344,7 +347,7 @@ extension TetherSession {
         // α7 V 上可取白区域 0xD26B、0xD26C 待机时也是 0：默认取画面中央 (320, 240)，实测可用。
         let pos = position ?? Int64(320 << 16 | 240)
         do { try await customWBCapture(.int(pos), type: .uint32) }
-        catch { throw await fail("camera_error", "取白命令被拒绝：\(AppModel.cameraError(error).message)") }
+        catch { throw await fail("camera_error", String(localized: "取白命令被拒绝：\(AppModel.cameraError(error).message)")) }
         all = try await snapshot("capture")
         var sawCapturing = state(all) == 2
         while Date() < deadline {
@@ -353,7 +356,7 @@ extension TetherSession {
             if state(all) == 2 { sawCapturing = true; continue }
             if sawCapturing || Date().timeIntervalSince(started) > 3 { break }
         }
-        guard state(all) != 2 else { throw await fail("custom_wb_timeout", "取白没有在 \(Int(timeout)) 秒内完成。") }
+        guard state(all) != 2 else { throw await fail("custom_wb_timeout", String(localized: "取白没有在 \(Int(timeout)) 秒内完成。")) }
         if state(all) == 1 { try? await customWBButton(.cancel) }
         try await Task.sleep(for: .milliseconds(500))
         all = try await snapshot("done")

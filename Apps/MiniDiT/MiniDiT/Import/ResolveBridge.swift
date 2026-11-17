@@ -18,8 +18,8 @@ enum ResolveBridge {
         case notInstalled, notReachable, script(String)
         var errorDescription: String? {
             switch self {
-            case .notInstalled: "未找到 DaVinci Resolve，请安装后重试。"
-            case .notReachable: "无法连接 DaVinci Resolve。请在 Resolve 的偏好设置中将“外部脚本使用”设为“本地”。"
+            case .notInstalled: String(localized: "未找到 DaVinci Resolve，请安装后重试。")
+            case .notReachable: String(localized: "无法连接 DaVinci Resolve。请在 Resolve 的偏好设置中将“外部脚本使用”设为“本地”。")
             case .script(let message): message
             }
         }
@@ -40,7 +40,7 @@ enum ResolveBridge {
     /// 加入目标项目。`expected` 是第一次发送时 Resolve 返回的项目：重试时必须还是它。
     /// 旧记录没有冻结项目名时，用当时记下的项目名。
     @MainActor static func send(_ payload: Data, expected: Project?) async throws -> Result {
-        guard var request = try JSONSerialization.jsonObject(with: payload) as? [String: Any] else { throw Failure.script("发送记录无法读取。") }
+        guard var request = try JSONSerialization.jsonObject(with: payload) as? [String: Any] else { throw Failure.script(String(localized: "发送记录无法读取。")) }
         request["action"] = "import"
         if let expected { request["projectID"] = expected.id }
         if (request["project"] as? String ?? "").isEmpty, let name = expected?.name { request["project"] = name }
@@ -61,7 +61,7 @@ enum ResolveBridge {
             if code == 0 { return Data(out.utf8) }
             if code != 3 {
                 let message = error.isEmpty ? out : error
-                throw Failure.script(message.components(separatedBy: .newlines).last(where: { !$0.isEmpty }) ?? "Resolve 未返回发送结果。")
+                throw Failure.script(message.components(separatedBy: .newlines).last(where: { !$0.isEmpty }) ?? String(localized: "Resolve 未返回发送结果。"))
             }
             guard Date() < deadline else { throw Failure.notReachable }
             try await Task.sleep(for: .seconds(2))
@@ -93,7 +93,7 @@ enum ResolveBridge {
             }
         } onCancel: { control.stop() }
         try Task.checkCancellation()
-        if control.stopped { throw Failure.script("等待 Resolve 脚本响应超时；已保存的文件不受影响，可重试。") }
+        if control.stopped { throw Failure.script(String(localized: "等待 Resolve 脚本响应超时；已保存的文件不受影响，可重试。")) }
         return result
     }
     private final class ProcessControl: @unchecked Sendable {

@@ -53,14 +53,14 @@ extension AppModel {
     func identityDetail(_ id: Int) -> String {
         let identity = sourceIdentitySnapshot(id)
         if let root = cardRoot(for: id), let binding = sourceIdentities.binding(for: root) {
-            var parts = [binding.descriptor.kind == .directory ? "本地目录" : "读卡器"]
+            var parts = [binding.descriptor.kind == .directory ? String(localized: "本地目录") : String(localized: "读卡器")]
             if let size = binding.descriptor.capacity { parts.append(ByteCountFormatter.string(fromByteCount: Int64(clamping: size), countStyle: .file)) }
             if let model = cardCameraNames[id] { parts.append(model) }
-            if binding.needsConfirmation { parts.append("身份待确认") }
+            if binding.needsConfirmation { parts.append(String(localized: "身份待确认")) }
             return parts.joined(separator: " · ")
         }
         let host = id == Self.primarySource ? connectedHost : extra(id)?.camera?.host
-        let serial = identity.cameraSerial.map { String($0.suffix(4)) } ?? "序列号未知"
+        let serial = identity.cameraSerial.map { String($0.suffix(4)) } ?? String(localized: "序列号未知")
         let link = id == Self.primarySource && lastUSBCamera != nil ? "USB" : "Wi-Fi"
         return [link, host, serial].compactMap { $0 }.joined(separator: " · ")
     }

@@ -24,18 +24,19 @@ public enum SonyPropertyError: Error, LocalizedError, Sendable, Equatable {
         func n(_ c: UInt16) -> String { SonyPropertyCatalog.name(c).map { "\($0)（\(String(format: "0x%04X", c))）" } ?? String(format: "0x%04X", c) }
         func v(_ c: UInt16, _ x: Int64) -> String { SonyPropertyCatalog.label(c, x) ?? "\(x)" }
         switch self {
-        case .unknown(let c): return "相机没有报告属性 \(n(c))。"
-        case .readOnly(let c): return "\(n(c)) 是只读属性。"
+        case .unknown(let c): return String(localized: "相机没有报告属性 \(n(c))。", bundle: .miniDiT)
+        case .readOnly(let c): return String(localized: "\(n(c)) 是只读属性。", bundle: .miniDiT)
         case .notEnabled(let c, let display):
-            return display ? "\(n(c)) 当前仅显示、不能改（通常是被拍摄模式、拨盘或其他设置锁定）。" : "\(n(c)) 在当前设置下未启用。"
+            return display ? String(localized: "\(n(c)) 当前仅显示、不能改（通常是被拍摄模式、拨盘或其他设置锁定）。", bundle: .miniDiT) : String(localized: "\(n(c)) 在当前设置下未启用。", bundle: .miniDiT)
         case .invalidValue(let c, let allowed):
-            return "\(n(c)) 不接受这个值。可选：" + allowed.prefix(60).map { v(c, $0) }.joined(separator: "、")
-        case let .outOfRange(c, lo, hi, step): return "\(n(c)) 的取值范围是 \(v(c, lo))–\(v(c, hi))，步进 \(step)。"
+            let list = allowed.prefix(60).map { v(c, $0) }.joined(separator: String(localized: "、", bundle: .miniDiT))
+            return String(localized: "\(n(c)) 不接受这个值。可选：\(list)", bundle: .miniDiT)
+        case let .outOfRange(c, lo, hi, step): return String(localized: "\(n(c)) 的取值范围是 \(v(c, lo))–\(v(c, hi))，步进 \(step)。", bundle: .miniDiT)
         case let .rejected(c, r):
-            return r == PTPResponse.deviceBusy ? "相机忙，没有接受 \(n(c)) 的设置。" : "相机拒绝设置 \(n(c))（响应 \(String(format: "0x%04X", r))）。"
+            return r == PTPResponse.deviceBusy ? String(localized: "相机忙，没有接受 \(n(c)) 的设置。", bundle: .miniDiT) : String(localized: "相机拒绝设置 \(n(c))（响应 \(String(format: "0x%04X", r))）。", bundle: .miniDiT)
         case let .readbackMismatch(c, req, act):
             func s(_ p: PTPValue) -> String { if case .int(let x) = p { v(c, x) } else { p.description } }
-            return "设置 \(n(c)) 为 \(s(req)) 后读回的是 \(s(act))，相机没有采用这个值。"
+            return String(localized: "设置 \(n(c)) 为 \(s(req)) 后读回的是 \(s(act))，相机没有采用这个值。", bundle: .miniDiT)
         }
     }
 }
@@ -47,9 +48,9 @@ public enum SonyCameraError: Error, LocalizedError, Sendable {
 
     public var errorDescription: String? {
         switch self {
-        case .notSonyRemoteCapable: "相机没有响应索尼遥控协议。请确认相机已开启「遥控拍摄」。"
-        case .settingUnavailable(let k): "当前模式下无法调整\(k.title)。"
-        case .downloadTimeout: "等待相机传输照片超时。"
+        case .notSonyRemoteCapable: String(localized: "相机没有响应索尼遥控协议。请确认相机已开启「遥控拍摄」。", bundle: .miniDiT)
+        case .settingUnavailable(let k): String(localized: "当前模式下无法调整\(k.title)。", bundle: .miniDiT)
+        case .downloadTimeout: String(localized: "等待相机传输照片超时。", bundle: .miniDiT)
         }
     }
 }
@@ -95,7 +96,7 @@ public actor SonyCamera: RemoteCamera {
                                startupDelay: TimeInterval = 3,
                                progress: @escaping @Sendable (String) -> Void = { _ in }) async throws -> SonyCamera {
         let client = PTPIPClient(host: host, port: port, identity: identity, tunnel: tunnel)
-        progress(tunnel == nil ? "正在建立 PTP/IP 连接…" : "正在通过加密通道建立 PTP/IP 连接…")
+        progress(tunnel == nil ? String(localized: "正在建立 PTP/IP 连接…", bundle: .miniDiT) : String(localized: "正在通过加密通道建立 PTP/IP 连接…", bundle: .miniDiT))
         try await client.connect()
         do {
             let cam = SonyCamera(client: client, name: await client.cameraName, startupDelay: startupDelay)
@@ -121,15 +122,15 @@ public actor SonyCamera: RemoteCamera {
     }
 
     private func handshake(progress: @Sendable (String) -> Void) async throws {
-        progress("正在打开会话…")
+        progress(String(localized: "正在打开会话…", bundle: .miniDiT))
         try await SonySDIO.openSession(client, mode: nil)
 
-        progress("正在进行索尼 SDIO 握手…")
+        progress(String(localized: "正在进行索尼 SDIO 握手…", bundle: .miniDiT))
         let info = try await SonySDIO.handshake(client)
         protocolVersion = info.version
         supportedCodes = info.codes
 
-        progress("正在读取相机设置…")
+        progress(String(localized: "正在读取相机设置…", bundle: .miniDiT))
         try await refreshProperties(force: true)
         // 让 APP 优先控制（失败不影响后续）。记下原值，断开前改回去。
         let priorityBefore = props[SonyProperty.priorityMode]?.current
@@ -524,7 +525,7 @@ public actor SonyCamera: RemoteCamera {
         for slot: UInt32 in [1, 2] {
             let r = try await client.transaction(SonyOperation.getCapturedDateList, [slot], requireOK: false)
             if r.code == PTPResponse.ok { available.append(slot) }
-            else { failures.append("卡槽 \(slot)：\(PTPError(operation: SonyOperation.getCapturedDateList, code: r.code).localizedDescription)") }
+            else { failures.append(String(localized: "卡槽 \(slot)：\(PTPError(operation: SonyOperation.getCapturedDateList, code: r.code).localizedDescription)", bundle: .miniDiT)) }
         }
         guard !available.isEmpty else { throw SonyRemoteTransferError.cardsUnavailable(failures.joined(separator: "；")) }
         let lib = SonyRemoteTransferLibrary(client: client, slots: available, notes: [], deviceInfo: nil)

@@ -39,7 +39,7 @@ struct ProjectImportResults: View {
                             ForEach(records) { record in
                                 Button { selected = record.id } label: {
                                     VStack(alignment: .leading, spacing: 6) {
-                                        Text(record.startedAt.formatted(.dateTime.year().month().day().hour().minute().locale(Locale(identifier: "zh_CN")))).fontWeight(.semibold)
+                                        Text(record.startedAt.formatted(.dateTime.year().month().day().hour().minute().locale(.app))).fontWeight(.semibold)
                                         Text(batchDescription(record)).foregroundStyle(.secondary)
                                         if record.backupRequested, record.pendingBackupCount > 0 {
                                             Text("\(record.pendingBackupCount) 项备份待补").foregroundStyle(.orange)
@@ -71,13 +71,13 @@ struct ProjectImportResults: View {
         let saved = files.filter { $0.state == .saved }.count
         let state: String
         switch batch.state {
-        case .running: state = "正在导入"
-        case .interrupted: state = "导入中断"
-        case .cancelled: state = "已取消"
-        case .legacy: state = "历史导入"
-        case .completed: state = saved == files.count ? "文件已保存" : "部分文件未保存"
+        case .running: state = String(localized: "正在导入")
+        case .interrupted: state = String(localized: "导入中断")
+        case .cancelled: state = String(localized: "已取消")
+        case .legacy: state = String(localized: "历史导入")
+        case .completed: state = saved == files.count ? String(localized: "文件已保存") : String(localized: "部分文件未保存")
         }
-        return "\(saved)/\(files.count) 项 · \(state)"
+        return String(localized: "\(saved)/\(files.count) 项 · \(state)")
     }
 
     private func detail(_ batch: ImportBatchRecord) -> some View {
@@ -116,7 +116,7 @@ struct ProjectImportResults: View {
                             }
                             .disabled(journal.repairTask != nil || model.progress != nil || batch.state == .running || batch.files.flatMap(\.assets).isEmpty)
                             if let error = batch.backupReportErrors?[target.id.uuidString] {
-                                Text("校验清单未完成：" + error).foregroundStyle(Theme.warning)
+                                Text("校验清单未完成：\(error)").foregroundStyle(Theme.warning)
                             }
                             if journal.repairingBatch == batch.id, journal.repairingTarget == target.id {
                                 HStack {
@@ -192,10 +192,10 @@ private struct ImportFileResultRow: View {
     }
 
     private var status: String {
-        guard file.state == .saved else { return file.state == .failed ? "未保存" : "未完成" }
-        if missingBackup { return "待补备份" }
-        if file.message != nil { return "需查看" }
-        return file.proxyOnly ? "仅代理" : "已保存"
+        guard file.state == .saved else { return file.state == .failed ? String(localized: "未保存") : String(localized: "未完成") }
+        if missingBackup { return String(localized: "待补备份") }
+        if file.message != nil { return String(localized: "需查看") }
+        return file.proxyOnly ? String(localized: "仅代理") : String(localized: "已保存")
     }
 
     var body: some View {
@@ -214,8 +214,8 @@ private struct ImportFileResultRow: View {
                 GridRow {
                     field("导入时间：")
                     Text(file.importedAt.map {
-                        $0.formatted(.dateTime.year().month().day().hour().minute().second().locale(Locale(identifier: "zh_CN")))
-                    } ?? "未记录")
+                        $0.formatted(.dateTime.year().month().day().hour().minute().second().locale(.app))
+                    } ?? String(localized: "未记录"))
                 }
                 GridRow {
                     field("导入设备：")
@@ -234,7 +234,7 @@ private struct ImportFileResultRow: View {
                     if let address = file.sourceAddress, address.hasPrefix("/") {
                         CopyResultRow(path: address).id("source-\(refreshID)")
                     } else {
-                        Text(file.sourceAddress ?? "未记录").textSelection(.enabled)
+                        Text(file.sourceAddress ?? String(localized: "未记录")).textSelection(.enabled)
                     }
                 }
                 if !file.assets.contains(where: { $0.copies.contains { $0.role == .working } }) {
@@ -257,7 +257,7 @@ private struct ImportFileResultRow: View {
                 ForEach(batch.targets.filter { target in file.assets.contains { !$0.hasBackup(at: target) || $0.error(for: target) != nil } }) { target in
                     GridRow {
                         field("备份地址：")
-                        Text(target.name + " · 待补齐").foregroundStyle(Theme.warning)
+                        Text("\(target.name) · 待补齐").foregroundStyle(Theme.warning)
                     }
                 }
                 ForEach(file.assets) { asset in
@@ -275,7 +275,8 @@ private struct ImportFileResultRow: View {
                 AssetChecksumRow(asset: asset)
                 if let errors = asset.targetErrors {
                     ForEach(errors.keys.sorted(), id: \.self) { id in
-                        Text((batch.targets.first(where: { $0.id.uuidString == id })?.name ?? "备份") + "：" + (errors[id] ?? ""))
+                        let name = batch.targets.first(where: { $0.id.uuidString == id })?.name ?? String(localized: "备份")
+                        Text("\(name)：\(errors[id] ?? "")")
                             .foregroundStyle(Theme.warning)
                     }
                 } else if let error = asset.backupError { Text(error).foregroundStyle(.orange) }
@@ -284,7 +285,7 @@ private struct ImportFileResultRow: View {
         .padding(.vertical, 12)
     }
 
-    private func field(_ label: String) -> some View {
+    private func field(_ label: LocalizedStringKey) -> some View {
         Text(label).foregroundStyle(.secondary).fixedSize()
     }
 }
@@ -301,8 +302,8 @@ private struct CopyResultRow: View {
                 Label(path, systemImage: "folder").lineLimit(1).truncationMode(.middle)
             }
             .buttonStyle(.link)
-            .help("在访达中显示：" + path)
-            .accessibilityLabel("在访达中显示 " + path)
+            .help("在访达中显示：\(path)")
+            .accessibilityLabel("在访达中显示 \(path)")
             .disabled(accessible != true)
             if accessible == false {
                 Text("不可访问").foregroundStyle(.orange).fixedSize()
@@ -333,7 +334,7 @@ private struct AssetChecksumRow: View {
                     }
                 }
                 .buttonStyle(.link).help("复制 xxHash64 校验值")
-                .accessibilityLabel("复制 xxHash64 校验值 " + hash)
+                .accessibilityLabel("复制 xxHash64 校验值 \(hash)")
             }
             Button { showVerification = true } label: { Image(systemName: "info.circle") }
                 .buttonStyle(.plain).foregroundStyle(.secondary)
@@ -345,8 +346,8 @@ private struct AssetChecksumRow: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(copy.path).textSelection(.enabled)
                                 Text(copy.verifiedAt.map {
-                                    "上次核验：" + $0.formatted(.dateTime.year().month().day().hour().minute().locale(Locale(identifier: "zh_CN")))
-                                } ?? "核验时间未记录")
+                                    String(localized: "上次核验：\($0.formatted(.dateTime.year().month().day().hour().minute().locale(.app)))")
+                                } ?? String(localized: "核验时间未记录"))
                                 .foregroundStyle(.secondary)
                             }
                         }

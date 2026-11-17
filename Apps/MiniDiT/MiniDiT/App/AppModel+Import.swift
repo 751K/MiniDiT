@@ -25,7 +25,7 @@ extension AppModel {
         // 所有普通导入入口（含自动导入和续传）都必须携带有效项目；拖出由 FileExport 独立处理。
         let projects = Set(sessions.map(\.id))
         guard jobs.allSatisfy({ job in job.appSession.map { projects.contains($0) } == true }) else {
-            errorMessage = "请先选择或新建项目，再开始导入。"
+            errorMessage = String(localized: "请先选择或新建项目，再开始导入。")
             return
         }
         sessionRequest = nil
@@ -129,17 +129,17 @@ extension AppModel {
             return nil
         case .finder:
             for f in folders { NSWorkspace.shared.open(f) }
-            return "，已在访达中打开"
+            return String(localized: "，已在访达中打开")
         case .bridge, .dxo:
             guard let kind = app.appKind, let appURL = AppInfo.find(kind).url else {
                 log.add("导入后打开：没有找到 \(app.title)")
-                return "；未找到 \(app.title)，未打开文件夹"
+                return String(localized: "；未找到 \(app.title)，未打开文件夹")
             }
             NSWorkspace.shared.open([folder], withApplicationAt: appURL, configuration: NSWorkspace.OpenConfiguration()) { _, error in
                 if let error { Task { @MainActor in AppLog.shared.add("用 \(app.title) 打开 \(folder.path) 失败：\(error.localizedDescription)") } }
             }
             log.add("导入后用 \(app.title) 打开：\(folder.path)")
-            return "，已在 \(app.title) 中打开"
+            return String(localized: "，已在 \(app.title) 中打开")
         }
     }
 
@@ -154,7 +154,7 @@ extension AppModel {
     func continueImport() {
         guard !sourcesOffline, let i = interrupted else { return }
         guard !i.jobs.isEmpty else {
-            errorMessage = "此导入缺少项目记录，请选择项目后重新导入。"
+            errorMessage = String(localized: "此导入缺少项目记录，请选择项目后重新导入。")
             return
         }
         startImport(jobs: i.jobs, grouping: i.grouping, captureOneFiles: i.captureOneFiles)

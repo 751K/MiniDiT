@@ -80,7 +80,7 @@ enum CameraFinder {
         }
         var seen = Set<String>()
         hosts = hosts.filter { seen.insert($0).inserted }
-        progress("正在扫描 \(hosts.count) 个地址…")
+        progress(String(localized: "正在扫描 \(hosts.count) 个地址…"))
 
         async let sshHosts = CameraDiscovery.scan(hosts: hosts, port: CameraSSHTunnel.sshPort, timeout: 0.4, concurrency: 48)
         async let directHosts = CameraDiscovery.scan(hosts: hosts, port: PTPIPClient.defaultPort, timeout: 0.4, concurrency: 48)
@@ -90,7 +90,7 @@ enum CameraFinder {
         var found: [FoundCamera] = direct.map {
             FoundCamera(host: $0, kind: .direct, knownName: knownByFingerprint["direct:\($0)"])
         }
-        if !ssh.isEmpty { progress("正在确认 \(ssh.count) 台 SSH 设备是否为相机…") }
+        if !ssh.isEmpty { progress(String(localized: "正在确认 \(ssh.count) 台 SSH 设备是否为相机…")) }
         let checked = await withTaskGroup(of: FoundCamera?.self) { group in
             for host in ssh where !direct.contains(host) {
                 group.addTask {

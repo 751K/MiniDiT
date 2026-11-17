@@ -26,7 +26,7 @@ final class SourceIdentityStore {
         self.url = url
         guard FileManager.default.fileExists(atPath: url.path) else { return }
         do { profiles = try JSONDecoder().decode([CardIdentityProfile].self, from: Data(contentsOf: url)) }
-        catch { readable = false; errorMessage = "无法读取存储卡档案：" + error.localizedDescription }
+        catch { readable = false; errorMessage = String(localized: "无法读取存储卡档案：\(error.localizedDescription)") }
     }
 
     static func describe(_ root: URL) -> CardDescriptor {
@@ -121,7 +121,7 @@ final class SourceIdentityStore {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             try JSONEncoder().encode(next).write(to: url, options: .atomic)
             profiles = next; errorMessage = nil; return true
-        } catch { errorMessage = "存储卡档案未能保存：" + error.localizedDescription; return false }
+        } catch { errorMessage = String(localized: "存储卡档案未能保存：\(error.localizedDescription)"); return false }
     }
     private static func path(_ root: URL) -> String { root.resolvingSymlinksInPath().standardizedFileURL.path }
 }

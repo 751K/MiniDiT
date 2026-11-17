@@ -28,7 +28,7 @@ struct BackupTargetsEditor: View {
                         .accessibilityLabel("\(target.name)的备份设置")
                         Spacer(minLength: 8)
                         if target.availability == .available, let free = AppModel.freeSpace(at: target.root) {
-                            Text(ByteCountFormatter.string(fromByteCount: Int64(clamping: free), countStyle: .file) + " 可用")
+                            Text(String(localized: "\(ByteCountFormatter.string(fromByteCount: Int64(clamping: free), countStyle: .file)) 可用"))
                                 .font(Theme.Font.caption).foregroundStyle(.secondary).fixedSize()
                         }
                         BackupSettingsSwitch(title: "启用“\(target.name)”", isOn: bindings.enabled)
@@ -43,7 +43,7 @@ struct BackupTargetsEditor: View {
                     }
                     .font(Theme.Font.caption)
                     .buttonStyle(.plain).foregroundStyle(.secondary)
-                    .help("更改位置：" + target.path)
+                    .help("更改位置：\(target.path)")
                     .accessibilityLabel("更改“\(target.name)”的备份位置")
                     if let note = model.backupTargetNote(target) {
                         Text(note).font(Theme.Font.caption.weight(.medium))
@@ -58,7 +58,7 @@ struct BackupTargetsEditor: View {
                 Button("添加备份位置…", systemImage: "plus") {
                     guard let root = FolderPicker.choose(start: nil) else { return }
                     if model.backupTargets.contains(where: { BackupDestination.overlaps($0.root, root) }) {
-                        problem = "备份位置相同或互相包含，请选择另一个位置。"
+                        problem = String(localized: "备份位置相同或互相包含，请选择另一个位置。")
                     } else { model.addBackupTarget(root) }
                 }
                 .buttonStyle(.plain).foregroundStyle(.tint)
@@ -83,14 +83,14 @@ struct BackupTargetsEditor: View {
     private func chooseReplacement(_ target: BackupDestination) {
         guard let root = FolderPicker.choose(start: target.root) else { return }
         if model.backupTargets.contains(where: { $0.id != target.id && BackupDestination.overlaps($0.root, root) }) {
-            problem = "备份位置相同或互相包含，请选择另一个位置。"
+            problem = String(localized: "备份位置相同或互相包含，请选择另一个位置。")
         } else { model.replaceBackupTarget(target.id, root: root) }
     }
 }
 
 /// Every switch on the backup page uses the same native size and label policy.
 struct BackupSettingsSwitch: View {
-    let title: String
+    let title: LocalizedStringKey
     @Binding var isOn: Bool
 
     var body: some View {

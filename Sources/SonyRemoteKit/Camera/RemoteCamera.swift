@@ -8,11 +8,11 @@ public enum CameraSettingKind: String, CaseIterable, Identifiable, Sendable {
 
     public var title: String {
         switch self {
-        case .shutterSpeed: "快门"
-        case .aperture: "光圈"
+        case .shutterSpeed: String(localized: "快门", bundle: .miniDiT)
+        case .aperture: String(localized: "光圈", bundle: .miniDiT)
         case .iso: "ISO"
-        case .exposureCompensation: "曝光补偿"
-        case .whiteBalance: "白平衡"
+        case .exposureCompensation: String(localized: "曝光补偿", bundle: .miniDiT)
+        case .whiteBalance: String(localized: "白平衡", bundle: .miniDiT)
         }
     }
 }

@@ -30,7 +30,7 @@ import SonyRemoteKit
         for event in events {
             for clip in event.clips {
                 guard let file = ownership[clip.url.path], let id = file.projectID, let name = projectNames[id] else {
-                    throw VideoDelivery.Failure("无法确定视频所属项目，未向 Premiere Pro 发送。")
+                    throw VideoDelivery.Failure(String(localized: "无法确定视频所属项目，未向 Premiere Pro 发送。"))
                 }
                 let bins = [name] + (file.roll.map { [$0] } ?? [])
                 let info = ClipInfo.sidecar(for: clip.url).flatMap(ClipInfo.read)
@@ -54,8 +54,8 @@ import SonyRemoteKit
     }
     private static func connect() async throws {
         let application = app
-        guard let url = application.url else { throw VideoDelivery.Failure("未找到 Adobe Premiere Pro，请安装后重试。") }
-        guard isSupported else { throw VideoDelivery.Failure("MiniDiT 插件需要 Premiere Pro 25.6 或更新版本。") }
+        guard let url = application.url else { throw VideoDelivery.Failure(String(localized: "未找到 Adobe Premiere Pro，请安装后重试。")) }
+        guard isSupported else { throw VideoDelivery.Failure(String(localized: "MiniDiT 插件需要 Premiere Pro 25.6 或更新版本。")) }
         if !application.isRunning {
             let configuration = NSWorkspace.OpenConfiguration(); configuration.activates = false
             _ = try await NSWorkspace.shared.openApplication(at: url, configuration: configuration)
@@ -64,12 +64,12 @@ import SonyRemoteKit
         for _ in 0..<(application.isRunning ? 1 : 20) {
             try Task.checkCancellation()
             if let h = heartbeat(), h.isFresh {
-                guard h.protocolVersion == 1, h.pluginVersion == PremierePlugin.version else { throw VideoDelivery.Failure("请在“设置 › 连接”中更新 Premiere Pro 的 MiniDiT 插件。") }
+                guard h.protocolVersion == 1, h.pluginVersion == PremierePlugin.version else { throw VideoDelivery.Failure(String(localized: "请在“设置 › 连接”中更新 Premiere Pro 的 MiniDiT 插件。")) }
                 return
             }
             if !application.isRunning { try await Task.sleep(for: .seconds(1)) }
         }
-        throw VideoDelivery.Failure("请安装 MiniDiT 插件，并在 Premiere Pro 的“窗口 › UXP 插件”中打开 MiniDiT 面板。")
+        throw VideoDelivery.Failure(String(localized: "请安装 MiniDiT 插件，并在 Premiere Pro 的“窗口 › UXP 插件”中打开 MiniDiT 面板。"))
     }
 
     private struct Request: Codable, Sendable {
@@ -98,9 +98,9 @@ import SonyRemoteKit
             let resultURL = directory.appending(path: "result.json")
             if fm.fileExists(atPath: resultURL.path) {
                 let reply = try JSONDecoder().decode(Response<T>.self, from: Data(contentsOf: resultURL))
-                guard reply.id == id else { throw VideoDelivery.Failure("Premiere Pro 返回了其他任务的结果，未将其记作本批完成。") }
+                guard reply.id == id else { throw VideoDelivery.Failure(String(localized: "Premiere Pro 返回了其他任务的结果，未将其记作本批完成。")) }
                 if let error = reply.error { throw VideoDelivery.Failure(error) }
-                guard let value = reply.value else { throw VideoDelivery.Failure("Premiere Pro 未返回文件接收结果。") }
+                guard let value = reply.value else { throw VideoDelivery.Failure(String(localized: "Premiere Pro 未返回文件接收结果。")) }
                 return value
             }
             if Date().timeIntervalSince(renewed) >= 1 {
@@ -109,7 +109,7 @@ import SonyRemoteKit
             }
             try await Task.sleep(for: .milliseconds(150))
         }
-        throw VideoDelivery.Failure("等待 Premiere Pro 接收超时，请检查 MiniDiT 面板后重试。")
+        throw VideoDelivery.Failure(String(localized: "等待 Premiere Pro 接收超时，请检查 MiniDiT 面板后重试。"))
     }
 }
 
@@ -117,7 +117,7 @@ import SonyRemoteKit
     static let version = "1.1.0"
     static var resource: URL? { Bundle.main.url(forResource: "PremierePlugin", withExtension: "bundle") }
     static func makePackage(source: URL? = nil, output: URL? = nil) async throws -> URL {
-        guard let source = source ?? resource else { throw VideoDelivery.Failure("未找到 Premiere Pro 插件文件，请重新安装 MiniDiT。") }
+        guard let source = source ?? resource else { throw VideoDelivery.Failure(String(localized: "未找到 Premiere Pro 插件文件，请重新安装 MiniDiT。")) }
         let target = output ?? PremiereBridge.base.appending(path: "MiniDiT-Premiere-\(version).ccx")
         return try await Task.detached(priority: .utility) {
             let fm = FileManager.default
@@ -128,7 +128,7 @@ import SonyRemoteKit
             process.currentDirectoryURL = source
             process.arguments = ["-q", temporary.path, "manifest.json", "index.html", "index.js", "receiver.js", "mailbox.js"]
             try process.run(); process.waitUntilExit()
-            guard process.terminationStatus == 0 else { throw VideoDelivery.Failure("无法生成 Premiere Pro 插件安装文件。") }
+            guard process.terminationStatus == 0 else { throw VideoDelivery.Failure(String(localized: "无法生成 Premiere Pro 插件安装文件。")) }
             if fm.fileExists(atPath: target.path) { _ = try fm.replaceItemAt(target, withItemAt: temporary) }
             else { try fm.moveItem(at: temporary, to: target) }
             return target

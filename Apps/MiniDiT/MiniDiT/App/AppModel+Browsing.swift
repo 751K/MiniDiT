@@ -4,7 +4,7 @@ import SonyRemoteKit
 
 extension AppModel {
     var photoFormatSummary: String {
-        if !showRaw && !showPhotos { return "未选格式" }
+        if !showRaw && !showPhotos { return String(localized: "未选格式") }
         if !showRaw { return "JPG/HIF" }
         if !showPhotos { return "RAW" }
         return "RAW + JPG/HIF"
@@ -16,10 +16,10 @@ extension AppModel {
 
     var importScopeSummary: String {
         var parts = [importContent.title]
-        if onlyNew { parts.append("未导入") }
-        if sourceFilter != nil { parts.append("指定来源") }
-        if slotFilter != nil { parts.append("指定卡槽") }
-        if mediaFilter.isActive { parts.append("已筛选") }
+        if onlyNew { parts.append(String(localized: "未导入")) }
+        if sourceFilter != nil { parts.append(String(localized: "指定来源")) }
+        if slotFilter != nil { parts.append(String(localized: "指定卡槽")) }
+        if mediaFilter.isActive { parts.append(String(localized: "已筛选")) }
         return parts.joined(separator: " · ")
     }
 
@@ -114,8 +114,9 @@ extension AppModel {
             let fresh = allShots.filter { s in s.handles.contains { items[$0].map { !oldKeys.contains(stableKey($0)) } ?? false } }
             if !fresh.isEmpty {
                 let videos = fresh.filter(\.isVideo).count
-                refreshMessage = "发现 " + Self.countText(photos: fresh.count - videos, videos: videos, fresh: true)
-            } else if !automatically { refreshMessage = "已更新，暂无新增素材" }
+                let found = Self.countText(photos: fresh.count - videos, videos: videos, fresh: true)
+                refreshMessage = String(localized: "发现 \(found)")
+            } else if !automatically { refreshMessage = String(localized: "已更新，暂无新增素材") }
         }
     }
 }

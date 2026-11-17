@@ -12,25 +12,25 @@ extension AppModel {
         case "tether.status":
             return tetherStatusJSON()
         case "tether.start":
-            guard tether == nil else { throw AgentControlError("already_tethering", "已经在联机拍摄。") }
+            guard tether == nil else { throw AgentControlError("already_tethering", String(localized: "已经在联机拍摄。")) }
             try agentIdle()
-            guard phase == .idle || phase == .ready else { throw AgentControlError("busy", "设备正在连接或读取。") }
-            guard interrupted == nil else { throw AgentControlError("pending_import", "请先继续或取消待续传任务。") }
+            guard phase == .idle || phase == .ready else { throw AgentControlError("busy", String(localized: "设备正在连接或读取。")) }
+            guard interrupted == nil else { throw AgentControlError("pending_import", String(localized: "请先继续或取消待续传任务。")) }
             if let host = p["host"].string {
                 guard !host.contains(where: { $0.isWhitespace || $0 == "/" || $0 == "@" }), host.utf8.count <= 253 else {
-                    throw AgentControlError("invalid_params", "请输入不含凭据的主机名或 IP。")
+                    throw AgentControlError("invalid_params", String(localized: "请输入不含凭据的主机名或 IP。"))
                 }
                 if let cam = tetherCandidate, cam.host == host { startTether(cam) } else { startTether(host: host) }
             } else {
                 guard let cam = tetherCandidate else {
-                    throw AgentControlError("no_camera", "当前没有连接索尼 Wi-Fi 相机；请传入 host。")
+                    throw AgentControlError("no_camera", String(localized: "当前没有连接索尼 Wi-Fi 相机；请传入 host。"))
                 }
                 startTether(cam)
             }
             return tetherStatusJSON()
         case "tether.configure":
             if let on = p["liveView"].bool {
-                guard let t = tether else { throw AgentControlError("not_tethering", "没有正在联机拍摄的相机。") }
+                guard let t = tether else { throw AgentControlError("not_tethering", String(localized: "没有正在联机拍摄的相机。")) }
                 t.liveViewOn = on
             }
             if let on = p["autoImport"].bool { tetherAutoImport = on }
@@ -38,11 +38,11 @@ extension AppModel {
         default:
             break
         }
-        guard let t = tether else { throw AgentControlError("not_tethering", "没有正在联机拍摄的相机，请先调用 tether.start。") }
-        guard !t.lost else { throw AgentControlError("camera_lost", "与相机的连接已断开。") }
+        guard let t = tether else { throw AgentControlError("not_tethering", String(localized: "没有正在联机拍摄的相机，请先调用 tether.start。")) }
+        guard !t.lost else { throw AgentControlError("camera_lost", String(localized: "与相机的连接已断开。")) }
         switch method {
         case "tether.shoot":
-            guard !t.shooting else { throw AgentControlError("busy", "上一张还在拍摄。") }
+            guard !t.shooting else { throw AgentControlError("busy", String(localized: "上一张还在拍摄。")) }
             let before = t.shotCount
             t.shoot()
             return .object(["accepted": .bool(true), "shotCountBefore": .integer(before)])
@@ -56,13 +56,13 @@ extension AppModel {
         case "tether.set":
             let kind = CameraSettingKind(rawValue: p["setting"].string!)!
             let given = [p["value"], p["label"], p["step"]].filter { $0 != .null }
-            guard given.count == 1 else { throw AgentControlError("invalid_params", "value、label、step 需要且只能给一个。") }
+            guard given.count == 1 else { throw AgentControlError("invalid_params", String(localized: "value、label、step 需要且只能给一个。")) }
             guard let s = t.status.settings.first(where: { $0.kind == kind }) else {
-                throw AgentControlError("setting_unavailable", "相机没有报告\(kind.title)。")
+                throw AgentControlError("setting_unavailable", String(localized: "相机没有报告\(kind.title)。"))
             }
-            guard s.isEditable else { throw AgentControlError("setting_unavailable", "当前拍摄模式下\(kind.title)由相机决定。") }
+            guard s.isEditable else { throw AgentControlError("setting_unavailable", String(localized: "当前拍摄模式下\(kind.title)由相机决定。")) }
             if let step = p["step"].int {
-                guard step != 0 else { throw AgentControlError("invalid_params", "step 不能为 0。") }
+                guard step != 0 else { throw AgentControlError("invalid_params", String(localized: "step 不能为 0。")) }
                 t.step(kind, by: step)
                 return .object(["accepted": .bool(true), "from": .string(s.valueText)])
             }
@@ -75,15 +75,16 @@ extension AppModel {
                 option = s.options.first { $0.value == v }
             }
             guard let option else {
-                throw AgentControlError("invalid_value", "\(kind.title)没有这个选项。可选：" + s.options.map(\.label).joined(separator: "、"))
+                let choices = s.options.map(\.label).joined(separator: String(localized: "、"))
+                throw AgentControlError("invalid_value", String(localized: "\(kind.title)没有这个选项。可选：\(choices)"))
             }
             t.set(kind, value: option.value)
             return .object(["accepted": .bool(true), "from": .string(s.valueText), "to": .string(option.label)])
         case "tether.live_view":
-            guard t.liveViewOn else { throw AgentControlError("live_view_off", "实时取景已关闭，可用 tether.configure 打开。") }
+            guard t.liveViewOn else { throw AgentControlError("live_view_off", String(localized: "实时取景已关闭，可用 tether.configure 打开。")) }
             if let out = p["outFile"].string {
                 // 存原始帧（相机送来的 JPEG，不缩小、不重新编码）。
-                guard let data = t.liveFrameData else { throw AgentControlError("no_frame", "还没有取景画面，请稍后重试。") }
+                guard let data = t.liveFrameData else { throw AgentControlError("no_frame", String(localized: "还没有取景画面，请稍后重试。")) }
                 let url = try Self.saveLiveFrame(data, to: out)
                 let size = Self.imageSize(data)
                 return .object(["path": .string(url.path), "bytes": .integer(data.count), "mimeType": .string("image/jpeg"),
@@ -93,23 +94,23 @@ extension AppModel {
             }
             guard let data = t.liveFrameData,
                   let jpeg = Self.agentJPEG(data, maxWidth: p["maxWidth"].int ?? 1024) else {
-                throw AgentControlError("no_frame", "还没有取景画面，请稍后重试。")
+                throw AgentControlError("no_frame", String(localized: "还没有取景画面，请稍后重试。"))
             }
             return .object(["mimeType": .string("image/jpeg"), "width": .integer(jpeg.width), "height": .integer(jpeg.height),
                             "data": .string(jpeg.data.base64EncodedString()), "focalFrames": Self.focalFramesJSON(t.focalFrames)])
         case "tether.exposure":
-            guard t.liveViewOn else { throw AgentControlError("live_view_off", "实时取景已关闭，可用 tether.configure 打开。") }
+            guard t.liveViewOn else { throw AgentControlError("live_view_off", String(localized: "实时取景已关闭，可用 tether.configure 打开。")) }
             guard let data = t.liveFrameData, let src = CGImageSourceCreateWithData(data as CFData, nil),
                   let image = CGImageSourceCreateImageAtIndex(src, 0, nil) else {
-                throw AgentControlError("no_frame", "还没有取景画面，请稍后重试。")
+                throw AgentControlError("no_frame", String(localized: "还没有取景画面，请稍后重试。"))
             }
             let log = t.liveViewIsLog
             guard let r = ViewfinderAnalysis.exposureReport(image, log: log, zebraLevel: p["zebra"].int) else {
-                throw AgentControlError("analysis_failed", "无法分析这一帧取景画面。")
+                throw AgentControlError("analysis_failed", String(localized: "无法分析这一帧取景画面。"))
             }
             return Self.exposureJSON(r)
         default:
-            throw AgentControlError("unknown_method", "未知操作：\(method)")
+            throw AgentControlError("unknown_method", String(localized: "未知操作：\(method)"))
         }
     }
 
@@ -125,7 +126,7 @@ extension AppModel {
             "channelClipPercent": .object(["r": .number(r.channelClip.r), "g": .number(r.channelClip.g), "b": .number(r.channelClip.b)]),
             "stopZones": .array(r.stopZones.map { .object(["stop": .integer($0.stop), "percent": .number($0.percent)]) }),
             "histogram32": .array(r.histogram.map { .number($0) }),
-            "note": .string("百分比都是占画面像素的比例；stopZones 相对 18% 中灰，−6 含更暗、+5 含更亮。分析的是传到电脑的取景画面（监看 LUT 打开时已套 LUT）。"),
+            "note": .string(String(localized: "百分比都是占画面像素的比例；stopZones 相对 18% 中灰，−6 含更暗、+5 含更亮。分析的是传到电脑的取景画面（监看 LUT 打开时已套 LUT）。")),
         ]
         if let z = r.zebra { o["zebra"] = .object(["levelPercent": .integer(z.level), "percent": .number(z.percent)]) }
         return .object(o)
@@ -208,23 +209,23 @@ extension AppModel {
     /// 取景帧写到 outFile：要绝对路径、所在目录已存在、文件不存在（不覆盖）；先写隐藏的临时文件再改名。
     static func saveLiveFrame(_ data: Data, to text: String) throws -> URL {
         let path = (text as NSString).expandingTildeInPath
-        guard path.hasPrefix("/") else { throw AgentControlError("invalid_params", "outFile 需要绝对路径。") }
+        guard path.hasPrefix("/") else { throw AgentControlError("invalid_params", String(localized: "outFile 需要绝对路径。")) }
         let url = URL(filePath: path)
         let dir = url.deletingLastPathComponent()
         let fm = FileManager.default
         var isDir: ObjCBool = false
         guard fm.fileExists(atPath: dir.path, isDirectory: &isDir), isDir.boolValue else {
-            throw AgentControlError("invalid_path", "目录不存在：" + dir.path)
+            throw AgentControlError("invalid_path", String(localized: "目录不存在：\(dir.path)"))
         }
-        guard !fm.fileExists(atPath: url.path) else { throw AgentControlError("file_exists", "文件已存在，未覆盖：" + url.path) }
+        guard !fm.fileExists(atPath: url.path) else { throw AgentControlError("file_exists", String(localized: "文件已存在，未覆盖：\(url.path)")) }
         let partial = dir.appending(path: ".\(url.lastPathComponent).\(UUID().uuidString).partial")
         do {
             try data.write(to: partial)
             try fm.moveItem(at: partial, to: url)  // 目标已存在时失败，不会覆盖
         } catch {
             try? fm.removeItem(at: partial)
-            if fm.fileExists(atPath: url.path) { throw AgentControlError("file_exists", "文件已存在，未覆盖：" + url.path) }
-            throw AgentControlError("write_failed", "写入失败：\(error.localizedDescription)")
+            if fm.fileExists(atPath: url.path) { throw AgentControlError("file_exists", String(localized: "文件已存在，未覆盖：\(url.path)")) }
+            throw AgentControlError("write_failed", String(localized: "写入失败：\(error.localizedDescription)"))
         }
         return url
     }
@@ -259,7 +260,7 @@ extension AppModel {
                                                  0xD201, 0xD287, 0xD28B, 0xD28D, 0xD28F, 0xD289, 0xD269, 0xD15E, 0xD1A2, 0xD1A3, 0xD1A4]
 
     func agentTetherAsync(_ method: String, _ p: AgentJSON) async throws -> AgentJSON {
-        guard let t = tether else { throw AgentControlError("not_tethering", "没有正在联机拍摄的相机，请先调用 tether.start。") }
+        guard let t = tether else { throw AgentControlError("not_tethering", String(localized: "没有正在联机拍摄的相机，请先调用 tether.start。")) }
         if method == "tether.stop" {
             // 先按要求还原改过的设置，再断开（断开时 PriorityKey 总会交还相机）。
             var restored: [AgentJSON] = []
@@ -270,13 +271,13 @@ extension AppModel {
                         "value": Self.valueJSON(r.code, r.value), "ok": .bool(r.error == nil), "error": .optional(r.error)]))
                 }
             }
-            guard tether === t else { throw AgentControlError("not_tethering", "联机拍摄已经结束。") }
+            guard tether === t else { throw AgentControlError("not_tethering", String(localized: "联机拍摄已经结束。")) }
             stopTether()
             var o = tetherStatusJSON().object!
             o["restored"] = .array(restored)
             return .object(o)
         }
-        guard !t.lost else { throw AgentControlError("camera_lost", "与相机的连接已断开。") }
+        guard !t.lost else { throw AgentControlError("camera_lost", String(localized: "与相机的连接已断开。")) }
         switch method {
         case "tether.properties":
             let all = try await mapped { try await t.properties() }
@@ -289,32 +290,34 @@ extension AppModel {
             return .object(["count": .integer(list.count), "properties": .array(list.map { Self.propertyJSON($0, options: true) })])
         case "tether.get":
             let names = p["names"].array!.compactMap(\.string)
-            guard !names.isEmpty else { throw AgentControlError("invalid_params", "names 不能为空。") }
+            guard !names.isEmpty else { throw AgentControlError("invalid_params", String(localized: "names 不能为空。")) }
             let codes = try names.map(Self.resolveProperty)
             let all = Dictionary(try await mapped { try await t.properties() }.map { ($0.code, $0) }, uniquingKeysWith: { _, b in b })
             return .object(["values": .array(try zip(names, codes).map { name, code in
-                guard let d = all[code] else { throw AgentControlError("unknown_property", "相机没有报告 \(name)。") }
+                guard let d = all[code] else { throw AgentControlError("unknown_property", String(localized: "相机没有报告 \(name)。")) }
                 return Self.propertyJSON(d, options: false)
             })])
         case "tether.set_properties":
             let items = p["assignments"].array!.compactMap(\.string)
-            guard !items.isEmpty else { throw AgentControlError("invalid_params", "assignments 不能为空。") }
+            guard !items.isEmpty else { throw AgentControlError("invalid_params", String(localized: "assignments 不能为空。")) }
             // 先全部解析，名字或写法有错就一项都不动。
             let all = Dictionary(try await mapped { try await t.properties() }.map { ($0.code, $0) }, uniquingKeysWith: { _, b in b })
             var plan: [(name: String, code: UInt16, value: PTPValue, text: String)] = []
             for item in items {
-                guard let eq = item.firstIndex(of: "=") else { throw AgentControlError("invalid_params", "要写成 NAME=VALUE：\(item)") }
+                guard let eq = item.firstIndex(of: "=") else { throw AgentControlError("invalid_params", String(localized: "要写成 NAME=VALUE：\(item)")) }
                 let name = String(item[..<eq]).trimmingCharacters(in: .whitespaces)
                 let text = String(item[item.index(after: eq)...]).trimmingCharacters(in: .whitespaces)
                 let code = try Self.resolveProperty(name)
-                guard let d = all[code] else { throw AgentControlError("unknown_property", "相机没有报告 \(name)。") }
+                guard let d = all[code] else { throw AgentControlError("unknown_property", String(localized: "相机没有报告 \(name)。")) }
                 if d.dataType == .string {
                     plan.append((name, code, .string(text), text))
                 } else if let v = SonyPropertyCatalog.parse(code, text, allowed: d.allowedValues) {
                     plan.append((name, code, .int(v), text))
                 } else {
                     let opts = d.allowedValues.prefix(60).map { SonyPropertyCatalog.label(code, $0) ?? "\($0)" }
-                    throw AgentControlError("invalid_value", "\(name) 无法识别取值「\(text)」。" + (opts.isEmpty ? "" : "可选：" + opts.joined(separator: "、")))
+                    let choices = opts.joined(separator: String(localized: "、"))
+                    throw AgentControlError("invalid_value", opts.isEmpty ? String(localized: "\(name) 无法识别取值「\(text)」。")
+                        : String(localized: "\(name) 无法识别取值「\(text)」。可选：\(choices)"))
                 }
             }
             let timeout = TimeInterval(p["timeoutSeconds"].int ?? 5)
@@ -328,21 +331,22 @@ extension AppModel {
                     log.add("Agent 设置 \(SonyPropertyCatalog.name(step.code) ?? step.name) = \(step.text)")
                 } catch let e as SonyPropertyError {
                     let applied = done.compactMap { $0["name"].string }
-                    throw AgentControlError(e.code, (e.errorDescription ?? "") + (applied.isEmpty ? "" : " 已生效：" + applied.joined(separator: "、")))
+                    let names = applied.joined(separator: String(localized: "、"))
+                    throw AgentControlError(e.code, (e.errorDescription ?? "") + (applied.isEmpty ? "" : String(localized: " 已生效：\(names)")))
                 } catch {
                     throw Self.cameraError(error)
                 }
             }
             return .object(["results": .array(done)])
         case "tether.capture":
-            guard !t.shooting else { throw AgentControlError("camera_busy", "上一张还在拍摄。") }
+            guard !t.shooting else { throw AgentControlError("camera_busy", String(localized: "上一张还在拍摄。")) }
             var outDir: URL?
             if let text = p["outDir"].string {
                 let path = (text as NSString).expandingTildeInPath
-                guard path.hasPrefix("/") else { throw AgentControlError("invalid_params", "outDir 需要绝对路径。") }
+                guard path.hasPrefix("/") else { throw AgentControlError("invalid_params", String(localized: "outDir 需要绝对路径。")) }
                 var isDir: ObjCBool = false
                 guard FileManager.default.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue else {
-                    throw AgentControlError("invalid_path", "目录不存在：" + path)
+                    throw AgentControlError("invalid_path", String(localized: "目录不存在：\(path)"))
                 }
                 outDir = URL(filePath: path)
             }
@@ -356,7 +360,8 @@ extension AppModel {
             do {
                 files = try await t.captureWaiting(timeout: TimeInterval(p["timeoutSeconds"].int ?? 60))
             } catch let e as TetherSession.CaptureTimeout {
-                throw AgentControlError("capture_timeout", "等待相机传回文件超时；已收到：" + (e.received.isEmpty ? "无" : e.received.map(\.lastPathComponent).joined(separator: "、")))
+                let received = e.received.isEmpty ? String(localized: "无") : e.received.map(\.lastPathComponent).joined(separator: String(localized: "、"))
+                throw AgentControlError("capture_timeout", String(localized: "等待相机传回文件超时；已收到：\(received)"))
             } catch {
                 throw Self.cameraError(error)
             }
@@ -365,11 +370,11 @@ extension AppModel {
                 let fm = FileManager.default
                 let targets = files.map { outDir.appending(path: $0.lastPathComponent) }
                 if let clash = targets.first(where: { fm.fileExists(atPath: $0.path) }) {
-                    throw AgentControlError("file_exists", "目标目录里已有同名文件，未复制（照片仍在联机缓存和存储卡上）：" + clash.path)
+                    throw AgentControlError("file_exists", String(localized: "目标目录里已有同名文件，未复制（照片仍在联机缓存和存储卡上）：\(clash.path)"))
                 }
                 for (src, dst) in zip(files, targets) {
                     do { try fm.copyItem(at: src, to: dst) } catch {
-                        throw AgentControlError("write_failed", "复制失败（照片仍在联机缓存和存储卡上）：\(error.localizedDescription)")
+                        throw AgentControlError("write_failed", String(localized: "复制失败（照片仍在联机缓存和存储卡上）：\(error.localizedDescription)"))
                     }
                     copies.append(.string(dst.path))
                 }
@@ -396,28 +401,28 @@ extension AppModel {
                 all = try await t.freshProperties()
             }
             guard let m = SonyCamera.focusMagnifier(all) else {
-                throw AgentControlError("magnifier_unavailable", "相机现在不能放大对焦（0xD254 不可写；通常要先切到 MF）。")
+                throw AgentControlError("magnifier_unavailable", String(localized: "相机现在不能放大对焦（0xD254 不可写；通常要先切到 MF）。"))
             }
             return .object(["ratio": .integer(m.ratio), "x": .integer(m.x), "y": .integer(m.y), "ratios": .array(m.ratios.map { .integer($0) })])
         case "tether.focus_position":
             var all = try await t.freshProperties()
             guard let c = SonyCamera.focusPositionControl(all) else {
-                throw AgentControlError("focus_unavailable", "相机现在不能远程调焦（跟焦 0xE088 和绝对位置 0xE042 都不可写）。")
+                throw AgentControlError("focus_unavailable", String(localized: "相机现在不能远程调焦（跟焦 0xE088 和绝对位置 0xE042 都不可写）。"))
             }
             // 按距离调焦：用这支镜头的距离表换算成跟焦位置（只有跟焦 0xE088 的刻度和表对得上）。
             var target = p["position"].int
             if p["centimeters"].int != nil || p["infinity"].bool == true {
-                guard target == nil else { throw AgentControlError("invalid_params", "position、centimeters、infinity 只能给一个。") }
+                guard target == nil else { throw AgentControlError("invalid_params", String(localized: "position、centimeters、infinity 只能给一个。")) }
                 guard c.setCode == 0xE088, let table = t.distanceTable else {
-                    throw AgentControlError("distance_unavailable", "没有这支镜头的距离表：先在录像模式下连一次（相机只在录像模式提供），之后拍照模式也能按距离显示，但按距离调焦只在录像模式可用。")
+                    throw AgentControlError("distance_unavailable", String(localized: "没有这支镜头的距离表：先在录像模式下连一次（相机只在录像模式提供），之后拍照模式也能按距离显示，但按距离调焦只在录像模式可用。"))
                 }
                 let meters = p["infinity"].bool == true ? Double.infinity : Double(p["centimeters"].int!) / 100
-                guard let pos = table.position(forMeters: meters) else { throw AgentControlError("invalid_value", "无法换算这个距离。") }
+                guard let pos = table.position(forMeters: meters) else { throw AgentControlError("invalid_value", String(localized: "无法换算这个距离。")) }
                 target = Int(min(max(pos, c.range.lowerBound), c.range.upperBound))
             }
             if let v = target {
                 guard c.range.contains(Int64(v)) else {
-                    throw AgentControlError("invalid_value", "position 要在 \(c.range.lowerBound)–\(c.range.upperBound) 之间。")
+                    throw AgentControlError("invalid_value", String(localized: "position 要在 \(c.range.lowerBound)–\(c.range.upperBound) 之间。"))
                 }
                 let seconds = Double(p["seconds"].int ?? 0)
                 if seconds > 0 { t.pullFocus(to: Int64(v), seconds: seconds) } else {
@@ -443,7 +448,7 @@ extension AppModel {
                 try await t.cancelTouchFocus()
                 return .object(["cancelled": .bool(true)])
             }
-            guard let x = p["x"].int, let y = p["y"].int else { throw AgentControlError("invalid_params", "需要 x 和 y（640×480 坐标），或 cancel=true。") }
+            guard let x = p["x"].int, let y = p["y"].int else { throw AgentControlError("invalid_params", String(localized: "需要 x 和 y（640×480 坐标），或 cancel=true。")) }
             let c = try await t.touchFocus(at: CGPoint(x: Double(x) / 639, y: Double(y) / 479))
             let all = try await t.freshProperties()
             return .object(["x": .integer(c.x), "y": .integer(c.y),
@@ -457,7 +462,7 @@ extension AppModel {
         case "tether.download":
             let outDir = try Self.outDirectory(p["outDir"].string!)
             let names = p["names"].array!.compactMap(\.string)
-            guard !names.isEmpty else { throw AgentControlError("invalid_params", "names 不能为空。") }
+            guard !names.isEmpty else { throw AgentControlError("invalid_params", String(localized: "names 不能为空。")) }
             let lib = try await mapped { try await t.contentLibrary() }
             let all = try await mapped { try await Self.cardFiles(lib, slot: nil) }
             let want = UInt32(p["slot"].int ?? 1)
@@ -465,7 +470,7 @@ extension AppModel {
             for n in names {
                 let hits = all.filter { $0.item.filename.caseInsensitiveCompare(n) == .orderedSame }
                 guard let f = hits.first(where: { $0.slot == want }) ?? hits.first else {
-                    throw AgentControlError("not_found", "存储卡上没有 \(n)。")
+                    throw AgentControlError("not_found", String(localized: "存储卡上没有 \(n)。"))
                 }
                 picked.append(f)
             }
@@ -481,7 +486,7 @@ extension AppModel {
                 try await t.setRecordingWaiting(false, timeout: 15)
             } catch is TetherSession.RecordingTimeout {
                 try? await t.setRecordingWaiting(false, timeout: 15)
-                throw AgentControlError("record_failed", "相机没有进入或退出录像状态（检查是否插卡、录像设置是否可用）。")
+                throw AgentControlError("record_failed", String(localized: "相机没有进入或退出录像状态（检查是否插卡、录像设置是否可用）。"))
             } catch {
                 try? await t.setRecordingWaiting(false, timeout: 15)
                 throw Self.cameraError(error)
@@ -495,7 +500,7 @@ extension AppModel {
                 clips = fresh.filter { $0.item.kind == .video && !before.contains($0.key) }
                 if !clips.isEmpty { break }
             }
-            guard !clips.isEmpty else { throw AgentControlError("record_timeout", "录像已停止，但存储卡上没有出现新的片段。") }
+            guard !clips.isEmpty else { throw AgentControlError("record_timeout", String(localized: "录像已停止，但存储卡上没有出现新的片段。")) }
             var downloaded: [AgentJSON] = []
             if let outDir {
                 // 两个卡槽同时记录时文件名相同：只下载卡槽 1 的那份。
@@ -505,7 +510,7 @@ extension AppModel {
             }
             return .object(["clips": .array(clips.map(Self.cardFileJSON)), "files": .array(downloaded)])
         default:
-            throw AgentControlError("unknown_method", "未知操作：\(method)")
+            throw AgentControlError("unknown_method", String(localized: "未知操作：\(method)"))
         }
     }
 
@@ -576,10 +581,10 @@ extension AppModel {
 
     static func outDirectory(_ text: String) throws -> URL {
         let path = (text as NSString).expandingTildeInPath
-        guard path.hasPrefix("/") else { throw AgentControlError("invalid_params", "outDir 需要绝对路径。") }
+        guard path.hasPrefix("/") else { throw AgentControlError("invalid_params", String(localized: "outDir 需要绝对路径。")) }
         var isDir: ObjCBool = false
         guard FileManager.default.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue else {
-            throw AgentControlError("invalid_path", "目录不存在：" + path)
+            throw AgentControlError("invalid_path", String(localized: "目录不存在：\(path)"))
         }
         return URL(filePath: path)
     }
@@ -591,7 +596,7 @@ extension AppModel {
         var targets = files.map { dir.appending(path: $0.item.filename) }
         targets += files.filter { $0.item.kind == .video }.map { dir.appending(path: xmlName($0)) }
         if let clash = targets.first(where: { fm.fileExists(atPath: $0.path) }) {
-            throw AgentControlError("file_exists", "目标目录里已有同名文件，未下载：" + clash.path)
+            throw AgentControlError("file_exists", String(localized: "目标目录里已有同名文件，未下载：\(clash.path)"))
         }
         var out: [AgentJSON] = []
         for f in files {
@@ -612,7 +617,7 @@ extension AppModel {
                 // 实际时长：开始和停止录像各有约零点几秒的延迟，片段会比要求的短一点。
                 if let d = ClipInfo.parse(xml)?.duration { o["durationSeconds"] = .number(d) }
                 do { try xml.write(to: x, options: .withoutOverwriting); o["xml"] = .string(x.path) }
-                catch { throw AgentControlError("write_failed", "XML 写入失败：\(error.localizedDescription)") }
+                catch { throw AgentControlError("write_failed", String(localized: "XML 写入失败：\(error.localizedDescription)")) }
             }
             out.append(.object(o))
         }
@@ -622,7 +627,7 @@ extension AppModel {
     /// 名字或编号 → 属性码；找不到时报 unknown_property。
     static func resolveProperty(_ name: String) throws -> UInt16 {
         guard let c = SonyPropertyCatalog.code(for: name) else {
-            throw AgentControlError("unknown_property", "不认识的属性名：\(name)。可用 tether.properties 查看名称。")
+            throw AgentControlError("unknown_property", String(localized: "不认识的属性名：\(name)。可用 tether.properties 查看名称。"))
         }
         return c
     }
@@ -648,12 +653,12 @@ extension AppModel {
         case let e as SonyPropertyError: return AgentControlError(e.code, e.errorDescription ?? "")
         case let e as PTPError:
             switch e.code {
-            case PTPResponse.deviceBusy: return AgentControlError("camera_busy", "相机忙，请稍后重试。")
-            case 0x200C: return AgentControlError("card_full", "存储卡已满。")
-            case 0x2013: return AgentControlError("card_unavailable", "存储卡不可用。")
+            case PTPResponse.deviceBusy: return AgentControlError("camera_busy", String(localized: "相机忙，请稍后重试。"))
+            case 0x200C: return AgentControlError("card_full", String(localized: "存储卡已满。"))
+            case 0x2013: return AgentControlError("card_unavailable", String(localized: "存储卡不可用。"))
             default: return AgentControlError("camera_error", e.localizedDescription)
             }
-        case is PTPIPTransportError: return AgentControlError("camera_lost", "与相机的连接断开：\(error.localizedDescription)")
+        case is PTPIPTransportError: return AgentControlError("camera_lost", String(localized: "与相机的连接断开：\(error.localizedDescription)"))
         default: return AgentControlError("operation_failed", error.localizedDescription)
         }
     }

@@ -39,7 +39,7 @@ struct CardIdentityConfirmation: View {
                 Button("确认") {
                     if store.confirm(root: root, existing: selected, name: name.trimmingCharacters(in: .whitespacesAndNewlines)) {
                         dismiss()
-                    } else { failure = store.errorMessage ?? "该档案已用于另一个来源，请为这张卡新建档案。" }
+                    } else { failure = store.errorMessage ?? String(localized: "该档案已用于另一个来源，请为这张卡新建档案。") }
                 }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
                 .disabled(model.progress != nil || model.cardRoot(for: sourceID) == nil)
             }
@@ -63,12 +63,12 @@ struct ImportSourceIdentityDetails: View {
             Text("来源信息").font(Theme.Font.headline)
             if identity.kind == .camera {
                 if let model = identity.cameraModel { LabeledContent("拍摄机型", value: model) }
-                LabeledContent("机身序列号", value: identity.cameraSerial ?? "未提供")
+                LabeledContent("机身序列号", value: identity.cameraSerial ?? String(localized: "未提供"))
                 if let slot = identity.slot { LabeledContent("相机卡槽", value: String(slot)) }
             }
             if let name = identity.cardName { LabeledContent(identity.kind == .directory ? "目录名称" : "存储卡", value: name) }
             if identity.kind == .card {
-                LabeledContent("存储卡类型", value: identity.cardType?.displayName ?? "未识别")
+                LabeledContent("存储卡类型", value: identity.cardType?.displayName ?? String(localized: "未识别"))
             }
             if let size = identity.capacity {
                 LabeledContent("容量", value: ByteCountFormatter.string(fromByteCount: Int64(clamping: size), countStyle: .file))

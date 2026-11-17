@@ -202,15 +202,15 @@ struct TetherView: View {
         .overlay(alignment: .top) {
             HStack(alignment: .top, spacing: 8) {
                 if let m = session.magnifier, m.isOn {
-                    chip("放大 \(TetherSession.ratioText(m.ratio))", systemImage: "plus.magnifyingglass", color: .white)
+                    chip(String(localized: "放大 \(TetherSession.ratioText(m.ratio))"), systemImage: "plus.magnifyingglass", color: .white)
                         .help("点按画面移动放大区域，Esc 退出放大")
                 }
                 if desqueeze != 1 {
-                    chip("去挤压 \(Self.desqueezeText(desqueeze))", systemImage: "arrow.left.and.right", color: .white)
+                    chip(String(localized: "去挤压 \(Self.desqueezeText(desqueeze))"), systemImage: "arrow.left.and.right", color: .white)
                         .help("取景画面按变形镜头倍率横向拉宽显示，不影响相机记录")
                 }
                 if session.focusLocked || session.status.isFocused {
-                    chip(session.status.isFocused ? "已合焦" : "对焦中", systemImage: "scope",
+                    chip(session.status.isFocused ? String(localized: "已合焦") : String(localized: "对焦中"), systemImage: "scope",
                          color: session.status.isFocused ? .green : .yellow)
                 }
                 Spacer()
@@ -241,7 +241,7 @@ struct TetherView: View {
         }
         .overlay(alignment: .bottomTrailing) {
             if session.downloading || session.status.pendingTransfers > 0 {
-                chip("正在接收照片", systemImage: nil, color: .white, progress: true).padding(10)
+                chip(String(localized: "正在接收照片"), systemImage: nil, color: .white, progress: true).padding(10)
             }
         }
     }
@@ -322,7 +322,7 @@ struct TetherView: View {
             }
             Spacer(minLength: 12)
             aidToggles
-            barToggle(grid, "square.grid.3x3", "取景框线（G）；右键选择网格、画幅遮罩、安全框", key: "g") { grid.toggle() }
+            barToggle(grid, "square.grid.3x3", String(localized: "取景框线（G）；右键选择网格、画幅遮罩、安全框"), key: "g") { grid.toggle() }
                 .contextMenu {
                     Toggle("三分网格", isOn: $guideThirds)
                     Picker("画幅遮罩", selection: $guideMask) {
@@ -332,7 +332,7 @@ struct TetherView: View {
                     Toggle("安全框（90% / 80%）", isOn: $guideSafe)
                     Toggle("中心十字", isOn: $guideCenter)
                 }
-            barToggle(desqueezeOn, "arrow.left.and.right.square", "变形镜头去挤压（\(Self.desqueezeText(desqueezeFactor))）；右键选择倍率") {
+            barToggle(desqueezeOn, "arrow.left.and.right.square", String(localized: "变形镜头去挤压（\(Self.desqueezeText(desqueezeFactor))）；右键选择倍率")) {
                 desqueezeOn.toggle()
             }
             .contextMenu {
@@ -341,7 +341,7 @@ struct TetherView: View {
                 }
                 .pickerStyle(.inline)
             }
-            barToggle(session.focusLocked, "scope", "锁定对焦：相当于半按快门（F）") { session.setFocusLock(!session.focusLocked) }
+            barToggle(session.focusLocked, "scope", String(localized: "锁定对焦：相当于半按快门（F）")) { session.setFocusLock(!session.focusLocked) }
                 .keyboardShortcut("f", modifiers: [])
             // Esc 取消触摸对焦（看不见的按钮，只为快捷键）。
             Button("退出放大或取消触摸对焦") {
@@ -386,7 +386,7 @@ struct TetherView: View {
         .buttonStyle(.plain)
         .disabled(!enabled)
         .onHover { modeHovered = $0 }
-        .help(enabled ? "\(session.status.modeText)：点按切换曝光模式" : session.status.modeText)
+        .help(enabled ? String(localized: "\(session.status.modeText)：点按切换曝光模式") : session.status.modeText)
         .accessibilityLabel("曝光模式")
         .accessibilityValue(text)
         .popover(isPresented: $modePicking, arrowEdge: .top) {
@@ -413,12 +413,12 @@ struct TetherView: View {
             .flatMap(SonyPropertyCatalog.shootingMode)?.exposure
         switch s.kind {
         case .aperture where letter == "a" || letter == "m":
-            return "光圈由镜头上的光圈环控制：光圈环不在 A 档时相机不让远程调整。把光圈环拨到 A 后即可在电脑上调。"
+            return String(localized: "光圈由镜头上的光圈环控制：光圈环不在 A 档时相机不让远程调整。把光圈环拨到 A 后即可在电脑上调。")
         case .shutterSpeed where letter == "s" || letter == "m":
-            return "相机现在不让远程调整快门（检查机身的拨盘和设置）。"
+            return String(localized: "相机现在不让远程调整快门（检查机身的拨盘和设置）。")
         default:
-            let mode = letter.map { $0 == "auto" ? "智能自动" : $0.uppercased() } ?? "当前"
-            return "\(mode) 模式下\(s.kind.title)由相机自动决定。"
+            let mode = letter.map { $0 == "auto" ? String(localized: "智能自动") : $0.uppercased() } ?? String(localized: "当前")
+            return String(localized: "\(mode) 模式下\(s.kind.title)由相机自动决定。")
         }
     }
 
@@ -448,7 +448,7 @@ struct TetherView: View {
         // 提示放在外层：按钮禁用时也能看到为什么不能改。
         .background(Color.clear.contentShape(Rectangle()).help(s.isEditable ? "" : lockedReason(s)))
         .onHover { hovered = $0 ? s.kind : (hovered == s.kind ? nil : hovered) }
-        .help(s.isEditable ? "\(s.kind.title)：点按选择，或把指针放在上面滚动调整\(Self.stepKeyText(s.kind))" : lockedReason(s))
+        .help(s.isEditable ? String(localized: "\(s.kind.title)：点按选择，或把指针放在上面滚动调整\(Self.stepKeyText(s.kind))") : lockedReason(s))
         .accessibilityLabel(s.kind.title)
         .accessibilityValue(cellValue(s))
         .popover(isPresented: Binding(get: { picking == s.kind }, set: { if !$0 { picking = nil; preview = nil; tempPreview = nil } }), arrowEdge: .top) {
@@ -640,38 +640,38 @@ struct TetherView: View {
 
     /// 底栏的辅助开关；斑马纹和峰值对焦右键可调。
     @ViewBuilder private var aidToggles: some View {
-        barToggle(showHistogram, "chart.bar.xaxis", "直方图（H）；右键切换亮度或 RGB", key: "h") { showHistogram.toggle() }
+        barToggle(showHistogram, "chart.bar.xaxis", String(localized: "直方图（H）；右键切换亮度或 RGB"), key: "h") { showHistogram.toggle() }
             .contextMenu {
                 Picker("直方图", selection: $histogramMode) {
                     ForEach(ViewfinderAidOptions.HistogramMode.allCases, id: \.self) { Text($0.title).tag($0.rawValue) }
                 }
                 .pickerStyle(.inline)
             }
-        barToggle(showWaveform, "waveform.path", "波形图（W）；右键切换亮度、RGB 叠加或 RGB 分量", key: "w") { showWaveform.toggle() }
+        barToggle(showWaveform, "waveform.path", String(localized: "波形图（W）；右键切换亮度、RGB 叠加或 RGB 分量"), key: "w") { showWaveform.toggle() }
             .contextMenu {
                 Picker("波形图", selection: $waveformMode) {
                     ForEach(ViewfinderAidOptions.WaveformMode.allCases, id: \.self) { Text($0.title).tag($0.rawValue) }
                 }
                 .pickerStyle(.inline)
             }
-        barToggle(showVectorscope, "target", "矢量示波器（V）；右键放大 2 倍（Log 画面饱和度低时用）", key: "v") { showVectorscope.toggle() }
+        barToggle(showVectorscope, "target", String(localized: "矢量示波器（V）；右键放大 2 倍（Log 画面饱和度低时用）"), key: "v") { showVectorscope.toggle() }
             .contextMenu {
                 Toggle("放大 2 倍", isOn: $vectorscopeZoom)
                 Toggle("彩色轨迹", isOn: $vectorscopeColor)
                 Toggle("肤色线", isOn: $vectorscopeSkin)
             }
-        barToggle(showSpotMeter, "eyedropper.halffull", "点测光：指针所在处显示亮度和档位，点按钉住一个测光点（开着时点按画面不对焦）") {
+        barToggle(showSpotMeter, "eyedropper.halffull", String(localized: "点测光：指针所在处显示亮度和档位，点按钉住一个测光点（开着时点按画面不对焦）")) {
             showSpotMeter.toggle()
             if !showSpotMeter { spotPin = nil; spotHover = nil }
         }
-        barToggle(showFalseColor, "swatchpalette", "伪色（C）；右键切换按档位或按百分比", key: "c") { showFalseColor.toggle() }
+        barToggle(showFalseColor, "swatchpalette", String(localized: "伪色（C）；右键切换按档位或按百分比"), key: "c") { showFalseColor.toggle() }
             .contextMenu {
                 Picker("伪色", selection: $falseColorMode) {
                     ForEach(ViewfinderAidOptions.FalseColorMode.allCases, id: \.self) { Text($0.title).tag($0.rawValue) }
                 }
                 .pickerStyle(.inline)
             }
-        barToggle(showZebra, "circle.lefthalf.striped.horizontal", "斑马纹（\(aidOptions.zebraText)，Z）；右键调整", key: "z") { showZebra.toggle() }
+        barToggle(showZebra, "circle.lefthalf.striped.horizontal", String(localized: "斑马纹（\(aidOptions.zebraText)，Z）；右键调整"), key: "z") { showZebra.toggle() }
             .contextMenu {
                 Picker("模式", selection: $zebraMode) {
                     Text("下限：亮度不低于阈值").tag(ViewfinderAidOptions.ZebraMode.lowerLimit.rawValue)
@@ -684,7 +684,7 @@ struct TetherView: View {
             .popover(isPresented: $zebraEditing, arrowEdge: .top) {
                 ZebraSettings(mode: $zebraMode, level: $zebraLevel, center: $zebraCenter, range: $zebraRange)
             }
-        barToggle(showPeaking, "circle.dotted.and.circle", "峰值对焦（P）；右键调整颜色和灵敏度", key: "p") { showPeaking.toggle() }
+        barToggle(showPeaking, "circle.dotted.and.circle", String(localized: "峰值对焦（P）；右键调整颜色和灵敏度"), key: "p") { showPeaking.toggle() }
             .contextMenu {
                 Picker("颜色", selection: $peakingColor) {
                     ForEach(ViewfinderAidOptions.PeakingColor.allCases, id: \.self) { Text($0.title).tag($0.rawValue) }
@@ -730,15 +730,15 @@ struct TetherView: View {
     }
 
     private static let stepKeys: [(title: String, kind: CameraSettingKind, modifiers: EventModifiers)] = [
-        ("快门", .shutterSpeed, .shift), ("光圈", .aperture, .option),
-        ("ISO", .iso, [.option, .shift]), ("曝光补偿", .exposureCompensation, .command),
+        (String(localized: "快门"), .shutterSpeed, .shift), (String(localized: "光圈"), .aperture, .option),
+        ("ISO", .iso, [.option, .shift]), (String(localized: "曝光补偿"), .exposureCompensation, .command),
     ]
 
     /// 参数格提示里的快捷键说明，如「；⇧← → 加减一档」。
     private static func stepKeyText(_ kind: CameraSettingKind) -> String {
         guard let k = stepKeys.first(where: { $0.kind == kind }) else { return "" }
         let m = (k.modifiers.contains(.option) ? "⌥" : "") + (k.modifiers.contains(.shift) ? "⇧" : "") + (k.modifiers.contains(.command) ? "⌘" : "")
-        return "；\(m)← → 加减一档"
+        return String(localized: "；\(m)← → 加减一档")
     }
 
     private func keyStep(_ kind: CameraSettingKind, _ delta: Int) {
@@ -1037,11 +1037,11 @@ private struct ExposurePicker: View {
 
     static func name(_ l: String) -> String {
         switch l {
-        case "auto": "智能自动"
-        case "p": "程序自动"
-        case "a": "光圈优先"
-        case "s": "快门优先"
-        default: "手动曝光"
+        case "auto": String(localized: "智能自动")
+        case "p": String(localized: "程序自动")
+        case "a": String(localized: "光圈优先")
+        case "s": String(localized: "快门优先")
+        default: String(localized: "手动曝光")
         }
     }
 }
@@ -1114,17 +1114,17 @@ private struct WhiteBalancePicker: View {
         func symbol(_ n: String) -> AnyView { AnyView(Image(systemName: n).font(.system(size: 16))) }
         func badge(_ t: String) -> AnyView { AnyView(Text(t).font(.system(size: 13, weight: .bold, design: .rounded))) }
         switch o.value {
-        case 0x0002: return (badge("AWB"), "自动")
-        case 0x0004: return (symbol("sun.max"), "日光")
-        case 0x8010: return (symbol("cloud"), "阴天")
-        case 0x8011: return (symbol("house"), "阴影")
-        case 0x0006: return (symbol("lightbulb"), "白炽灯")
+        case 0x0002: return (badge("AWB"), String(localized: "自动"))
+        case 0x0004: return (symbol("sun.max"), String(localized: "日光"))
+        case 0x8010: return (symbol("cloud"), String(localized: "阴天"))
+        case 0x8011: return (symbol("house"), String(localized: "阴影"))
+        case 0x0006: return (symbol("lightbulb"), String(localized: "白炽灯"))
         case 0x0005, 0x8001...0x8004: return (symbol("light.panel"), o.label.replacingOccurrences(of: "荧光灯 ", with: "荧光"))
-        case 0x0007: return (symbol("bolt"), "闪光灯")
-        case 0x8012: return (badge("K"), "色温")
-        case 0x8020...0x8022: return (symbol("\(o.value - 0x8020 + 1).square"), "自定义 \(o.value - 0x8020 + 1)")
-        case 0x8023: return (symbol("square.dashed"), "自定义")
-        case 0x8030: return (symbol("drop"), "水下")
+        case 0x0007: return (symbol("bolt"), String(localized: "闪光灯"))
+        case 0x8012: return (badge("K"), String(localized: "色温"))
+        case 0x8020...0x8022: return (symbol("\(o.value - 0x8020 + 1).square"), String(localized: "自定义 \(o.value - 0x8020 + 1)"))
+        case 0x8023: return (symbol("square.dashed"), String(localized: "自定义"))
+        case 0x8030: return (symbol("drop"), String(localized: "水下"))
         default: return (badge("WB"), o.label)
         }
     }
@@ -1216,7 +1216,7 @@ private struct ZebraSettings: View {
         .frame(width: 280)
     }
 
-    private func row(_ title: String, _ value: Binding<Int>, _ bounds: ClosedRange<Int>, prefix: String) -> some View {
+    private func row(_ title: LocalizedStringKey, _ value: Binding<Int>, _ bounds: ClosedRange<Int>, prefix: String) -> some View {
         HStack(spacing: 8) {
             Text(title).frame(width: 30, alignment: .leading)
             Slider(value: Binding(get: { Double(value.wrappedValue) },
@@ -1359,8 +1359,8 @@ private struct FrameGuides: View {
     let center: Bool
 
     static let masks: [(ratio: Double, title: String)] = [
-        (2.39, "2.39:1 宽银幕"), (2.0, "2:1"), (1.85, "1.85:1"), (16.0 / 9, "16:9"), (4.0 / 3, "4:3"),
-        (1, "1:1"), (0.8, "4:5 竖"), (9.0 / 16, "9:16 竖屏"),
+        (2.39, String(localized: "2.39:1 宽银幕")), (2.0, "2:1"), (1.85, "1.85:1"), (16.0 / 9, "16:9"), (4.0 / 3, "4:3"),
+        (1, "1:1"), (0.8, String(localized: "4:5 竖")), (9.0 / 16, String(localized: "9:16 竖屏")),
     ]
 
     var body: some View {
@@ -1452,9 +1452,11 @@ private struct TetherSidebar: View {
     private func isCollapsed(_ t: String) -> Bool { collapsedSections.split(separator: "\n").contains { $0 == t } }
 
     /// 可点的分组标题：点整行收起或展开，箭头朝右是收起、朝下是展开。trailing 放在标题右边（例如张数）。
-    private func collapsibleTitle(_ t: String) -> some View { collapsibleTitle(t) { EmptyView() } }
+    private func collapsibleTitle(_ title: LocalizedStringResource) -> some View { collapsibleTitle(title) { EmptyView() } }
 
-    private func collapsibleTitle<T: View>(_ t: String, @ViewBuilder trailing: () -> T) -> some View {
+    /// 收起状态按中文键保存（title.key），显示用本地化后的文字。
+    private func collapsibleTitle<T: View>(_ title: LocalizedStringResource, @ViewBuilder trailing: () -> T) -> some View {
+        let t = title.key
         let collapsed = isCollapsed(t)
         return Button {
             var set = collapsedSections.split(separator: "\n").map(String.init).filter { $0 != t }
@@ -1462,7 +1464,7 @@ private struct TetherSidebar: View {
             withAnimation(.easeInOut(duration: 0.15)) { collapsedSections = set.joined(separator: "\n") }
         } label: {
             HStack(spacing: 4) {
-                sectionTitle(t)
+                sectionTitle(String(localized: title))
                 Image(systemName: "chevron.right").font(.system(size: 8, weight: .bold)).foregroundStyle(.tertiary)
                     .rotationEffect(.degrees(collapsed ? 0 : 90))
                 Spacer()
@@ -1589,9 +1591,9 @@ private struct TetherSidebar: View {
                 if p[0xD270] != nil {
                     if p[0xD21C] != nil, p[0xD210] != nil { PanelDivider() }
                     // 取白和取白框放一行：框大小是取白时才用的设置。
-                    PanelRow("自定义白平衡", enabled: session.busy == nil && !session.lost) {
+                    PanelRow(String(localized: "自定义白平衡"), enabled: session.busy == nil && !session.lost) {
                         if let size = p[0xD135], let v = size.intValue, !size.allowedValues.isEmpty {
-                            ValueMenu(text: "框 " + PropertyRow.text(0xD135, v), options: size.allowedValues.map { ($0, PropertyRow.text(0xD135, $0)) },
+                            ValueMenu(text: String(localized: "框 \(PropertyRow.text(0xD135, v))"), options: size.allowedValues.map { ($0, PropertyRow.text(0xD135, $0)) },
                                       current: v) { session.setProperty(0xD135, $0) }
                                 .disabled(!size.isWritable)
                                 .help("取白框大小")
@@ -1601,7 +1603,7 @@ private struct TetherSidebar: View {
                                 Button("存入自定义 \(slot)") { captureWB(slot) }
                             }
                         } label: {
-                            MenuValueLabel(text: "取白…")
+                            MenuValueLabel(text: String(localized: "取白…"))
                         }
                         .sidebarMenuStyle()
                         .help("先让相机对准灰卡或白纸，再选择存入哪个自定义白平衡。会覆盖该槽位原来的结果。")
@@ -1614,7 +1616,7 @@ private struct TetherSidebar: View {
     private func captureWB(_ slot: Int) {
         Task {
             do { _ = try await session.customWhiteBalance(slot: slot) }
-            catch { session.message = (error as? AgentControlError).map { $0.message.components(separatedBy: " 过程：")[0] } ?? error.localizedDescription }
+            catch { session.message = (error as? AgentControlError).map { $0.message.components(separatedBy: TetherSession.traceSeparator)[0] } ?? error.localizedDescription }
         }
     }
 
@@ -1632,7 +1634,7 @@ private struct TetherSidebar: View {
                         HStack(spacing: 6) {
                             ForEach(["A", "B"], id: \.self) { FocusMarkChip(session: session, name: $0, seconds: pullSeconds) }
                             Spacer(minLength: 6)
-                            ValueMenu(text: "拉焦 " + Self.secondsText(pullSeconds),
+                            ValueMenu(text: String(localized: "拉焦 \(Self.secondsText(pullSeconds))"),
                                       options: [0, 1, 2, 4, 8].map { (Int64($0), Self.secondsText(Double($0))) },
                                       current: Int64(pullSeconds)) { pullSeconds = Double($0) }
                                 .help("点记忆点时拉焦用的时长")
@@ -1641,9 +1643,9 @@ private struct TetherSidebar: View {
                         // 放大只在相机允许时出现（α7 V：拍照模式、MF）。
                         if let m = session.magnifier {
                             let ratios = m.ratios.filter { $0 > 10 }
-                            PanelRow("放大", enabled: !session.lost) {
-                                ValueMenu(text: m.isOn ? TetherSession.ratioText(m.ratio) : "关",
-                                          options: [(Int64(0), "关")] + ratios.map { ($0, TetherSession.ratioText($0)) },
+                            PanelRow(String(localized: "放大"), enabled: !session.lost) {
+                                ValueMenu(text: m.isOn ? TetherSession.ratioText(m.ratio) : String(localized: "关"),
+                                          options: [(Int64(0), String(localized: "关"))] + ratios.map { ($0, TetherSession.ratioText($0)) },
                                           current: m.isOn ? m.ratio : 0) { session.setMagnifier($0) }
                             }
                             .help("放大取景画面检查焦点（M）；放大时点按画面移动放大区域，Esc 退出")
@@ -1655,7 +1657,7 @@ private struct TetherSidebar: View {
         }
     }
 
-    private static func secondsText(_ s: Double) -> String { s == 0 ? "即时" : "\(Int(s)) 秒" }
+    private static func secondsText(_ s: Double) -> String { s == 0 ? String(localized: "即时") : String(localized: "\(Int(s)) 秒") }
 
     /// 「设置」：每组一行摘要，点开弹出该组的完整列表。相机没报告或未启用的项不显示，整组都没有时不显示这一行。
     @ViewBuilder private var settingsCard: some View {
@@ -1681,25 +1683,27 @@ private struct TetherSidebar: View {
         var list: [SettingGroup] = []
         switch session.shootingMode {
         // Log 拍摄打开时图片配置文件和伽马 / 色彩模式不可用（相机报告未启用，自动不显示），这时可改 Log 色域、Base Look 和监看 LUT。
-        case .movie?: list.append(SettingGroup(title: "录像", rows: [("文件格式", 0xD241), ("码率", 0xD242), ("帧率", 0xD286)], summary: [0xD241, 0xD286, 0xD242]))
-        case .sq?: list.append(SettingGroup(title: "慢快动作", rows: [("文件格式", 0xD241), ("码率", 0xD0D1), ("记录帧率", 0xD0D0), ("慢快帧率", 0xD052)], summary: [0xD052, 0xD0D0, 0xD241]))
-        case .interval?: list.append(SettingGroup(title: "间隔录像", rows: [("文件格式", 0xD241), ("录像设置", 0xD152), ("记录帧率", 0xD151), ("拍摄间隔", 0xD055)], summary: [0xD055, 0xD151, 0xD241]))
+        case .movie?: list.append(SettingGroup(title: String(localized: "录像"), rows: [(String(localized: "文件格式"), 0xD241), (String(localized: "码率"), 0xD242), (String(localized: "帧率"), 0xD286)], summary: [0xD241, 0xD286, 0xD242]))
+        case .sq?: list.append(SettingGroup(title: String(localized: "慢快动作"), rows: [(String(localized: "文件格式"), 0xD241), (String(localized: "码率"), 0xD0D1), (String(localized: "记录帧率"), 0xD0D0), (String(localized: "慢快帧率"), 0xD052)], summary: [0xD052, 0xD0D0, 0xD241]))
+        case .interval?: list.append(SettingGroup(title: String(localized: "间隔录像"), rows: [(String(localized: "文件格式"), 0xD241), (String(localized: "录像设置"), 0xD152), (String(localized: "记录帧率"), 0xD151), (String(localized: "拍摄间隔"), 0xD055)], summary: [0xD055, 0xD151, 0xD241]))
         default: break
         }
         if session.shootingMode != nil, session.shootingMode != .photo {
-            list.append(SettingGroup(title: "Log 与画面", rows: Self.lookRows, summary: [0xE000, 0xD03C, 0xD04D, 0xD23F]))
+            list.append(SettingGroup(title: String(localized: "Log 与画面"), rows: Self.lookRows, summary: [0xE000, 0xD03C, 0xD04D, 0xD23F]))
         }
-        list.append(SettingGroup(title: "照片", rows: photoRows, summary: [photoRows.first?.1 ?? 0xD253, 0xD287] + photoRows.filter { $0.0 == "画质" || $0.0 == "图像尺寸" }.map(\.1)))
+        list.append(SettingGroup(title: String(localized: "照片"), rows: photoRows, summary: [photoRows.first?.1 ?? 0xD253, 0xD287] + photoRows.filter { $0.0 == String(localized: "画质") || $0.0 == String(localized: "图像尺寸") }.map(\.1)))
         // 创意外观只在拍照时显示：录像时画面由 Log / 图片配置文件决定（相机在录像模式下也可能仍报告它可写）。
         if session.shootingMode == .photo || session.shootingMode == nil {
-            list.append(SettingGroup(title: "创意外观", rows: [("外观", 0xD0FA)] + Self.lookParams, summary: [0xD0FA]))
+            list.append(SettingGroup(title: String(localized: "创意外观"), rows: [(String(localized: "外观"), 0xD0FA)] + Self.lookParams, summary: [0xD0FA]))
         }
         // 对焦卡片顶部已有对焦模式；相机不能远程调焦（没有对焦卡片）时才放在这里。
-        let focusRow: [(String, UInt16)] = session.focusControl == nil ? [("对焦模式", 0x500A)] : []
-        list.append(SettingGroup(title: "拍摄", rows: focusRow + [("驱动模式", 0x5013), ("点按画面", 0xD283)], summary: focusRow.map(\.1) + [0x5013, 0xD283]))
-        list.append(SettingGroup(title: "镜头补偿", rows: [("暗角补偿", 0xD1A2), ("色差补偿", 0xD1A3)], summary: [0xD1A2, 0xD1A3]))
+        let focusMode: (String, UInt16) = (String(localized: "对焦模式"), 0x500A)
+        let focusRow: [(String, UInt16)] = session.focusControl == nil ? [focusMode] : []
+        let shootRows: [(String, UInt16)] = [(String(localized: "驱动模式"), 0x5013), (String(localized: "点按画面"), 0xD283)]
+        list.append(SettingGroup(title: String(localized: "拍摄"), rows: focusRow + shootRows, summary: focusRow.map(\.1) + [0x5013, 0xD283]))
+        list.append(SettingGroup(title: String(localized: "镜头补偿"), rows: [(String(localized: "暗角补偿"), 0xD1A2), (String(localized: "色差补偿"), 0xD1A3)], summary: [0xD1A2, 0xD1A3]))
         // 低画质分辨率减半，但 Wi-Fi 下更顺、延迟略低；检查对焦时用高。
-        list.append(SettingGroup(title: "取景", rows: [("取景画质", 0xD26A)], summary: [0xD26A]))
+        list.append(SettingGroup(title: String(localized: "取景"), rows: [(String(localized: "取景画质"), 0xD26A)], summary: [0xD26A]))
         return list
     }
 
@@ -1708,11 +1712,11 @@ private struct TetherSidebar: View {
         return rows.filter { r in p[r.1].map { $0.isEnabled != 0 && !$0.allowedValues.isEmpty } ?? false }
     }
 
-    private static let lookParams: [(String, UInt16)] = [("对比度", 0xD0FB), ("高光", 0xD0FC), ("阴影", 0xD0FD), ("褪色", 0xD0FE),
-                                                          ("饱和度", 0xD0FF), ("锐度", 0xD100), ("锐度范围", 0xD101), ("清晰度", 0xD102)]
+    private static let lookParams: [(String, UInt16)] = [(String(localized: "对比度"), 0xD0FB), (String(localized: "高光"), 0xD0FC), (String(localized: "阴影"), 0xD0FD), (String(localized: "褪色"), 0xD0FE),
+                                                          (String(localized: "饱和度"), 0xD0FF), (String(localized: "锐度"), 0xD100), (String(localized: "锐度范围"), 0xD101), (String(localized: "清晰度"), 0xD102)]
 
-    private static let lookRows: [(String, UInt16)] = [("Log 拍摄", 0xE000), ("Log 色域", 0xE001), ("图片配置文件", 0xD23F), ("伽马", 0xD0E1), ("色彩模式", 0xD0E9),
-                                                       ("Base Look", 0xD03C), ("监看 LUT", 0xD04D)]
+    private static let lookRows: [(String, UInt16)] = [(String(localized: "Log 拍摄"), 0xE000), (String(localized: "Log 色域"), 0xE001), (String(localized: "图片配置文件"), 0xD23F), (String(localized: "伽马"), 0xD0E1), (String(localized: "色彩模式"), 0xD0E9),
+                                                       ("Base Look", 0xD03C), (String(localized: "监看 LUT"), 0xD04D)]
 
     /// 拍照时的存储设置（「设置」里的「照片」一组）。统一记录和分卡槽各有一组属性，哪组可写取决于记录媒体设置：用可写的那组（都不可写时用相机报告了的）。
     private var photoRows: [(String, UInt16)] {
@@ -1720,10 +1724,13 @@ private struct TetherSidebar: View {
         func pick(_ codes: [UInt16]) -> [UInt16] {
             (codes.first { p[$0]?.isWritable == true } ?? codes.first { p[$0] != nil }).map { [$0] } ?? []
         }
-        let rows: [(String, UInt16)] = pick([0xD28B, 0xD253]).map { ("文件格式", $0) } + [("压缩格式", 0xD287)]
-            + pick([0xD28D, 0xD252]).map { ("画质", $0) } + pick([0xD28F, 0xD203]).map { ("图像尺寸", $0) }
-            + pick([0xD289, 0xD288]).map { ("RAW 压缩", $0) }
-            + [("传到电脑", 0xD269), ("色彩空间", 0xD15E), ("DRO", 0xD201)]
+        // 分步写，类型检查才快。
+        var rows: [(String, UInt16)] = pick([0xD28B, 0xD253]).map { (String(localized: "文件格式"), $0) }
+        rows.append((String(localized: "压缩格式"), 0xD287))
+        rows += pick([0xD28D, 0xD252]).map { (String(localized: "画质"), $0) }
+        rows += pick([0xD28F, 0xD203]).map { (String(localized: "图像尺寸"), $0) }
+        rows += pick([0xD289, 0xD288]).map { (String(localized: "RAW 压缩"), $0) }
+        rows += [(String(localized: "传到电脑"), 0xD269), (String(localized: "色彩空间"), 0xD15E), ("DRO", 0xD201)]
         return rows
     }
 
@@ -1734,7 +1741,7 @@ private struct TetherSidebar: View {
         return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Text("导入到").foregroundStyle(.secondary)
-                Menu(model.currentSession?.name ?? "未选项目") {
+                Menu(model.currentSession?.name ?? String(localized: "未选项目")) {
                     ForEach(model.sortedSessions.prefix(15)) { s in
                         Button { model.selectSession(s.id) } label: {
                             if s.id == model.currentSessionID { Label(s.name, systemImage: "checkmark") } else { Text(s.name) }
@@ -1940,8 +1947,8 @@ private struct FocusMarkChip: View {
     }
 
     private func label(_ v: Int64?) -> String {
-        guard let v else { return "记下" }
-        return session.focusDistanceText(at: v) ?? "拉过去"
+        guard let v else { return String(localized: "记下") }
+        return session.focusDistanceText(at: v) ?? String(localized: "拉过去")
     }
 }
 
@@ -1980,9 +1987,9 @@ private struct SettingsSummaryRow: View {
         .help("点按查看和修改\(title)的全部设置")
     }
 
-    private static let shortNames: [UInt16: String] = [0xD0FB: "对比", 0xD0FF: "饱和"]
+    private static let shortNames: [UInt16: String] = [0xD0FB: String(localized: "对比"), 0xD0FF: String(localized: "饱和")]
     /// 这些项单写值看不出是哪个，要带上名字（值都一样时合成一个，比如两项都是「自动」只写「自动」）。
-    private static let namedValues: [UInt16: String] = [0xD1A2: "暗角", 0xD1A3: "色差"]
+    private static let namedValues: [UInt16: String] = [0xD1A2: String(localized: "暗角"), 0xD1A3: String(localized: "色差")]
 
     private var summaryText: String {
         let p = session.properties
@@ -1990,7 +1997,7 @@ private struct SettingsSummaryRow: View {
             guard let d = p[c], d.isEnabled != 0, let v = d.intValue else { return nil }
             // 光秃秃的数字看不出是什么：创意外观的参数带上简称和正负号。
             if let short = Self.shortNames[c] { return "\(short) \(v > 0 ? "+" : "")\(v)" }
-            if c == 0xE000 { return v == 1 ? "Log 关" : "Log 开" }
+            if c == 0xE000 { return v == 1 ? String(localized: "Log 关") : String(localized: "Log 开") }
             return PropertyRow.text(c, v)
         }
         let named = summary.filter { Self.namedValues[$0] != nil }
@@ -2161,6 +2168,7 @@ private struct DriveModeMenu: View {
     let choose: (Int64) -> Void
 
     private struct Item: Identifiable { let id: Int64; let group: String; let sub: String?; let label: String }
+    // 分组名来自 SonyFormat.driveMode（中文原文），显示时按 Localizable.xcstrings 翻译。
     private static let order = ["单张拍摄", "连拍", "自拍", "连续包围", "单拍包围", "其他包围", "其他"]
 
     var body: some View {
@@ -2175,7 +2183,7 @@ private struct DriveModeMenu: View {
                 if inGroup.count == 1, g == "单张拍摄" {
                     entry(inGroup[0])
                 } else {
-                    Menu(g) {
+                    Menu(LocalizedStringKey(g)) {
                         let subs = inGroup.compactMap(\.sub).reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
                         ForEach(inGroup.filter { $0.sub == nil }) { entry($0) }
                         ForEach(subs, id: \.self) { sub in

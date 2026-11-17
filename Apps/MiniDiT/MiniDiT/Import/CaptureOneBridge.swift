@@ -13,6 +13,8 @@ enum CaptureOneBridge {
         var kind: String   // 「目录」或「会话」
         var folder: URL?   // 文档所在的文件夹（会话就是会话文件夹本身）
         var isSession: Bool { kind == "会话" }
+        /// 界面显示用；kind 本身用于比较，保持不变。
+        var kindTitle: String { isSession ? String(localized: "会话") : String(localized: "目录") }
     }
 
     enum Failure: LocalizedError {
@@ -21,7 +23,7 @@ enum CaptureOneBridge {
 
         var errorDescription: String? {
             switch self {
-            case .notInstalled: "未找到 Capture One。"
+            case .notInstalled: String(localized: "未找到 Capture One。")
             case .script(let s): s
             }
         }
@@ -97,7 +99,7 @@ enum CaptureOneBridge {
         let fm = FileManager.default
         if !fm.fileExists(atPath: target.database.path) {
             if openDocumentNames().contains(target.name) {
-                throw Failure.script("Capture One 中已打开同名会话“\(target.name)”")
+                throw Failure.script(String(localized: "Capture One 中已打开同名会话“\(target.name)”"))
             }
             let project = target.database.deletingLastPathComponent()
             let staging = project.deletingLastPathComponent()
@@ -134,7 +136,7 @@ enum CaptureOneBridge {
     static func applyLooks(session name: String, collection: String, _ pairs: [(file: URL, look: String)]) -> LookResult {
         var result = LookResult()
         guard !pairs.isEmpty else { return result }
-        guard isRunning else { result.scriptError = "Capture One 未运行"; return result }
+        guard isRunning else { result.scriptError = String(localized: "Capture One 未运行"); return result }
         let list = pairs.map { pair in
             let stem = pair.file.deletingPathExtension().lastPathComponent
             return "{\(quote(stem)), \(quote(pair.file.path)), \(quote(pair.look))}"
@@ -300,7 +302,7 @@ enum CaptureOneBridge {
             return false
         end tell
         """
-        guard try run(src).booleanValue else { throw Failure.script("无法打开或读取 Capture One 会话“\(sessionFile.deletingPathExtension().lastPathComponent)”") }
+        guard try run(src).booleanValue else { throw Failure.script(String(localized: "无法打开或读取 Capture One 会话“\(sessionFile.deletingPathExtension().lastPathComponent)”")) }
     }
 
     /// 某个文件夹下的 C1 会话（文件夹里有同名 .cosessiondb），新的在前。
@@ -323,19 +325,19 @@ enum CaptureOneBridge {
     }
 
     private static func run(_ source: String) throws -> NSAppleEventDescriptor {
-        guard let script = NSAppleScript(source: source) else { throw Failure.script("脚本无法编译") }
+        guard let script = NSAppleScript(source: source) else { throw Failure.script(String(localized: "脚本无法编译")) }
         var error: NSDictionary?
         let result = script.executeAndReturnError(&error)
         if let error {
             let code = error[NSAppleScript.errorNumber] as? Int ?? 0
-            let msg = error[NSAppleScript.errorMessage] as? String ?? "未知错误"
+            let msg = error[NSAppleScript.errorMessage] as? String ?? String(localized: "未知错误")
             if code == -1743 {
-                throw Failure.script("无权控制 Capture One。请在“系统设置 › 隐私与安全性 › 自动化”中允许 MiniDiT 控制 Capture One。")
+                throw Failure.script(String(localized: "无权控制 Capture One。请在“系统设置 › 隐私与安全性 › 自动化”中允许 MiniDiT 控制 Capture One。"))
             }
             if code == -1728 || code == -1719 {
-                throw Failure.script("Capture One 中未打开任何目录或会话。请先在 Capture One 中打开要导入的目录。")
+                throw Failure.script(String(localized: "Capture One 中未打开任何目录或会话。请先在 Capture One 中打开要导入的目录。"))
             }
-            throw Failure.script("Capture One 返回错误（\(code)）：\(msg)")
+            throw Failure.script(String(localized: "Capture One 返回错误（\(code)）：\(msg)"))
         }
         return result
     }

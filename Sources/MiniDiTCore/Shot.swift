@@ -24,7 +24,7 @@ public struct Shot: Identifiable, Hashable, Sendable {
         if kinds.contains(.raw) { parts.append("RAW") }
         if kinds.contains(.heif) { parts.append("HIF") }
         if kinds.contains(.jpeg) { parts.append("JPG") }
-        if kinds.contains(.video) { parts.append("视频") }
+        if kinds.contains(.video) { parts.append(String(localized: "视频", bundle: .miniDiT)) }
         return parts.joined(separator: "+")
     }
 }
@@ -103,9 +103,9 @@ public enum PairPolicy: String, CaseIterable, Identifiable, Sendable {
     public var id: String { rawValue }
     public var title: String {
         switch self {
-        case .both: "RAW 和 JPEG/HEIF 都导"
-        case .rawOnly: "有 RAW 时只导 RAW"
-        case .jpegOnly: "有 JPEG/HEIF 时只导 JPEG/HEIF"
+        case .both: String(localized: "RAW 和 JPEG/HEIF 都导", bundle: .miniDiT)
+        case .rawOnly: String(localized: "有 RAW 时只导 RAW", bundle: .miniDiT)
+        case .jpegOnly: String(localized: "有 JPEG/HEIF 时只导 JPEG/HEIF", bundle: .miniDiT)
         }
     }
 }

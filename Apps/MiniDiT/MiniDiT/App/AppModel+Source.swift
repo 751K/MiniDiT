@@ -32,14 +32,14 @@ extension AppModel {
     func autoConnectLast() async {
         guard let last = knownCameras.first else { return }
         phase = .searching
-        status = "正在查找上次使用的相机“\(last.name)”…"
+        status = String(localized: "正在查找上次使用的相机“\(last.name)”…")
         log.add("自动连接：先试 \(last.host)")
         if let cam = await probe(host: last.host), cam.fingerprint == last.fingerprint {
             await connect(FoundCamera(host: cam.host, kind: cam.kind, knownName: last.name))
             return
         }
         if Task.isCancelled { endCancelled(); return }
-        status = "无法连接上次的地址，正在搜索…"
+        status = String(localized: "无法连接上次的地址，正在搜索…")
         let result = await CameraFinder.search(known: knownCameras) { s in Task { @MainActor in self.status = s } }
         found = result
         searched = true
@@ -69,7 +69,7 @@ extension AppModel {
         guard !h.isEmpty else { return }
         connectTask = Task {
             phase = .connecting
-            status = "正在检查 \(h)…"
+            status = String(localized: "正在检查 \(h)…")
             if let cam = await probe(host: h) {
                 let name = knownCameras.first { $0.fingerprint == cam.fingerprint }?.name
                 await connect(FoundCamera(host: cam.host, kind: cam.kind, knownName: name))
@@ -77,7 +77,7 @@ extension AppModel {
             }
             if Task.isCancelled { endCancelled(); return }
             phase = .idle
-            errorMessage = "在 \(h) 上未找到相机（端口 22 和 15740 均无法连接）。请确认相机已开机并开启“遥控拍摄”，且与本机处于同一网络。"
+            errorMessage = String(localized: "在 \(h) 上未找到相机（端口 22 和 15740 均无法连接）。请确认相机已开机并开启“遥控拍摄”，且与本机处于同一网络。")
         }
     }
 
@@ -91,7 +91,7 @@ extension AppModel {
         Task {
             defer { switchingTo = nil }
             guard let cam = await probe(host: k.host), cam.fingerprint == k.fingerprint else {
-                errorMessage = "“\(k.name)”离线（上次地址为 \(k.host)），未切换。若相机地址已变更，可通过“文件 › 切换来源…”重新搜索。"
+                errorMessage = String(localized: "“\(k.name)”离线（上次地址为 \(k.host)），未切换。若相机地址已变更，可通过“文件 › 切换来源…”重新搜索。")
                 return
             }
             let target = FoundCamera(host: cam.host, kind: cam.kind, knownName: k.name)
@@ -111,7 +111,7 @@ extension AppModel {
         connectTask = Task {
             phase = .connecting
             connectingHost = k.host
-            status = "正在查找“\(k.name)”…"
+            status = String(localized: "正在查找“\(k.name)”…")
             if let cam = await probe(host: k.host), cam.fingerprint == k.fingerprint {
                 await connect(FoundCamera(host: cam.host, kind: cam.kind, knownName: k.name))
                 return
@@ -120,7 +120,7 @@ extension AppModel {
             if Task.isCancelled { endCancelled(); return }
             phase = .idle
             status = ""
-            errorMessage = "“\(k.name)”未连接。请打开相机或重新搜索。"
+            errorMessage = String(localized: "“\(k.name)”未连接。请打开相机或重新搜索。")
         }
     }
 
@@ -168,7 +168,7 @@ extension AppModel {
             return
         } catch {
             log.add("连接失败：\(error.localizedDescription) ｜ \(String(reflecting: error))")
-            errorMessage = "连接失败：\(error.localizedDescription)"
+            errorMessage = String(localized: "连接失败：\(error.localizedDescription)")
             phase = .idle
         }
         status = ""
@@ -227,7 +227,7 @@ extension AppModel {
                     throw CanonWiFi.Failure.notPaired
                 }
                 log.add("佳能相机：\(cam.host) 探测未完成（\(error.localizedDescription)），按佳能连接")
-                step("请在相机上确认与这台 Mac 的连接…")
+                step(String(localized: "请在相机上确认与这台 Mac 的连接…"))
                 return try await CanonWiFi.openLibrary(host: cam.host, identity: HostIdentityStore.identity, progress: step)
             }
             if error is NikonWiFi.Failure { throw error }
@@ -246,7 +246,7 @@ extension AppModel {
         return try await NikonWiFi.openLibrary(host: cam.host, identity: HostIdentityStore.identity, needsPairing: needsPairing,
             showCode: { code in
                 Task { @MainActor in
-                    self.status = "配对码 \(code)：请确认与相机屏幕上显示的一致，然后在相机上确认配对。"
+                    self.status = String(localized: "配对码 \(code)：请确认与相机屏幕上显示的一致，然后在相机上确认配对。")
                     self.log.add("尼康相机：配对码 \(code)")
                 }
             }, progress: step)
@@ -262,7 +262,7 @@ extension AppModel {
         while true {
             guard var current = creds else { throw CancellationError() }
             try Task.checkCancellation()
-            status = "正在建立加密连接…"
+            status = String(localized: "正在建立加密连接…")
             do {
                 let trusted = current.trustedFingerprint
                 let tunnel = try await CameraSSHTunnel.open(host: cam.host, credentials: current) { key in
@@ -277,7 +277,7 @@ extension AppModel {
             } catch SSHTunnelError.authenticationFailed(let detail) {
                 guard interactive else { throw CancellationError() }
                 log.add("访问身份验证失败：用户名「\(current.username)」，密码 \(current.password.count) 个字符；\(detail)")
-                creds = await askCredentials(host: cam.host, message: "用户名或密码不正确，请对照相机上的“访问身份验证信息”重新输入。",
+                creds = await askCredentials(host: cam.host, message: String(localized: "用户名或密码不正确，请对照相机上的“访问身份验证信息”重新输入。"),
                                              prefillUser: current.username)
             } catch SSHTunnelError.hostKeyRejected {
                 throw CancellationError()
@@ -389,7 +389,7 @@ extension AppModel {
         library = nil
         resetContent()
         phase = .idle
-        errorMessage = wasCard ? "存储卡已被移除。" : "与相机的连接已断开（相机可能已关机、离开 Wi-Fi 网络，或已被其他设备连接）。"
+        errorMessage = wasCard ? String(localized: "存储卡已被移除。") : String(localized: "与相机的连接已断开（相机可能已关机、离开 Wi-Fi 网络，或已被其他设备连接）。")
     }
 
     // MARK: 自动重连
@@ -414,7 +414,7 @@ extension AppModel {
 
     private func reconnectOnce() async -> Bool {
         guard let cam = lastCamera else { return false }
-        status = "正在重新连接 \(cam.host)…"
+        status = String(localized: "正在重新连接 \(cam.host)…")
         guard await probe(host: cam.host)?.fingerprint == cam.fingerprint else { return false }
         do {
             let (lib, remote) = try await openLibrary(cam, interactive: false)
@@ -549,10 +549,10 @@ extension AppModel {
         let h = host.trimmingCharacters(in: .whitespaces)
         guard !h.isEmpty, progress == nil else { return }
         Task {
-            status = "正在检查 \(h)…"
+            status = String(localized: "正在检查 \(h)…")
             guard let cam = await probe(host: h) else {
                 status = ""
-                errorMessage = "在 \(h) 上未找到相机（端口 22 和 15740 均无法连接）。请确认相机已开机并开启“遥控拍摄”，且与本机处于同一网络。"
+                errorMessage = String(localized: "在 \(h) 上未找到相机（端口 22 和 15740 均无法连接）。请确认相机已开机并开启“遥控拍摄”，且与本机处于同一网络。")
                 return
             }
             let name = knownCameras.first { $0.fingerprint == cam.fingerprint }?.name
@@ -567,7 +567,7 @@ extension AppModel {
         Task {
             defer { switchingTo = nil }
             guard let cam = await probe(host: k.host), cam.fingerprint == k.fingerprint else {
-                errorMessage = "“\(k.name)”离线（上次地址为 \(k.host)），未能同时连接。"
+                errorMessage = String(localized: "“\(k.name)”离线（上次地址为 \(k.host)），未能同时连接。")
                 return
             }
             await addCamera(FoundCamera(host: cam.host, kind: cam.kind, knownName: k.name))
@@ -614,7 +614,7 @@ extension AppModel {
             status = ""
             if !(error is CancellationError) {
                 log.add("同时连接失败：\(error.localizedDescription)")
-                errorMessage = "未能同时连接“\(cam.knownName ?? cam.host)”：\(error.localizedDescription)"
+                errorMessage = String(localized: "未能同时连接“\(cam.knownName ?? cam.host)”：\(error.localizedDescription)")
             }
         }
     }
@@ -666,9 +666,9 @@ extension AppModel {
         if isTetherSpool(root) { return }
         do {
             try NSWorkspace.shared.unmountAndEjectDevice(at: root)
-            notice = "已推出 \(root.lastPathComponent)，可安全取出存储卡"
+            notice = String(localized: "已推出 \(root.lastPathComponent)，可安全取出存储卡")
         } catch {
-            errorMessage = "推出存储卡失败：\(error.localizedDescription)"
+            errorMessage = String(localized: "推出存储卡失败：\(error.localizedDescription)")
         }
     }
 }

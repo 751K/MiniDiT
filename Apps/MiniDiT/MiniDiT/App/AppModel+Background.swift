@@ -11,10 +11,10 @@ enum CardInsertAction: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .open: "打开导入窗口"
-        case .auto: "自动导入新照片"
-        case .notify: "仅发送通知"
-        case .ignore: "不处理"
+        case .open: String(localized: "打开导入窗口")
+        case .auto: String(localized: "自动导入新照片")
+        case .notify: String(localized: "仅发送通知")
+        case .ignore: String(localized: "不处理")
         }
     }
 }
@@ -45,7 +45,9 @@ extension AppModel {
             log.add(launchAtLogin ? "已设为登录时打开" : "已取消登录时打开")
         } catch {
             log.add("设置登录项失败：\(error.localizedDescription)")
-            errorMessage = "无法\(launchAtLogin ? "设置" : "取消")登录时打开：\(error.localizedDescription)"
+            errorMessage = launchAtLogin
+                ? String(localized: "无法设置登录时打开：\(error.localizedDescription)")
+                : String(localized: "无法取消登录时打开：\(error.localizedDescription)")
         }
     }
 
@@ -60,7 +62,7 @@ extension AppModel {
         case .ignore:
             return
         case .notify:
-            Notifier.shared.post(id: "card:" + url.path, title: "已插入存储卡“\(name)”", body: "点按以打开并导入。",
+            Notifier.shared.post(id: "card:" + url.path, title: String(localized: "已插入存储卡“\(name)”"), body: String(localized: "点按以打开并导入。"),
                                  info: ["card": url.path])
         case .open:
             openInsertedCard(url)
@@ -110,22 +112,22 @@ extension AppModel {
             guard !fresh.isEmpty else {
                 log.add("自动导入：“\(name)”没有新照片")
                 if isCard {
-                    Notifier.shared.post(id: "auto", title: "“\(name)”上没有新照片", body: "照片均已导入过。", info: [:])
+                    Notifier.shared.post(id: "auto", title: String(localized: "“\(name)”上没有新照片"), body: String(localized: "照片均已导入过。"), info: [:])
                 }
                 return
             }
             guard currentSession != nil else {
                 grid.replace(with: Set(fresh))
                 log.add("自动导入：请先选择或新建项目")
-                Notifier.shared.post(id: "auto", title: "请选择导入项目",
-                                     body: "选择或新建项目后，才能导入新照片。", info: [:])
+                Notifier.shared.post(id: "auto", title: String(localized: "请选择导入项目"),
+                                     body: String(localized: "选择或新建项目后，才能导入新照片。"), info: [:])
                 showMainWindow()
                 return
             }
             autoCountdown = AutoCountdown(name: name, count: fresh.count, deadline: Date().addingTimeInterval(10))
             log.add("自动导入：“\(name)”有 \(fresh.count) 张新照片，10 秒后开始")
-            Notifier.shared.post(id: "auto", title: "即将从“\(name)”导入 \(fresh.count) 张新照片",
-                                 body: "10 秒后开始。点按以取消。", info: ["autoCancel": "1"])
+            Notifier.shared.post(id: "auto", title: String(localized: "即将从“\(name)”导入 \(fresh.count) 张新照片"),
+                                 body: String(localized: "10 秒后开始。点按以取消。"), info: ["autoCancel": "1"])
             try? await Task.sleep(for: .seconds(10))
             let cancelled = Task.isCancelled || autoCountdown == nil
             autoCountdown = nil
@@ -139,7 +141,7 @@ extension AppModel {
         guard autoCountdown != nil else { return }
         autoCountdown = nil
         autoTask?.cancel()
-        Notifier.shared.post(id: "auto", title: "已取消自动导入", body: "可在 MiniDiT 中手动选择并导入。", info: [:])
+        Notifier.shared.post(id: "auto", title: String(localized: "已取消自动导入"), body: String(localized: "可在 MiniDiT 中手动选择并导入。"), info: [:])
     }
 
     /// 选中新照片，跳过所有需要回答的提示：缺备份盘、空间不够、LrC 插件有问题时不导，发通知说明。
@@ -147,44 +149,45 @@ extension AppModel {
         guard progress == nil, phase == .ready else { return }
         func stop(_ why: String) {
             log.add("自动导入：未开始，\(why)")
-            Notifier.shared.post(id: "auto", title: "未能自动导入“\(name)”", body: why + "。点按以打开 MiniDiT。", info: [:])
+            Notifier.shared.post(id: "auto", title: String(localized: "未能自动导入“\(name)”"), body: String(localized: "\(why)。点按以打开 MiniDiT。"), info: [:])
         }
-        if importJournal.repairTask != nil { stop("正在补备份，完成后可手动导入"); return }
+        if importJournal.repairTask != nil { stop(String(localized: "正在补备份，完成后可手动导入")); return }
         grid.clear()
         grid.set(fresh, selected: true)
         guard let job = currentSessionJob() else {
-            stop("请先选择或新建项目")
+            stop(String(localized: "请先选择或新建项目"))
             showMainWindow()
             return
         }
-        if backupEnabled, !backupAvailable { stop(enabledBackupTargets.isEmpty ? "尚未启用备份位置" : "必需的备份位置不可用"); return }
-        if let p = spaceShortage() { stop(p.isBackup ? "备份磁盘空间不足" : "存储空间不足"); return }
+        if backupEnabled, !backupAvailable { stop(enabledBackupTargets.isEmpty ? String(localized: "尚未启用备份位置") : String(localized: "必需的备份位置不可用")); return }
+        if let p = spaceShortage() { stop(p.isBackup ? String(localized: "备份磁盘空间不足") : String(localized: "存储空间不足")); return }
         autoRunning = true
         if captureOneMode == .lightroom, !LightroomBridge.status().canImport {
             autoRunning = false
-            stop("Lightroom Classic 插件需要安装或更新")
+            stop(String(localized: "Lightroom Classic 插件需要安装或更新"))
             return
         }
         startImport(jobs: [job], grouping: .single)
-        if progress == nil { autoRunning = false; stop("没有可导入的文件") }
+        if progress == nil { autoRunning = false; stop(String(localized: "没有可导入的文件")) }
         else { log.add("自动导入：开始导入“\(name)”的 \(fresh.count) 张") }
     }
 
     /// 自动导入结束：发通知说结果。
     func autoImportFinished() {
         autoRunning = false
-        let name = sources.first?.name ?? "相机"
+        let name = sources.first?.name ?? String(localized: "相机")
         if let i = interrupted {
-            Notifier.shared.post(id: "auto", title: "“\(name)”的自动导入已中断",
-                                 body: "已完成 \(i.done) / \(i.total) 个文件。重新连接后可继续导入。", info: [:])
+            Notifier.shared.post(id: "auto", title: String(localized: "“\(name)”的自动导入已中断"),
+                                 body: String(localized: "已完成 \(i.done) / \(i.total) 个文件。重新连接后可继续导入。"), info: [:])
         } else if let r = lastResult {
-            var body = "已导入 \(r.files) 个文件"
-            if !r.backupTargets.isEmpty { body += "；" + r.backupTargets.map { "\($0.target.name)：\($0.verified)/\($0.total)" }.joined(separator: "；") }
-            else if let b = r.backedUp { body += b == r.files ? "，均已备份" : "，备份 \(b) 个" }
-            if r.failed > 0 { body += "，\(r.failed) 个失败" }
-            if let s = r.session { body += "。会话：\(s)" }
-            Notifier.shared.post(id: "auto", title: r.failed > 0 ? "“\(name)”的自动导入有文件失败" : "“\(name)”自动导入完成",
-                                 body: body + "。", info: [:])
+            let sep = String(localized: "；")
+            var body = String(localized: "已导入 \(r.files) 个文件")
+            if !r.backupTargets.isEmpty { body += sep + r.backupTargets.map { String(localized: "\($0.target.name)：\($0.verified)/\($0.total)") }.joined(separator: sep) }
+            else if let b = r.backedUp { body += b == r.files ? String(localized: "，均已备份") : String(localized: "，备份 \(b) 个") }
+            if r.failed > 0 { body += String(localized: "，\(r.failed) 个失败") }
+            if let s = r.session { body += String(localized: "。会话：\(s)") }
+            Notifier.shared.post(id: "auto", title: r.failed > 0 ? String(localized: "“\(name)”的自动导入有文件失败") : String(localized: "“\(name)”自动导入完成"),
+                                 body: body + String(localized: "。"), info: [:])
         }
     }
 
@@ -192,8 +195,8 @@ extension AppModel {
     func openInsertedCard(_ url: URL) {
         guard FileManager.default.fileExists(atPath: url.path) else { return }
         if progress != nil {
-            Notifier.shared.post(id: "card:" + url.path, title: "已插入存储卡“\(url.lastPathComponent)”",
-                                 body: "当前导入完成后，可在来源列表中打开。", info: [:])
+            Notifier.shared.post(id: "card:" + url.path, title: String(localized: "已插入存储卡“\(url.lastPathComponent)”"),
+                                 body: String(localized: "当前导入完成后，可在来源列表中打开。"), info: [:])
             return
         }
         if phase == .searching || phase == .connecting { cancelConnect() }
@@ -257,8 +260,8 @@ extension AppModel {
             autoImportWhenReady(name: k.name, isCard: false)
             return
         }
-        Notifier.shared.post(id: "camera:" + k.fingerprint, title: "“\(k.name)”已上线",
-                             body: library == nil ? "点按以连接并导入。" : "点按以同时连接。",
+        Notifier.shared.post(id: "camera:" + k.fingerprint, title: String(localized: "“\(k.name)”已上线"),
+                             body: library == nil ? String(localized: "点按以连接并导入。") : String(localized: "点按以同时连接。"),
                              info: ["camera": k.fingerprint])
     }
 
@@ -267,7 +270,7 @@ extension AppModel {
         showMainWindow()
         guard let k = knownCameras.first(where: { $0.fingerprint == fingerprint }) else { return }
         if openHosts.contains(k.host) { return }
-        if progress != nil { errorMessage = "正在导入，完成后再连接“\(k.name)”。"; return }
+        if progress != nil { errorMessage = String(localized: "正在导入，完成后再连接“\(k.name)”。"); return }
         if phase == .searching || phase == .connecting { cancelConnect() }
         if library == nil {
             if phase == .idle { connect(known: k) }
@@ -280,15 +283,18 @@ extension AppModel {
 
     /// 菜单栏面板上一行的状态。
     var menuStatus: String {
-        if let a = autoCountdown { return "即将自动导入 \(a.count) 张新照片" }
-        if let p = progress { return (autoRunning ? "正在自动导入 " : "正在导入 ") + "\(p.done + p.skipped) / \(p.total) 个文件" }
-        if interrupted != nil { return "导入已中断" }
+        if let a = autoCountdown { return String(localized: "即将自动导入 \(a.count) 张新照片") }
+        if let p = progress {
+            let n = p.done + p.skipped
+            return autoRunning ? String(localized: "正在自动导入 \(n) / \(p.total) 个文件") : String(localized: "正在导入 \(n) / \(p.total) 个文件")
+        }
+        if interrupted != nil { return String(localized: "导入已中断") }
         switch phase {
-        case .searching: return "正在查找相机…"
-        case .connecting: return "正在连接…"
-        case .loading: return "正在读取…"
+        case .searching: return String(localized: "正在查找相机…")
+        case .connecting: return String(localized: "正在连接…")
+        case .loading: return String(localized: "正在读取…")
         case .ready: return countTitle.new
-        case .idle: return library == nil ? "未连接" : ""
+        case .idle: return library == nil ? String(localized: "未连接") : ""
         }
     }
 

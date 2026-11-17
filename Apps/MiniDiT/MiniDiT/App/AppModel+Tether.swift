@@ -39,7 +39,7 @@ extension AppModel {
 
     func startTether(_ cam: FoundCamera) {
         guard progress == nil else {
-            errorMessage = "请等待当前导入完成后再开始联机拍摄。"
+            errorMessage = String(localized: "请等待当前导入完成后再开始联机拍摄。")
             return
         }
         let wasOpen = library != nil || !extraSources.isEmpty
@@ -52,7 +52,7 @@ extension AppModel {
     /// 按地址开始联机（CLI / MCP 用）：先确认地址上有相机、是直连还是要访问身份验证。
     func startTether(host: String) {
         guard progress == nil else {
-            errorMessage = "请等待当前导入完成后再开始联机拍摄。"
+            errorMessage = String(localized: "请等待当前导入完成后再开始联机拍摄。")
             return
         }
         let wasOpen = library != nil || !extraSources.isEmpty
@@ -62,13 +62,13 @@ extension AppModel {
         connectTask = Task {
             phase = .connecting
             connectingHost = host
-            status = "正在检查 \(host)…"
+            status = String(localized: "正在检查 \(host)…")
             guard let cam = await probe(host: host) else {
                 connectingHost = nil
                 if Task.isCancelled { endCancelled(); return }
                 phase = .idle
                 status = ""
-                errorMessage = "在 \(host) 上未找到相机。请确认相机已开机、开启“电脑遥控”，且与本机处于同一网络。"
+                errorMessage = String(localized: "在 \(host) 上未找到相机。请确认相机已开机、开启“电脑遥控”，且与本机处于同一网络。")
                 return
             }
             let name = knownCameras.first { $0.fingerprint == cam.fingerprint }?.name
@@ -133,7 +133,7 @@ extension AppModel {
         } catch {
             await camera?.disconnect()
             log.add("联机拍摄连接失败：\(error.localizedDescription) ｜ \(String(reflecting: error))")
-            errorMessage = "无法开始联机拍摄（\(error.localizedDescription)）。请确认相机已开启“电脑遥控”（USB 连接时把 USB 连接方式设为“PC 遥控”），且没有被其他设备连接。"
+            errorMessage = String(localized: "无法开始联机拍摄（\(error.localizedDescription)）。请确认相机已开启“电脑遥控”（USB 连接时把 USB 连接方式设为“PC 遥控”），且没有被其他设备连接。")
             phase = .idle
         }
         status = ""

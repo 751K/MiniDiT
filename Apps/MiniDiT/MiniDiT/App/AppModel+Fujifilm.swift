@@ -11,7 +11,7 @@ extension AppModel {
 
     private func connectFujifilmAsync() async {
         phase = .connecting
-        connectingHost = "富士相机"
+        connectingHost = String(localized: "富士相机")
         defer { connectingHost = nil }
         errorMessage = nil
         notice = nil
@@ -40,8 +40,9 @@ extension AppModel {
             return
         } catch {
             log.add("连接富士相机失败：\(error.localizedDescription) ｜ \(String(reflecting: error))")
-            errorMessage = "连接富士相机失败：\(error.localizedDescription)"
-                + (error is FujiWiFi.Failure ? "" : "请确认相机已打开“无线通信”，并且 Mac 已加入相机的 Wi-Fi。")
+            errorMessage = error is FujiWiFi.Failure
+                ? String(localized: "连接富士相机失败：\(error.localizedDescription)")
+                : String(localized: "连接富士相机失败：\(error.localizedDescription)请确认相机已打开“无线通信”，并且 Mac 已加入相机的 Wi-Fi。")
             phase = .idle
         }
         status = ""

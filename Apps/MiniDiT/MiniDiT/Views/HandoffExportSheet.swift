@@ -11,7 +11,7 @@ struct HandoffExportSheet: View {
     @State private var preparedBy = ""
     @State private var notes = ""
     @State private var exporting = false
-    @State private var exportStatus = "正在生成 PDF…"
+    @State private var exportStatus = String(localized: "正在生成 PDF…")
     @State private var exportTask: Task<Void, Never>?
     @State private var result: URL?
     @State private var problem: String?
@@ -68,7 +68,7 @@ struct HandoffExportSheet: View {
         let options = HandoffReport.Options(projectID: project.id, projectName: project.name,
             scope: entireProject ? "整个项目的已记录导入" : "所选一次导入（仅此项目）", preparedBy: preparedBy, notes: notes,
             appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "")
-        exporting = true; problem = nil; exportStatus = "正在整理导入记录…"
+        exporting = true; problem = nil; exportStatus = String(localized: "正在整理导入记录…")
         exportTask = Task {
             let worker = Task.detached(priority: .utility) {
                 let snapshot = try HandoffReport.snapshot(batches: records, options: options)
@@ -78,8 +78,8 @@ struct HandoffExportSheet: View {
             }
             do {
                 result = try await withTaskCancellationHandler { try await worker.value } onCancel: { worker.cancel() }
-            } catch is CancellationError { problem = "已取消导出。" }
-            catch { problem = "导出未完成：" + error.localizedDescription }
+            } catch is CancellationError { problem = String(localized: "已取消导出。") }
+            catch { problem = String(localized: "导出未完成：\(error.localizedDescription)") }
             exporting = false; exportTask = nil
         }
     }

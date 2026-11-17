@@ -45,7 +45,7 @@ struct FileImporter {
         case verifyFailed(String)
         var errorDescription: String? {
             switch self {
-            case .verifyFailed(let name): "\(name) 校验未通过（写入磁盘的数据与读取的数据不一致）"
+            case .verifyFailed(let name): String(localized: "\(name) 校验未通过（写入磁盘的数据与读取的数据不一致）")
             }
         }
     }
@@ -92,7 +92,7 @@ struct FileImporter {
                                                           skipped: skipped, resumed: resumed)
         var matchesSource = fromCard
         if !matchesSource, checkSource, let card = library as? LocalCardLibrary, let src = await card.fileURL(item.id) {
-            stage("核对 \(item.filename)")
+            stage(String(localized: "核对 \(item.filename)"))
             matchesSource = (try? await FileOps.hash(src)) == hash
         }
         primarySaved(outcome.url, hash, matchesSource)
@@ -102,7 +102,7 @@ struct FileImporter {
         progress(primarySize)
         var backup = Backup.none
         if let backupRoot {
-            stage("备份 \(item.filename)")
+            stage(String(localized: "备份 \(item.filename)"))
             do {
                 let u = try await copyToBackup(outcome.url, item: item, root: backupRoot, hash: hash) { d in progress(primarySize + d) }
                 backup = .done(u)
@@ -127,7 +127,7 @@ struct FileImporter {
         let target = dir.appending(path: item.filename)
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         if ImportHistory.matches(target, item) {
-            stage("校验 \(item.filename)")
+            stage(String(localized: "校验 \(item.filename)"))
             let hash = try await FileOps.hash(target)
             var same = false
             var fromCard = false
@@ -154,7 +154,7 @@ struct FileImporter {
         if let local, local.standardizedFileURL != final.standardizedFileURL {
             skipped(Self.fileSize(local) ?? item.size)
             // 同一文件可能属于已有会话，改变整理偏好时保留原来的那份。
-            stage("复制 \(item.filename)")
+            stage(String(localized: "复制 \(item.filename)"))
             let h = try await verifiedCopy(from: local, to: final, name: item.filename, progress: progress)
             log.add("用本地文件（复制）\(local.path) → \(final.path)")
             return (.reused(final), h, false)
@@ -175,7 +175,7 @@ struct FileImporter {
             let resume = item.sizeKnown && have <= item.size ? have : 0
             if resume > 0 {
                 log.add("续传 \(item.filename)：已有 \(resume)/\(item.size) 字节")
-                stage("续传 \(item.filename)")
+                stage(String(localized: "续传 \(item.filename)"))
                 resumed(resume)
                 skipped(resume)
             }
@@ -190,7 +190,7 @@ struct FileImporter {
                 }
             }
             guard ImportHistory.matches(part, item) else { try? fm.removeItem(at: part); throw CocoaError(.fileReadCorruptFile) }
-            stage("校验 \(item.filename)")
+            stage(String(localized: "校验 \(item.filename)"))
             hash = try await FileOps.hash(part)
         }
         try fm.moveItem(at: part, to: final)
@@ -262,7 +262,7 @@ struct FileImporter {
                          stage: (String) -> Void, issue: (String) -> Void = { _ in }) async throws -> ProxyOnlyResult? {
         guard let p = await library.proxy(of: item.id) else { return nil }
         let rel = "Proxy/" + item.baseName + "." + (p.filename as NSString).pathExtension
-        stage("下载代理 \(item.filename)")
+        stage(String(localized: "下载代理 \(item.filename)"))
         let dst = dir.appending(path: rel)
         let (h, there) = try await downloadSidecar(p, to: dst, progress: progress)
         let bdir = backupRoot.map { backupDir(for: item, root: $0) }
@@ -270,9 +270,9 @@ struct FileImporter {
             guard let bdir else { return nil }
             let b = bdir.appending(path: rel)
             do { _ = try await copySidecar(file, to: b, expect: hash); return b }
-            catch { let message = "备份失败 \(rel)：\(error.localizedDescription)"; log.add(message); issue(message); return nil }
+            catch { log.add("备份失败 \(rel)：\(error.localizedDescription)"); issue(String(localized: "备份失败 \(rel)：\(error.localizedDescription)")); return nil }
         }
-        if bdir != nil { stage("备份代理 \(item.filename)") }
+        if bdir != nil { stage(String(localized: "备份代理 \(item.filename)")) }
         var result = ProxyOnlyResult(proxy: SidecarCopy(url: dst, xxh64: h, backup: await backup(dst, rel: rel, hash: h), alreadyThere: there))
         if let xml = await library.clipXML(item.id) {
             let xrel = item.baseName + "M01.XML"
@@ -285,7 +285,7 @@ struct FileImporter {
                 result.xml = SidecarCopy(url: x, xxh64: xh, backup: await backup(x, rel: xrel, hash: xh), alreadyThere: same)
             } catch {
                 log.add("写入 \(xrel) 失败：\(error.localizedDescription)")
-                issue("写入 \(xrel) 失败：\(error.localizedDescription)")
+                issue(String(localized: "写入 \(xrel) 失败：\(error.localizedDescription)"))
             }
         }
         return result
@@ -316,7 +316,7 @@ struct FileImporter {
             guard let backupClip else { return nil }
             let b = backupClip.deletingLastPathComponent().appending(path: rel)
             do { _ = try await copySidecar(file, to: b, expect: hash); return b }
-            catch { let message = "备份失败 \(rel)：\(error.localizedDescription)"; log.add(message); issue(message); return nil }
+            catch { log.add("备份失败 \(rel)：\(error.localizedDescription)"); issue(String(localized: "备份失败 \(rel)：\(error.localizedDescription)")); return nil }
         }
         if let card = library as? LocalCardLibrary {
             for s in await card.sidecars(item.id) where s.kind == .metadata || proxies {
@@ -326,7 +326,7 @@ struct FileImporter {
                 let ext = s.url.pathExtension.uppercased() == "LRF" ? "MP4" : s.url.pathExtension
                 let rel = s.kind == .proxy ? "Proxy/" + base + "." + ext
                     : base + String(name.dropFirst(item.baseName.count))
-                stage(s.kind == .proxy ? "复制代理 \(name)" : "复制 \(name)")
+                stage(s.kind == .proxy ? String(localized: "复制代理 \(name)") : String(localized: "复制 \(name)"))
                 do {
                     let dst = dir.appending(path: rel)
                     let (h, there) = try await copySidecar(s.url, to: dst)
@@ -336,12 +336,12 @@ struct FileImporter {
                     return out
                 } catch {
                     log.add("复制失败 \(name)：\(error.localizedDescription)")
-                issue("复制失败 \(name)：\(error.localizedDescription)")
+                issue(String(localized: "复制失败 \(name)：\(error.localizedDescription)"))
                 }
             }
         } else if proxies, let p = await library.proxy(of: item.id) {
             let rel = "Proxy/" + base + "." + (p.filename as NSString).pathExtension
-            stage("下载代理 \(p.filename)")
+            stage(String(localized: "下载代理 \(p.filename)"))
             do {
                 let dst = dir.appending(path: rel)
                 let (h, there) = try await downloadSidecar(p, to: dst)
@@ -350,7 +350,7 @@ struct FileImporter {
                 return out
             } catch {
                 log.add("下载代理失败 \(p.filename)：\(error.localizedDescription)")
-                issue("下载代理失败 \(p.filename)：\(error.localizedDescription)")
+                issue(String(localized: "下载代理失败 \(p.filename)：\(error.localizedDescription)"))
             }
         }
         if !haveXML, let xml = ClipInfo.embeddedXML(inFile: clip) {
@@ -364,7 +364,7 @@ struct FileImporter {
                 out.append(SidecarCopy(url: dst, xxh64: h, backup: await backup(dst, rel: rel, hash: h), alreadyThere: there))
             } catch {
                 log.add("写入 \(rel) 失败：\(error.localizedDescription)")
-                issue("写入 \(rel) 失败：\(error.localizedDescription)")
+                issue(String(localized: "写入 \(rel) 失败：\(error.localizedDescription)"))
             }
         }
         return out

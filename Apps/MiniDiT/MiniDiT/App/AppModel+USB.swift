@@ -65,7 +65,7 @@ extension AppModel {
             return
         } catch {
             log.add("连接 USB 相机失败：\(error.localizedDescription) ｜ \(String(reflecting: error))")
-            errorMessage = "连接 USB 相机失败：\(error.localizedDescription)"
+            errorMessage = String(localized: "连接 USB 相机失败：\(error.localizedDescription)")
             phase = .idle
         }
         status = ""
@@ -74,7 +74,7 @@ extension AppModel {
     /// 通过 USB 联机拍摄（索尼，相机的 USB 连接方式设为「PC 遥控」）。
     func startTether(usb cam: USBCamera) {
         guard progress == nil else {
-            errorMessage = "请等待当前导入完成后再开始联机拍摄。"
+            errorMessage = String(localized: "请等待当前导入完成后再开始联机拍摄。")
             return
         }
         let wasOpen = library != nil || !extraSources.isEmpty

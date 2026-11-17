@@ -50,8 +50,8 @@ public enum PTPUSBError: LocalizedError {
     case noResponse, disconnected
     public var errorDescription: String? {
         switch self {
-        case .noResponse: "相机没有返回有效的响应。"
-        case .disconnected: "USB 连接已断开。"
+        case .noResponse: String(localized: "相机没有返回有效的响应。", bundle: .miniDiT)
+        case .disconnected: String(localized: "USB 连接已断开。", bundle: .miniDiT)
         }
     }
 }

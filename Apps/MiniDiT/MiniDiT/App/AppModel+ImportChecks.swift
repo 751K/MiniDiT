@@ -100,7 +100,7 @@ extension AppModel {
             let all = Array(selectedFiles().reversed())
             guard !all.isEmpty else { return [] }
             let day = all.map(Self.dayKey).filter { $0 != "unknown" }.min() ?? "unknown"
-            let title = selectedDays.count == 1 ? selectedDays.first!.title : "\(selectedDays.count) 天"
+            let title = selectedDays.count == 1 ? selectedDays.first!.title : String(localized: "\(selectedDays.count) 天")
             return [ImportGroup(id: "all", day: day, scene: nil, title: title, shotCount: grid.selected.count, files: all)]
         case .perDay:
             return selectedDays.map { d in

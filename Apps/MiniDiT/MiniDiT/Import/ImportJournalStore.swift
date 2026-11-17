@@ -35,7 +35,7 @@ final class ImportJournalStore {
             }
         } catch {
             readable = false
-            persistenceError = "无法读取导入记录，原记录已保留：\(error.localizedDescription)"
+            persistenceError = String(localized: "无法读取导入记录，原记录已保留：\(error.localizedDescription)")
         }
     }
 
@@ -67,7 +67,7 @@ final class ImportJournalStore {
             persistenceError = nil
             return true
         } catch {
-            persistenceError = "导入记录未能保存：\(error.localizedDescription)"
+            persistenceError = String(localized: "导入记录未能保存：\(error.localizedDescription)")
             return false
         }
     }
@@ -99,11 +99,11 @@ final class ImportJournalStore {
         let root = root.resolvingSymlinksInPath().standardizedFileURL
         lastRepairBatch = id; repairErrors = []; repairSummary = nil
         var targets = batch.targets
-        if let targetID, !targets.contains(where: { $0.id == targetID }) { repairErrors = ["备份目标不存在。"]; return }
+        if let targetID, !targets.contains(where: { $0.id == targetID }) { repairErrors = [String(localized: "备份目标不存在。")]; return }
         let previous = addingTarget ? nil : targets.first(where: { $0.id == targetID }) ?? targets.first
         let target: BackupDestination
         if let previous, !changeTarget {
-            guard previous.path == root.path else { repairErrors = ["请使用原备份位置，或明确选择更换位置。"]; return }
+            guard previous.path == root.path else { repairErrors = [String(localized: "请使用原备份位置，或明确选择更换位置。")]; return }
             target = previous
         } else {
             target = .init(id: previous?.id ?? UUID(), name: previous?.name ?? (root.lastPathComponent.isEmpty ? "备份" : root.lastPathComponent),
@@ -111,7 +111,7 @@ final class ImportJournalStore {
         }
         lastRepairTarget = target.id
         guard !targets.contains(where: { $0.id != target.id && BackupDestination.overlaps($0.root, root) }) else {
-            repairErrors = ["备份位置相同或互相包含，请选择另一个位置。"]; return
+            repairErrors = [String(localized: "备份位置相同或互相包含，请选择另一个位置。")]; return
         }
         guard target.availability == .available else {
             repairErrors = [target.availability == .wrongVolume ? BackupRepair.Failure.wrongVolume.localizedDescription : BackupRepair.Failure.targetUnavailable.localizedDescription]
@@ -136,7 +136,7 @@ final class ImportJournalStore {
             for (offset, original) in assets.enumerated() {
                 if Task.isCancelled { break }
                 let asset = batches.first(where: { $0.id == id })?.files.flatMap(\.assets).first(where: { $0.id == original.id }) ?? original
-                let filename = asset.copies.first.map { URL(filePath: $0.path).lastPathComponent } ?? "文件"
+                let filename = asset.copies.first.map { URL(filePath: $0.path).lastPathComponent } ?? String(localized: "文件")
                 repairProgress = "\(target.name)：\(offset + 1)/\(assets.count) · \(filename)"
                 do {
                     var repaired = try await worker.repair(asset, to: root, expectedVolume: target.volumeID, targetID: target.id)
@@ -175,14 +175,16 @@ final class ImportJournalStore {
                     let report = try MHLWriter.append(root: root, entries: verifiedEntries)
                     _ = update(id) { b in b.reports.append(report.path); b.backupReportErrors?.removeValue(forKey: target.id.uuidString) }
                 } catch {
-                    repairErrors.append("校验清单未能保存：" + error.localizedDescription)
+                    repairErrors.append(String(localized: "校验清单未能保存：\(error.localizedDescription)"))
                     _ = update(id) { b in
                         if b.backupReportErrors == nil { b.backupReportErrors = [:] }
                         b.backupReportErrors?[target.id.uuidString] = error.localizedDescription
                     }
                 }
             }
-            repairSummary = "\(target.name)：\(completed)/\(assets.count) 个文件已核对并完成备份" + (Task.isCancelled ? "；已取消，其余文件可稍后继续。" : "。")
+            repairSummary = Task.isCancelled
+                ? String(localized: "\(target.name)：\(completed)/\(assets.count) 个文件已核对并完成备份；已取消，其余文件可稍后继续。")
+                : String(localized: "\(target.name)：\(completed)/\(assets.count) 个文件已核对并完成备份。")
             repairingBatch = nil; repairingTarget = nil; repairProgress = ""; repairTask = nil
         }
     }

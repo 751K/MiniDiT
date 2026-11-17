@@ -25,13 +25,13 @@ public final class DJIBluetooth: NSObject, @unchecked Sendable {
         case bluetoothOff, unauthorized, notFound, connect(String), gatt, timeout(String), approval
         public var errorDescription: String? {
             switch self {
-            case .bluetoothOff: "蓝牙未打开。"
-            case .unauthorized: "MiniDiT 没有蓝牙权限。请在“系统设置 › 隐私与安全性 › 蓝牙”中允许 MiniDiT。"
-            case .notFound: "未找到大疆相机。请确认相机已开机、在附近，且没有连着 DJI Mimo。"
-            case .connect(let s): "无法通过蓝牙连接相机：\(s)"
-            case .gatt: "相机的蓝牙服务不完整，无法控制。"
-            case .timeout(let what): "相机没有回应（\(what)）。"
-            case .approval: "相机上没有确认连接。请在相机屏幕上点“允许”后重试。"
+            case .bluetoothOff: String(localized: "蓝牙未打开。", bundle: .miniDiT)
+            case .unauthorized: String(localized: "MiniDiT 没有蓝牙权限。请在“系统设置 › 隐私与安全性 › 蓝牙”中允许 MiniDiT。", bundle: .miniDiT)
+            case .notFound: String(localized: "未找到大疆相机。请确认相机已开机、在附近，且没有连着 DJI Mimo。", bundle: .miniDiT)
+            case .connect(let s): String(localized: "无法通过蓝牙连接相机：\(s)", bundle: .miniDiT)
+            case .gatt: String(localized: "相机的蓝牙服务不完整，无法控制。", bundle: .miniDiT)
+            case .timeout(let what): String(localized: "相机没有回应（\(what)）。", bundle: .miniDiT)
+            case .approval: String(localized: "相机上没有确认连接。请在相机屏幕上点“允许”后重试。", bundle: .miniDiT)
             }
         }
     }
@@ -94,7 +94,7 @@ public final class DJIBluetooth: NSObject, @unchecked Sendable {
     public func connect(_ camera: Found) async throws {
         try await poweredOn()
         let target = camera.id
-        try await withTimeout(20, "蓝牙连接") {
+        try await withTimeout(20, String(localized: "蓝牙连接", bundle: .miniDiT)) {
             try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
                 self.queue.async {
                     guard let p = self.found[target]?.0 ?? self.central.retrievePeripherals(withIdentifiers: [target]).first else {
@@ -132,7 +132,7 @@ public final class DJIBluetooth: NSObject, @unchecked Sendable {
         _ = try? await request(DJIBLECommand.wake(id()), timeout: 2.5)
         try await Task.sleep(for: .milliseconds(500))
         guard let ssid = DJIBLECommand.packedString(try await requestRetry(DJIBLECommand.wifiSSID).payload), !ssid.isEmpty else {
-            throw Failure.timeout("读取 Wi-Fi 名称")
+            throw Failure.timeout(String(localized: "读取 Wi-Fi 名称", bundle: .miniDiT))
         }
         try await Task.sleep(for: .milliseconds(500))
         let password = DJIBLECommand.packedString(try await requestRetry(DJIBLECommand.wifiPassword).payload) ?? ""
@@ -180,7 +180,7 @@ public final class DJIBluetooth: NSObject, @unchecked Sendable {
                 }
                 group.addTask {
                     try await Task.sleep(for: .seconds(timeout))
-                    throw Failure.timeout("蓝牙")
+                    throw Failure.timeout(String(localized: "蓝牙", bundle: .miniDiT))
                 }
                 defer {
                     group.cancelAll()
@@ -209,7 +209,7 @@ public final class DJIBluetooth: NSObject, @unchecked Sendable {
 
     /// fff5 无回执写入，第一次可能丢：内容不变、换个消息 ID 重发。
     private func requestRetry(_ build: @Sendable (UInt16) -> DUMLFrame, attempts: Int = 3) async throws -> DUMLFrame {
-        var last: Error = Failure.timeout("蓝牙")
+        var last: Error = Failure.timeout(String(localized: "蓝牙", bundle: .miniDiT))
         for _ in 0..<attempts {
             do { return try await request(build(id())) } catch { last = error }
         }
@@ -233,7 +233,7 @@ public final class DJIBluetooth: NSObject, @unchecked Sendable {
     }
 
     private func poweredOn() async throws {
-        try await withTimeout(5, "蓝牙") {
+        try await withTimeout(5, String(localized: "蓝牙", bundle: .miniDiT)) {
             try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
                 self.queue.async {
                     switch self.central.state {
@@ -309,11 +309,11 @@ extension DJIBluetooth: CBCentralManagerDelegate, CBPeripheralDelegate {
     }
 
     public func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
-        connectWaiter?.resume(throwing: Failure.connect(error?.localizedDescription ?? "未知原因")); connectWaiter = nil
+        connectWaiter?.resume(throwing: Failure.connect(error?.localizedDescription ?? String(localized: "未知原因", bundle: .miniDiT))); connectWaiter = nil
     }
 
     public func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
-        connectWaiter?.resume(throwing: Failure.connect(error?.localizedDescription ?? "连接断开")); connectWaiter = nil
+        connectWaiter?.resume(throwing: Failure.connect(error?.localizedDescription ?? String(localized: "连接断开", bundle: .miniDiT))); connectWaiter = nil
         keepaliveTimer?.cancel(); keepaliveTimer = nil
         if self.peripheral == peripheral {
             log("大疆蓝牙：连接断开")

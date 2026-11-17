@@ -13,7 +13,7 @@ enum FCPXMLWriter {
     /// MiniDiT 项目在 FCP 里对应什么：一个资源库（每个视频文件夹一个事件），或固定资源库里的一个事件。
     enum ProjectMapping: String, CaseIterable, Sendable {
         case library, event
-        var title: String { self == .library ? "资源库" : "事件" }
+        var title: String { self == .library ? String(localized: "资源库") : String(localized: "事件") }
     }
 
     /// 「作为事件」时默认放进的资源库。
@@ -184,12 +184,12 @@ enum FCPXMLWriter {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let url = dir.appending(path: "MiniDiT-" + id.uuidString + ".fcpxml")
         if FileManager.default.fileExists(atPath: url.path) {
-            guard try Data(contentsOf: url) == payload else { throw VideoDelivery.Failure("交接文件已被修改，请保留现有文件，并在 Final Cut Pro 中检查接收结果。") }
+            guard try Data(contentsOf: url) == payload else { throw VideoDelivery.Failure(String(localized: "交接文件已被修改，请保留现有文件，并在 Final Cut Pro 中检查接收结果。")) }
         } else { try payload.write(to: url, options: .withoutOverwriting) }
         return url
     }
     @MainActor static func open(_ url: URL) async throws {
-        guard let app = appURL else { throw MiniDiTCore.VideoDelivery.Failure("未找到 Final Cut Pro，请安装后重试。") }
+        guard let app = appURL else { throw MiniDiTCore.VideoDelivery.Failure(String(localized: "未找到 Final Cut Pro，请安装后重试。")) }
         _ = try await NSWorkspace.shared.open([url], withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration())
     }
 }

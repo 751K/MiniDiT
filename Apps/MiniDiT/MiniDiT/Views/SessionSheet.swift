@@ -17,7 +17,6 @@ struct SessionSheet: View {
     @State private var openInC1: Set<String> = []
     /// 导入到 Lightroom Classic：每组是一个收藏夹，没有「加入已有会话」。
     private var isLightroom: Bool { model.captureOneMode == .lightroom }
-    private var unit: String { isLightroom ? "收藏夹" : "会话" }
     @State private var lrc: LightroomBridge.Heartbeat?
 
     private var groups: [AppModel.ImportGroup] { model.importGroups(model.sessionGrouping) }
@@ -43,7 +42,7 @@ struct SessionSheet: View {
                     .font(Theme.Font.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             if !isLightroom {
-                SegmentPicker(options: [.init(title: "新建会话", value: false), .init(title: "加入已有会话", value: true)],
+                SegmentPicker(options: [.init(title: String(localized: "新建会话"), value: false), .init(title: String(localized: "加入已有会话"), value: true)],
                              selection: $useExisting, fill: true)
                     .disabled(request.existing.isEmpty || !request.resume.isEmpty)
                     .help(request.existing.isEmpty ? "会话文件夹中尚无会话" : "")
@@ -66,7 +65,7 @@ struct SessionSheet: View {
                 Button("取消") { model.sessionRequest = nil }
                     .buttonStyle(.bordered).controlSize(.large)
                     .keyboardShortcut(.cancelAction)
-                Button(!useExisting && groups.count > 1 ? "导入到 \(groups.count) 个\(unit)" : "开始导入") { start() }
+                Button(startTitle) { start() }
                 .buttonStyle(.borderedProminent).controlSize(.large)
                 .keyboardShortcut(.defaultAction)
                 .disabled(!canStart)
@@ -83,6 +82,11 @@ struct SessionSheet: View {
             focusedRow = groups.first { request.resume[$0.id] == nil }?.id
         }
         .onChange(of: focusedRow) { _, row in if let row { lastRow = row } }
+    }
+
+    private var startTitle: String {
+        guard !useExisting && groups.count > 1 else { return String(localized: "开始导入") }
+        return isLightroom ? String(localized: "导入到 \(groups.count) 个收藏夹") : String(localized: "导入到 \(groups.count) 个会话")
     }
 
     // MARK: 新建会话
@@ -190,9 +194,9 @@ struct SessionSheet: View {
         let cal = Calendar.current
         let days = cal.dateComponents([.day], from: cal.startOfDay(for: d), to: cal.startOfDay(for: .now)).day ?? 0
         switch days {
-        case ..<1: return "今天"
-        case 1: return "昨天"
-        case 2...6: return "\(days) 天前"
+        case ..<1: return String(localized: "今天")
+        case 1: return String(localized: "昨天")
+        case 2...6: return String(localized: "\(days) 天前")
         default: return d.formatted(.dateTime.month().day())
         }
     }
@@ -221,7 +225,7 @@ struct SessionSheet: View {
                         Image(systemName: "exclamationmark.triangle").foregroundStyle(Theme.warning)
                         Text(problem)
                     } else {
-                        Text("\(unit)：\(name)").foregroundStyle(.secondary)
+                        Text(isLightroom ? String(localized: "收藏夹：\(name)") : String(localized: "会话：\(name)")).foregroundStyle(.secondary)
                     }
                 }
                 .font(Theme.Font.caption)
@@ -249,24 +253,24 @@ struct SessionSheet: View {
         let name = sessionName(g)
         if isLightroom {
             // 同名收藏夹已经有了就加进去，不算问题；只提醒这一批里重名（会合进同一个收藏夹）。
-            return groups.filter({ sessionName($0) == name }).count > 1 ? "与其他收藏夹重名（\(name)），将合并为同一收藏夹，请填写不同的事件名" : nil
+            return groups.filter({ sessionName($0) == name }).count > 1 ? String(localized: "与其他收藏夹重名（\(name)），将合并为同一收藏夹，请填写不同的事件名") : nil
         }
         if FileManager.default.fileExists(atPath: model.sessionsFolder.appending(path: name).path) {
-            return "已存在同名会话“\(name)”，请填写或修改事件名"
+            return String(localized: "已存在同名会话“\(name)”，请填写或修改事件名")
         }
         if openInC1.contains(name) {
-            return "Capture One 中已打开同名会话“\(name)”，请更换事件名"
+            return String(localized: "Capture One 中已打开同名会话“\(name)”，请更换事件名")
         }
         if groups.filter({ sessionName($0) == name }).count > 1 {
-            return "与其他会话重名（\(name)），请填写不同的事件名"
+            return String(localized: "与其他会话重名（\(name)），请填写不同的事件名")
         }
         return nil
     }
 
     private var footerText: String {
-        guard isLightroom else { return "照片存入会话的 Capture 文件夹" }
-        guard let lrc, lrc.isFresh else { return "Lightroom Classic 将自动打开，照片将添加到其当前目录" }
-        return "添加到 Lightroom Classic 目录“\(lrc.catalogName)”"
+        guard isLightroom else { return String(localized: "照片存入会话的 Capture 文件夹") }
+        guard let lrc, lrc.isFresh else { return String(localized: "Lightroom Classic 将自动打开，照片将添加到其当前目录") }
+        return String(localized: "添加到 Lightroom Classic 目录“\(lrc.catalogName)”")
     }
 
     private var canStart: Bool {
@@ -346,7 +350,7 @@ struct NewSessionSheet: View {
                         if new == Self.other { showingCalendar = true } else { day = new }
                     })) {
                         ForEach(dayChoices, id: \.self) { k in
-                            Text(AppModel.dayTitle(k) + (k == ShootSession.dayKey(.now) ? "（今天）" : "")).tag(k)
+                            Text(k == ShootSession.dayKey(.now) ? String(localized: "\(AppModel.dayTitle(k))（今天）") : AppModel.dayTitle(k)).tag(k)
                         }
                         Divider()
                         Text("其他日期…").tag(Self.other)
@@ -449,10 +453,10 @@ struct NewSessionSheet: View {
                                      captureDateRaw: day, width: 0, height: 0)
         return model.importOrganization.folder(for: item,
             root: baseDirectory(video: video),
-            sessionName: name, event: cleanEvent, roll: video ? "〈卷号〉" : nil)
+            sessionName: name, event: cleanEvent, roll: video ? String(localized: "〈卷号〉") : nil)
     }
 
-    private func formLabel(_ title: String) -> some View {
+    private func formLabel(_ title: LocalizedStringKey) -> some View {
         Text(title).font(Theme.Font.body).frame(width: 32, alignment: .trailing)
     }
 
@@ -504,7 +508,7 @@ struct NewSessionSheet: View {
         .buttonStyle(.bordered).controlSize(.large)
         .font(Theme.Font.body)
         .help(path)
-        .accessibilityLabel("更改" + title + "保存位置")
+        .accessibilityLabel(video ? String(localized: "更改视频保存位置") : String(localized: "更改照片保存位置"))
         .accessibilityValue(path)
     }
 
@@ -560,13 +564,13 @@ struct MiniCalendar: View {
 
     private var cal: Calendar {
         var c = Calendar(identifier: .gregorian)
-        c.locale = Locale(identifier: "zh_CN")
+        c.locale = .app
         c.firstWeekday = 1
         return c
     }
 
     private var title: String {
-        let f = DateFormatter(); f.locale = Locale(identifier: "zh_CN"); f.dateFormat = "yyyy年M月"
+        let f = DateFormatter(); f.locale = .app; f.setLocalizedDateFormatFromTemplate("yMMMM")
         return f.string(from: month)
     }
 
@@ -592,8 +596,9 @@ struct MiniCalendar: View {
             }
             let columns = Array(repeating: GridItem(.fixed(32), spacing: 2), count: 7)
             LazyVGrid(columns: columns, spacing: 2) {
-                ForEach(["日", "一", "二", "三", "四", "五", "六"], id: \.self) {
-                    Text($0).font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary).frame(height: 20)
+                ForEach(Array([String(localized: "日"), String(localized: "一"), String(localized: "二"), String(localized: "三"),
+                               String(localized: "四"), String(localized: "五"), String(localized: "六")].enumerated()), id: \.offset) {
+                    Text($0.element).font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary).frame(height: 20)
                 }
                 ForEach(Array(cells.enumerated()), id: \.offset) { _, d in
                     if let d { dayCell(d) } else { Color.clear.frame(height: 32) }

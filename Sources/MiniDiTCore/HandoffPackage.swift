@@ -1,9 +1,10 @@
 import Foundation
+import SonyRemoteKit
 
 public enum HandoffPackage {
     private enum Failure: LocalizedError {
         case wrongManifestVolume
-        var errorDescription: String? { "校验清单所在磁盘与导入记录中的目标不符。" }
+        var errorDescription: String? { String(localized: "校验清单所在磁盘与导入记录中的目标不符。", bundle: .miniDiT) }
     }
     /// Every export is a new immutable folder. Failure removes only this operation's staging directory.
     public static func write(_ input: HandoffReport, to parent: URL, progress: @escaping @Sendable (String) -> Void = { _ in }) throws -> URL {
@@ -12,7 +13,7 @@ public enum HandoffPackage {
         let stage = parent.appending(path: ".minidit-report-" + input.id.uuidString)
         try fm.createDirectory(at: stage, withIntermediateDirectories: false)
         defer { try? fm.removeItem(at: stage) }
-        progress("正在整理导入与校验记录…")
+        progress(String(localized: "正在整理导入与校验记录…", bundle: .miniDiT))
         var report = input
         var copiedDirectories: [String: String] = [:]
         for index in report.manifests.indices {

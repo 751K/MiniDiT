@@ -29,7 +29,7 @@ extension AppModel {
             let sizes = Dictionary(assets.flatMap { asset in asset.copies.filter { $0.role == .working }.map { ($0.path, asset.size) } }, uniquingKeysWith: { a, _ in a })
             let baselines = Dictionary(assets.flatMap { asset in asset.copies.filter { $0.role == .working }.map { ($0.path, asset.xxh64 ?? "") } }, uniquingKeysWith: { a, _ in a })
             let refs = try paths.sorted().map { path -> VideoDelivery.File in
-                guard let size = sizes[path] else { throw VideoDelivery.Failure("缺少已保存文件的记录：" + URL(filePath: path).lastPathComponent) }
+                guard let size = sizes[path] else { throw VideoDelivery.Failure(String(localized: "缺少已保存文件的记录：\(URL(filePath: path).lastPathComponent)")) }
                 return .init(path: path, size: size, volumeID: BackupRepair.volumeID(at: URL(filePath: path)))
             }
             let projects = Set(batch.files.filter { file in file.assets.contains { $0.copies.contains { paths.contains($0.path) } } }.compactMap(\.projectID)).sorted { $0.uuidString < $1.uuidString }
@@ -110,7 +110,7 @@ extension AppModel {
               job.retry ? record.canRetry : record.state == .queued else { return }
         videoDeliveryRunning = record.id
         record.state = .sending; record.attempts += 1; record.attemptID = UUID(); record.attemptedAt = Date()
-        record.message = "正在发送至 " + record.software.name
+        record.message = String(localized: "正在发送至 \(record.software.name)")
         record.failedPaths = []; record.warnings = []
         let attempt = record.attemptID!
         guard saveVideoDelivery(record, batchID: job.batch) else { return }
@@ -123,7 +123,7 @@ extension AppModel {
                 guard saveVideoDelivery(record, batchID: job.batch, expectedAttempt: attempt) else { return }
                 try await videoDeliveryServices.openFCP(document)
                 record.state = .awaitingConfirmation
-                record.message = FCPXMLWriter.libraryName(record.payload).map { "已发送至资源库“\($0)”，请在 Final Cut Pro 中查看导入结果。" } ?? "已发送，请在 Final Cut Pro 中确认导入。"
+                record.message = FCPXMLWriter.libraryName(record.payload).map { String(localized: "已发送至资源库“\($0)”，请在 Final Cut Pro 中查看导入结果。") } ?? String(localized: "已发送，请在 Final Cut Pro 中确认导入。")
             } else if record.software == .jianying {
                 // 按草稿名找：没有就新建，有就加进素材区；重试时已有的片段不会重复加入。
                 let snapshot = record, root = videoDeliveryServices.jianyingRoot
@@ -133,55 +133,61 @@ extension AppModel {
                 switch outcome {
                 case .created:
                     record.state = .completed
-                    record.message = "已在剪映中新建草稿“\(name)”，\(record.mediaPaths.count) 个片段已加入素材区。"
+                    record.message = String(localized: "已在剪映中新建草稿“\(name)”，\(record.mediaPaths.count) 个片段已加入素材区。")
                 case .added(let new, let existing):
                     record.state = .completed
-                    record.message = "剪映草稿“\(name)”：已加入 \(new) 个，已存在 \(existing) 个。"
+                    record.message = String(localized: "剪映草稿“\(name)”：已加入 \(new) 个，已存在 \(existing) 个。")
                 case .locked:
                     record.state = .needsAttention
-                    record.message = "剪映草稿“\(name)”已在剪映中打开并被加密，MiniDiT 无法向其中加入素材。请在剪映中手动导入这 \(record.mediaPaths.count) 个片段。"
+                    record.message = String(localized: "剪映草稿“\(name)”已在剪映中打开并被加密，MiniDiT 无法向其中加入素材。请在剪映中手动导入这 \(record.mediaPaths.count) 个片段。")
                 }
                 if outcome != .locked { videoDeliveryServices.launchJianying() }
             } else if record.software == .premiere {
                 // 插件按项目名打开或新建 Premiere 项目；第一次发送后记下它，重试只认这个项目。
                 let expected = record.premiereProjectID.map { PremiereBridge.Project(id: $0, name: record.premiereProjectName ?? "", path: "") }
                 let result = try await videoDeliveryServices.sendPremiere(record.payload, expected)
-                if let expected, result.projectID != expected.id { throw VideoDelivery.Failure("Premiere Pro 返回的项目与原项目不符，未记录本次结果。") }
+                if let expected, result.projectID != expected.id { throw VideoDelivery.Failure(String(localized: "Premiere Pro 返回的项目与原项目不符，未记录本次结果。")) }
                 record.premiereProjectID = result.projectID; record.premiereProjectName = result.project
                 let received = Set(result.receivedPaths)
                 record.failedPaths = Set(result.failedPaths + record.mediaPaths.filter { !received.contains($0) }).sorted()
                 record.warnings = result.warnings
                 record.state = !record.failedPaths.isEmpty ? .failed : record.warnings.isEmpty ? .completed : .needsAttention
-                record.message = "“\(result.project)”：" + (result.created == true ? "已新建项目，" : "")
-                    + "已加入 \(result.imported) 个，已存在 \(result.skipped) 个"
-                    + (record.failedPaths.isEmpty ? "" : "；\(record.failedPaths.count) 个未加入")
-                    + (record.warnings.isEmpty ? "" : "；代理或标记需检查")
+                record.message = Self.deliverySummary(project: result.project, created: result.created == true,
+                                                      imported: result.imported, skipped: result.skipped, failed: record.failedPaths.count)
+                    + (record.warnings.isEmpty ? "" : String(localized: "；代理或标记需检查"))
             } else {
                 // 脚本按项目名找到或新建 Resolve 项目；第一次发送后记下它，重试只认这个项目。
                 let expected = record.resolveProjectID.map { ResolveBridge.Project(id: $0, name: record.resolveProjectName ?? "") }
                 let result = try await videoDeliveryServices.sendResolve(record.payload, expected)
-                if let expected, result.projectID != expected.id { throw VideoDelivery.Failure("Resolve 返回的项目与原项目不符，未记录本次结果。") }
+                if let expected, result.projectID != expected.id { throw VideoDelivery.Failure(String(localized: "Resolve 返回的项目与原项目不符，未记录本次结果。")) }
                 record.resolveProjectID = result.projectID; record.resolveProjectName = result.project
                 let received = Set(result.receivedPaths)
                 record.failedPaths = Set(result.failedPaths + record.mediaPaths.filter { !received.contains($0) }).sorted()
                 record.warnings = result.timecodeWarnings + result.metadataWarnings
-                if result.unmanaged > 0 { record.warnings.append("项目未启用色彩管理，\(result.unmanaged) 个片段的输入色彩空间尚未设置。") }
+                if result.unmanaged > 0 { record.warnings.append(String(localized: "项目未启用色彩管理，\(result.unmanaged) 个片段的输入色彩空间尚未设置。")) }
                 record.state = !record.failedPaths.isEmpty ? .failed : record.warnings.isEmpty ? .completed : .needsAttention
-                record.message = "“\(result.project)”：" + (result.created == true ? "已新建项目，" : "")
-                    + "已加入 \(result.imported) 个，已存在 \(result.skipped) 个"
-                    + (record.failedPaths.isEmpty ? "" : "；\(record.failedPaths.count) 个未加入")
-                    + (record.warnings.isEmpty ? "" : "；拍摄信息需检查")
+                record.message = Self.deliverySummary(project: result.project, created: result.created == true,
+                                                      imported: result.imported, skipped: result.skipped, failed: record.failedPaths.count)
+                    + (record.warnings.isEmpty ? "" : String(localized: "；拍摄信息需检查"))
             }
         } catch is CancellationError {
             record.state = record.software == .finalCutPro ? .uncertain : .interrupted
-            record.message = "发送已中断，请检查软件中的接收结果。"
+            record.message = String(localized: "发送已中断，请检查软件中的接收结果。")
         } catch {
-            record.state = .failed; record.message = error.localizedDescription + "（本地文件已保留）"
+            record.state = .failed; record.message = String(localized: "\(error.localizedDescription)（本地文件已保留）")
         }
         record.finishedAt = Date()
         if saveVideoDelivery(record, batchID: job.batch, expectedAttempt: attempt) {
             log.add(record.software.name + "：" + record.message)
-            if record.state == .failed, Bundle.main.bundleIdentifier != nil { Notifier.shared.post(id: record.id.uuidString, title: "未能发送至 " + record.software.name, body: record.message, info: [:]) }
+            if record.state == .failed, Bundle.main.bundleIdentifier != nil { Notifier.shared.post(id: record.id.uuidString, title: String(localized: "未能发送至 \(record.software.name)"), body: record.message, info: [:]) }
         }
+    }
+
+    /// Premiere / Resolve 回执的说明：「“项目”：已新建项目，已加入 n 个，已存在 m 个；k 个未加入」。
+    private static func deliverySummary(project: String, created: Bool, imported: Int, skipped: Int, failed: Int) -> String {
+        var s = created ? String(localized: "“\(project)”：已新建项目，已加入 \(imported) 个，已存在 \(skipped) 个")
+            : String(localized: "“\(project)”：已加入 \(imported) 个，已存在 \(skipped) 个")
+        if failed > 0 { s += String(localized: "；\(failed) 个未加入") }
+        return s
     }
 }

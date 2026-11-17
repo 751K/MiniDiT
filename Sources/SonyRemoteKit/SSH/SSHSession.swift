@@ -34,15 +34,15 @@ public enum SSHTunnelError: Error, Sendable, Equatable, CustomStringConvertible,
 
     public var errorDescription: String? {
         switch self {
-        case .resolve, .connect: "连不上相机的 SSH 端口（22）。请确认手机连着相机的 Wi-Fi。（\(description)）"
-        case .connectTimeout: "连接相机的 SSH 端口超时。"
-        case .handshake(let s): "与相机建立加密连接失败：\(s)"
-        case .hostKeyRejected: "相机指纹未确认，已取消连接。"
-        case .noSupportedAuthMethod(let s): "相机不支持密码登录（支持：\(s)）。"
-        case .authenticationFailed: "相机拒绝了登录。请核对相机「访问身份验证设置」里的用户名和密码。"
-        case .channelOpen(let s): "相机拒绝了遥控通道：\(s)。请确认相机已开启「遥控拍摄」。"
-        case .io(let s): "加密连接出错：\(s)"
-        case .closed: "加密连接已断开。"
+        case .resolve, .connect: String(localized: "连不上相机的 SSH 端口（22）。请确认手机连着相机的 Wi-Fi。（\(description)）", bundle: .miniDiT)
+        case .connectTimeout: String(localized: "连接相机的 SSH 端口超时。", bundle: .miniDiT)
+        case .handshake(let s): String(localized: "与相机建立加密连接失败：\(s)", bundle: .miniDiT)
+        case .hostKeyRejected: String(localized: "相机指纹未确认，已取消连接。", bundle: .miniDiT)
+        case .noSupportedAuthMethod(let s): String(localized: "相机不支持密码登录（支持：\(s)）。", bundle: .miniDiT)
+        case .authenticationFailed: String(localized: "相机拒绝了登录。请核对相机「访问身份验证设置」里的用户名和密码。", bundle: .miniDiT)
+        case .channelOpen(let s): String(localized: "相机拒绝了遥控通道：\(s)。请确认相机已开启「遥控拍摄」。", bundle: .miniDiT)
+        case .io(let s): String(localized: "加密连接出错：\(s)", bundle: .miniDiT)
+        case .closed: String(localized: "加密连接已断开。", bundle: .miniDiT)
         }
     }
 }

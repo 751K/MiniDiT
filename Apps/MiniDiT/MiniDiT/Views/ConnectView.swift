@@ -23,10 +23,10 @@ struct ConnectView: View {
                         let available = tiles.filter { $0.state == .online }
                         let recent = tiles.filter { $0.state != .online }
                         if !available.isEmpty {
-                            deviceGroup(available, title: "可用设备")
+                            deviceGroup(available, title: String(localized: "可用设备"))
                         }
                         if !recent.isEmpty {
-                            deviceGroup(recent, title: available.isEmpty ? nil : "最近使用")
+                            deviceGroup(recent, title: available.isEmpty ? nil : String(localized: "最近使用"))
                         }
                         if tiles.isEmpty {
                             VStack(spacing: 12) {
@@ -133,11 +133,11 @@ struct ConnectView: View {
         let busy = model.phase == .searching || model.phase == .connecting
         if model.phase == .connecting, let h = model.connectingHost {
             let name = model.found.first { $0.host == h }?.knownName ?? model.knownCameras.first { $0.host == h }?.displayName
-                ?? model.usbCameras.first { $0.name == h }?.name ?? "相机"
-            return [.init(id: "c:" + h, kind: .camera, name: name, detail: "正在连接…", state: .busy, action: nil)]
+                ?? model.usbCameras.first { $0.name == h }?.name ?? String(localized: "相机")
+            return [.init(id: "c:" + h, kind: .camera, name: name, detail: String(localized: "正在连接…"), state: .busy, action: nil)]
         }
         for url in model.cards {
-            out.append(.init(id: "card:" + url.path, kind: .card, name: url.lastPathComponent, detail: "读卡器",
+            out.append(.init(id: "card:" + url.path, kind: .card, name: url.lastPathComponent, detail: String(localized: "读卡器"),
                              state: busy ? .quiet : .online, action: { model.openCard(url) }))
         }
         // USB 接着的相机排在 Wi-Fi 前面：插着线就是要用它。
@@ -149,10 +149,10 @@ struct ConnectView: View {
         var shown = Set<String>()
         for cam in model.found {
             shown.insert(cam.fingerprint)
-            let detail = cam.host + (cam.kind == .direct ? "" : " · 访问身份验证")
+            let detail = cam.kind == .direct ? cam.host : String(localized: "\(cam.host) · 访问身份验证")
             let knownModel = model.knownCameras.first { $0.fingerprint == cam.fingerprint }?.model ?? ""
             let sony = knownModel.isEmpty || ["ILCE", "ILME", "ILCA", "ZV-", "DSC-"].contains { knownModel.hasPrefix($0) }
-            out.append(.init(id: "f:" + cam.fingerprint, kind: .camera, name: cam.knownName ?? "相机", detail: detail,
+            out.append(.init(id: "f:" + cam.fingerprint, kind: .camera, name: cam.knownName ?? String(localized: "相机"), detail: detail,
                              state: .online, action: busy ? nil : { model.connect(cam) },
                              tether: busy || !sony ? nil : { model.startTether(cam) }))
         }
@@ -160,7 +160,7 @@ struct ConnectView: View {
         var unidentifiedShown = false
         for k in model.knownCameras where !shown.contains(k.fingerprint) {
             if k.unidentified { if unidentifiedShown { continue }; unidentifiedShown = true }
-            let detail: String = model.searched ? "离线" : "上次连接：\(k.host)"
+            let detail: String = model.searched ? String(localized: "离线") : String(localized: "上次连接：\(k.host)")
             out.append(.init(id: "k:" + k.fingerprint, kind: .camera, name: k.displayName, detail: detail,
                              state: .quiet,
                              action: model.phase == .idle ? { model.connect(known: k) } : nil))
@@ -194,7 +194,7 @@ struct ConnectView: View {
         case .searching, .connecting, .loading:
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
-                Text(model.status.isEmpty ? (model.phase == .searching ? "正在搜索局域网…" : "正在连接…") : model.status)
+                Text(model.status.isEmpty ? (model.phase == .searching ? String(localized: "正在搜索局域网…") : String(localized: "正在连接…")) : model.status)
                     .font(Theme.Font.caption).foregroundStyle(.secondary)
             }
         case .idle, .ready:
@@ -232,9 +232,9 @@ struct SourceTile: View {
     @State private var hover = false
 
     private var actionTitle: String {
-        if tile.state == .busy { return "正在连接" }
-        if tile.state == .quiet { return "重试连接" }
-        return tile.kind == .card ? "打开" : "连接"
+        if tile.state == .busy { return String(localized: "正在连接") }
+        if tile.state == .quiet { return String(localized: "重试连接") }
+        return tile.kind == .card ? String(localized: "打开") : String(localized: "连接")
     }
 
     var body: some View {

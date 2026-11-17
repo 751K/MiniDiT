@@ -24,14 +24,14 @@ final class VideoPlayback {
             let (playable, length) = try await asset.load(.isPlayable, .duration)
             guard !Task.isCancelled, current == generation else { return }
             guard playable, length.seconds.isFinite, length.seconds > 0 else {
-                loading = false; failure = "系统无法播放这个视频格式。可在剪辑软件中打开原片。"; return
+                loading = false; failure = String(localized: "系统无法播放这个视频格式。可在剪辑软件中打开原片。"); return
             }
             duration = length.seconds
             let item = AVPlayerItem(asset: asset)
             statusObserver = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
                 Task { @MainActor in
                     guard let self, current == self.generation else { return }
-                    if item.status == .failed { self.failure = item.error?.localizedDescription ?? "无法解码这个片段"; self.loading = false }
+                    if item.status == .failed { self.failure = item.error?.localizedDescription ?? String(localized: "无法解码这个片段"); self.loading = false }
                     if item.status == .readyToPlay { self.loading = false }
                 }
             }
@@ -45,7 +45,7 @@ final class VideoPlayback {
             }
         } catch {
             guard !Task.isCancelled, current == generation else { return }
-            loading = false; failure = "无法播放：\(error.localizedDescription)"
+            loading = false; failure = String(localized: "无法播放：\(error.localizedDescription)")
         }
     }
 
@@ -255,7 +255,7 @@ struct VideoPreviewSurface: View {
             input = "\(String(d[0...1])):\(String(d[2...3])):\(String(d[4...5]))\(start.dropFrame ? ";" : ":")\(String(d[6...7]))"
         }
         guard let target = VideoTimecode(input, rate: start.rate), let offset = start.offset(to: target), offset < playback.duration else {
-            jumpError = "请输入片段范围内的\(start.format)时间码：\(start.text) – \(info?.endTimecode ?? "")"; return
+            jumpError = String(localized: "请输入片段范围内的\(start.format)时间码：\(start.text) – \(info?.endTimecode ?? "")"); return
         }
         jumpError = nil; playback.seek(offset); editingTC = false; showingTimecode = false
     }

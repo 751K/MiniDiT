@@ -69,7 +69,7 @@ struct BrowseFilters: View {
             }
             VStack(alignment: .leading, spacing: 4) {
                 Text("显示").font(Theme.Font.caption).foregroundStyle(.secondary)
-                SegmentPicker(options: [.init(title: "全部", value: false), .init(title: "未导入", value: true)],
+                SegmentPicker(options: [.init(title: String(localized: "全部"), value: false), .init(title: String(localized: "未导入"), value: true)],
                               selection: $model.onlyNew, fill: true)
                     .accessibilityLabel("显示范围")
             }
@@ -272,7 +272,7 @@ private struct FilterSceneRow: View {
     var body: some View {
         Button(action: select) {
             HStack(spacing: 8) {
-                Text(scene.timeRange.isEmpty ? "第 \(scene.number) 场" : scene.timeRange)
+                Text(scene.timeRange.isEmpty ? String(localized: "第 \(scene.number) 场") : scene.timeRange)
                     .font(.system(size: 13))
                 Spacer(minLength: 4)
                 ShotCounts(new: scene.newCount, total: scene.shots.count, copies: 2, size: 12)
@@ -301,11 +301,11 @@ struct ImportOptions: View {
             // 底栏浮在照片上：开关和按钮都用系统玻璃样式，尺寸和导入按钮一致。
             // 选中了 Wi-Fi 相机上的视频时才出现：只导代理，原片留在卡上。
             if model.selectionHasWiFiVideo {
-                GlassToggle(title: "仅代理", isOn: $model.proxyOnlyWiFi)
+                GlassToggle(title: String(localized: "仅代理"), isOn: $model.proxyOnlyWiFi)
                 .help(model.proxyOnlyWiFi ? "视频只导入代理和 XML，原片留在存储卡上；点按改为导入原片"
                                           : "导入视频原片；点按改为只导入代理，原片留在存储卡上，之后可用读卡器导入")
             }
-            GlassToggle(title: "备份", isOn: $model.backupEnabled)
+            GlassToggle(title: String(localized: "备份"), isOn: $model.backupEnabled)
             .help(model.backupEnabled ? "同时备份至另一磁盘；点按改为仅存储一份" : "仅存储一份；点按以同时备份")
 
             Button { showingDestinations.toggle() } label: {

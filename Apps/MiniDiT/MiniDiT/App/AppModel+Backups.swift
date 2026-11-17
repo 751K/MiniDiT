@@ -24,20 +24,20 @@ extension AppModel {
     var enabledBackupTargets: [BackupDestination] { backupTargets.filter(\.enabled) }
     var missingRequiredBackupTargets: [BackupDestination] { enabledBackupTargets.filter { $0.required && $0.availability != .available } }
     var backupSummary: String {
-        guard backupEnabled else { return "未启用备份" }
-        guard !enabledBackupTargets.isEmpty else { return "尚未设置备份位置" }
-        return enabledBackupTargets.map(\.name).joined(separator: "、")
+        guard backupEnabled else { return String(localized: "未启用备份") }
+        guard !enabledBackupTargets.isEmpty else { return String(localized: "尚未设置备份位置") }
+        return enabledBackupTargets.map(\.name).joined(separator: String(localized: "、"))
     }
     func addBackupTarget(_ root: URL) {
         guard !backupTargets.contains(where: { BackupDestination.overlaps($0.root, root) }) else {
-            errorMessage = "备份位置相同或互相包含，请选择另一个独立位置。"; return
+            errorMessage = String(localized: "备份位置相同或互相包含，请选择另一个独立位置。"); return
         }
         backupTargets.append(.init(name: root.lastPathComponent.isEmpty ? "备份 \(backupTargets.count + 1)" : root.lastPathComponent, root: root))
     }
     func replaceBackupTarget(_ id: UUID, root: URL) {
         guard !backupTargets.contains(where: { $0.id != id && BackupDestination.overlaps($0.root, root) }),
               let index = backupTargets.firstIndex(where: { $0.id == id }) else {
-            errorMessage = "备份位置相同或互相包含，请选择另一个位置。"; return
+            errorMessage = String(localized: "备份位置相同或互相包含，请选择另一个位置。"); return
         }
         let old = backupTargets[index]
         backupTargets[index] = .init(id: id, name: old.name, root: root, enabled: old.enabled, required: old.required)
@@ -79,9 +79,9 @@ extension AppModel {
     func backupTargetNote(_ target: BackupDestination) -> String? {
         _ = volumeVersion
         switch target.availability {
-        case .unavailable: return "位置未连接"
-        case .wrongVolume: return "此位置的磁盘身份已变化，请重新选择"
-        case .readOnly: return "位置不可写入"
+        case .unavailable: return String(localized: "位置未连接")
+        case .wrongVolume: return String(localized: "此位置的磁盘身份已变化，请重新选择")
+        case .readOnly: return String(localized: "位置不可写入")
         case .available: break
         }
         let others = enabledBackupTargets.filter { $0.id != target.id && $0.availability == .available }
@@ -90,15 +90,15 @@ extension AppModel {
             backupWorkRoots.contains { Self.volume(of: $0).flatMap(BackupRepair.volumeID(at:)) == volume }
         } ?? false
         let sameBackupVolume = target.volumeID.map { volume in others.contains { $0.volumeID == volume } } ?? false
-        let volumeNote = sameWorkVolume ? "与导入位置共用存储空间" : sameBackupVolume ? "与其他备份位置共用存储空间" : nil
+        let volumeNote = sameWorkVolume ? String(localized: "与导入位置共用存储空间") : sameBackupVolume ? String(localized: "与其他备份位置共用存储空间") : nil
         guard backupDiskIdentityKey == backupDiskProbeKey else { return volumeNote }
         let identity = backupDiskIdentities[target.path] ?? .init()
         let work = backupWorkRoots.map { identity.relationship(to: backupDiskIdentities[$0.standardizedFileURL.resolvingSymlinksInPath().path] ?? .init()) }
         let backups = others.map { identity.relationship(to: backupDiskIdentities[$0.path] ?? .init()) }
-        if work.contains(.shared) { return "与导入位置位于同一块硬盘" }
-        if backups.contains(.shared) { return "与其他备份位置位于同一块硬盘" }
+        if work.contains(.shared) { return String(localized: "与导入位置位于同一块硬盘") }
+        if backups.contains(.shared) { return String(localized: "与其他备份位置位于同一块硬盘") }
         if let volumeNote { return volumeNote }
-        if work.contains(.unknown) || backups.contains(.unknown) { return "无法确认是否与其他位置共用硬盘" }
+        if work.contains(.unknown) || backups.contains(.unknown) { return String(localized: "无法确认是否与其他位置共用硬盘") }
         return nil
     }
     func updateBackupProgress(_ batchID: UUID, copying: UUID? = nil, final: Bool = false) {
@@ -139,7 +139,7 @@ extension AppModel {
                 guard let current = importJournal.batches.first(where: { $0.id == batchID })?.files.first(where: { $0.id == fileID })?.assets.first(where: { $0.id == original.id }) else { continue }
                 updateBackupProgress(batchID, copying: target.id)
                 let name = current.copies.first.map { URL(filePath: $0.path).lastPathComponent } ?? file.filename
-                progress?.current = "备份至 \(target.name)：\(name)"
+                progress?.current = String(localized: "备份至 \(target.name)：\(name)")
                 let base = progress?.bytesDone ?? 0
                 progress?.bytesTotal += current.size
                 do {

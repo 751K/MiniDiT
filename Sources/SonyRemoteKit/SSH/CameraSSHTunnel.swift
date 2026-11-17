@@ -35,7 +35,7 @@ public final class CameraSSHTunnel: Sendable {
         let session = SSHSession(host: host, port: port)
         try await session.connect(username: credentials.username, password: credentials.password,
                                   timeout: timeout, validateHostKey: validate)
-        guard let key = session.hostKey else { throw SSHTunnelError.handshake("没有拿到相机指纹") }
+        guard let key = session.hostKey else { throw SSHTunnelError.handshake(String(localized: "没有拿到相机指纹", bundle: .miniDiT)) }
         return CameraSSHTunnel(session: session, hostKey: key)
     }
 

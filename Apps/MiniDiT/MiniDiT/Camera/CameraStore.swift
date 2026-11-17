@@ -62,7 +62,7 @@ struct KnownCamera: Codable, Hashable, Identifiable {
     /// 没读到型号、名字只是 IP 的直连相机：同一台相机换了 IP 会被记成好几台。
     var unidentified: Bool { nameIsAddress && model == nil }
     /// 界面上显示的名字：不用 IP 当名字。
-    var displayName: String { unidentified ? "未识别的相机" : name }
+    var displayName: String { unidentified ? String(localized: "未识别的相机") : name }
 
     static let key = "knownCameras"
 

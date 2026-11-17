@@ -119,6 +119,6 @@ public struct PTPError: Error, LocalizedError, Sendable {
     public let code: UInt16
     public init(operation: UInt16, code: UInt16) { self.operation = operation; self.code = code }
     public var errorDescription: String? {
-        String(format: "PTP 操作 0x%04X 失败：%@", operation, PTPResponse.name(code))
+        String(localized: "PTP 操作 \(String(format: "0x%04X", operation)) 失败：\(PTPResponse.name(code))", bundle: .miniDiT)
     }
 }

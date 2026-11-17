@@ -27,9 +27,9 @@ public final class DJIDatalink: @unchecked Sendable {
         case socket(String), handshake(UInt16), listUnanswered
         public var errorDescription: String? {
             switch self {
-            case .socket(let s): "无法打开数据连接：\(s)"
-            case .handshake(let port): "相机没有响应数据连接（UDP \(port)）。请确认电脑已连上相机的 Wi-Fi。"
-            case .listUnanswered: "相机没有返回文件列表。可能还保持着上一次的连接，请将相机关机再开机后重试。"
+            case .socket(let s): String(localized: "无法打开数据连接：\(s)", bundle: .miniDiT)
+            case .handshake(let port): String(localized: "相机没有响应数据连接（UDP \(port)）。请确认电脑已连上相机的 Wi-Fi。", bundle: .miniDiT)
+            case .listUnanswered: String(localized: "相机没有返回文件列表。可能还保持着上一次的连接，请将相机关机再开机后重试。", bundle: .miniDiT)
             }
         }
     }

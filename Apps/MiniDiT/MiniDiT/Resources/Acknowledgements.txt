@@ -1,6 +1,4 @@
-MiniDiT 使用了下列开源软件和资料，按各自的许可证使用。完整清单见源代码仓库中的 THIRD_PARTY_NOTICES.md。
-
-## Sparkle 2.10.1（MIT 及其附带的许可）
+## Sparkle 2.10.1 (MIT and bundled licenses)
 https://sparkle-project.org
 
 Copyright (c) 2006-2013 Andy Matuschak.
@@ -138,7 +136,7 @@ STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING
 IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 POSSIBILITY OF SUCH DAMAGE.
 
-## libssh2 1.11.1（BSD 3-Clause）
+## libssh2 1.11.1 (BSD 3-Clause)
 https://libssh2.org
 
 Copyright (C) 2004-2007 Sara Golemon <sarag@libssh2.org>
@@ -184,7 +182,7 @@ NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE
 USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY
 OF SUCH DAMAGE.
 
-## OpenSSL 3.5.9（Apache License 2.0）
+## OpenSSL 3.5.9 (Apache License 2.0)
 https://www.openssl.org
 
 Copyright (c) 1998-2025 The OpenSSL Project Authors
@@ -369,7 +367,7 @@ All rights reserved.
 
    END OF TERMS AND CONDITIONS
 
-## ptp（MIT）：索尼属性与控制名称
+## ptp (MIT)
 https://github.com/mikefsq/ptp
 
 Copyright (c) 2026 mikefsq
@@ -392,7 +390,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-## osmosis（MIT）：大疆传输协议
+## osmosis (MIT)
 https://github.com/KonradIT/osmosis
 
 Copyright (c) 2026 Konrad Iturbe
@@ -415,7 +413,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-## OsmoOffload（MIT）：大疆蓝牙与传输流程
+## OsmoOffload (MIT)
 https://github.com/intermittech/OsmoOffload
 
 Copyright (c) 2026 Quindor (intermit.tech)

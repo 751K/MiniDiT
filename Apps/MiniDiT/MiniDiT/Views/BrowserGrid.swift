@@ -18,7 +18,7 @@ struct LoadingGrid: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                Text(model.status.isEmpty ? "正在读取照片列表…" : model.status).font(Theme.Font.headline)
+                Text(model.status.isEmpty ? String(localized: "正在读取照片列表…") : model.status).font(Theme.Font.headline)
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: model.thumbSize), spacing: 16)], spacing: 16) {
                     ForEach(0..<12, id: \.self) { _ in
                         VStack(alignment: .leading, spacing: 8) {
@@ -169,13 +169,13 @@ private struct EmptyState: View {
     }
 
     private var title: String {
-        if !model.days.isEmpty { return "请在左侧选择日期" }
-        return model.onlyNew ? "这些照片均已导入" : "无符合筛选条件的文件"
+        if !model.days.isEmpty { return String(localized: "请在左侧选择日期") }
+        return model.onlyNew ? String(localized: "这些照片均已导入") : String(localized: "无符合筛选条件的文件")
     }
 
     private var detail: String {
-        if !model.days.isEmpty { return "点按日期以查看照片；按住 ⌘ 或 ⇧ 可选择多天。" }
-        return model.onlyNew ? "切换至“全部”即可查看。" : "请在上方显示更多文件类型，或更换存储卡。"
+        if !model.days.isEmpty { return String(localized: "点按日期以查看照片；按住 ⌘ 或 ⇧ 可选择多天。") }
+        return model.onlyNew ? String(localized: "切换至“全部”即可查看。") : String(localized: "请在上方显示更多文件类型，或更换存储卡。")
     }
 }
 
@@ -240,9 +240,9 @@ enum GroupMeta {
         let total = photos + videos
         let fresh = newPhotos + newVideos
         let all = fresh == total
-            ? (videos == 0 ? "均为新照片" : videos == total ? "均为新片段" : "均未导入")
+            ? (videos == 0 ? String(localized: "均为新照片") : videos == total ? String(localized: "均为新片段") : String(localized: "均未导入"))
             : AppModel.countText(photos: newPhotos, videos: newVideos, fresh: true)
-        return AppModel.countText(photos: photos, videos: videos) + " · " + (fresh == 0 ? "均已导入" : all)
+        return AppModel.countText(photos: photos, videos: videos) + " · " + (fresh == 0 ? String(localized: "均已导入") : all)
     }
 }
 
@@ -292,12 +292,13 @@ struct ThumbCell: View {
             }
             .overlay(alignment: .bottomTrailing) {
                 if !imported, model.proxyOnlyCopy(shot: shotID) != nil {
-                    Badge(text: model.thumbSize >= 150 ? "仅代理" : "", checks: 1, checkColor: .blue).padding(5)
+                    Badge(text: model.thumbSize >= 150 ? String(localized: "仅代理") : "", checks: 1, checkColor: .blue).padding(5)
                         .help("已导入代理，原片尚未导入")
                 }
                 if imported {
                     let copies = model.copyCount(shot: shotID)
-                    let text = copies > 2 ? "\(copies) 份副本" : copies == 2 ? "已备份" : copies == 1 ? "已导入" : "不可访问"
+                    let text = copies > 2 ? String(localized: "\(copies) 份副本") : copies == 2 ? String(localized: "已备份")
+                        : copies == 1 ? String(localized: "已导入") : String(localized: "不可访问")
                     Badge(text: model.thumbSize >= 150 ? text : "",
                           checks: copies >= 2 ? 2 : copies == 1 ? 1 : 0,
                           checkColor: copies == 1 ? Theme.warning : Theme.accent).padding(5)
@@ -367,7 +368,7 @@ struct ThumbCell: View {
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel((item?.baseName ?? "") + (imported ? "，已导入" : "") + (selected ? "，已选中" : ""))
+        .accessibilityLabel((item?.baseName ?? "") + (imported ? String(localized: "，已导入") : "") + (selected ? String(localized: "，已选中") : ""))
         .accessibilityAddTraits(.isButton)
         .help("选中后可拖到桌面或访达文件夹，复制所选原文件")
         .onAppear { model.requestThumbnail(primary) }

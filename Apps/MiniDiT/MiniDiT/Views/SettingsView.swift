@@ -198,9 +198,9 @@ private struct ConnectSettings: View {
     }
 
     static func when(_ d: Date) -> String {
-        if Calendar.current.isDateInToday(d) { return "今天" }
-        if Calendar.current.isDateInYesterday(d) { return "昨天" }
-        let f = DateFormatter(); f.locale = Locale(identifier: "zh_CN"); f.dateFormat = "M月d日"
+        if Calendar.current.isDateInToday(d) { return String(localized: "今天") }
+        if Calendar.current.isDateInYesterday(d) { return String(localized: "昨天") }
+        let f = DateFormatter(); f.locale = .app; f.setLocalizedDateFormatFromTemplate("MMMd")
         return f.string(from: d)
     }
 }
@@ -295,7 +295,7 @@ private struct RecordSections: View {
 /// 导入目标的一行：名称与系统开关。几行之间互斥，打开一个即关闭其他，
 /// 已打开的那一行不能直接关掉（总得有一种导入方式）。
 private struct ModeRow: View {
-    let title: String
+    let title: LocalizedStringKey
     let on: Bool
     let action: () -> Void
 
@@ -381,7 +381,7 @@ private struct VideoSettings: View {
 /// Explain Resolve's prerequisite when the user enables it, rather than on every visit.
 struct ResolveImportToggle: View {
     @Environment(AppModel.self) private var model
-    let title: String
+    let title: LocalizedStringKey
     @State private var showingSetupHint = false
 
     var body: some View {
@@ -449,10 +449,10 @@ struct SessionNamingSection: View {
         var id: Self { self }
         var title: String {
             switch self {
-            case .dateEvent: "日期 + 事件"
-            case .fullDateEvent: "完整日期 + 事件"
-            case .dateOnly: "仅日期"
-            case .custom: "自定义…"
+            case .dateEvent: String(localized: "日期 + 事件")
+            case .fullDateEvent: String(localized: "完整日期 + 事件")
+            case .dateOnly: String(localized: "仅日期")
+            case .custom: String(localized: "自定义…")
             }
         }
         var rule: String? {
@@ -478,7 +478,7 @@ struct SessionNamingSection: View {
 
     private var example: String {
         let rule = session.trimmingCharacters(in: .whitespaces).isEmpty ? NameTemplate.Kind.session.defaultValue : session
-        return NameTemplate.render(rule, allowsFolders: false, day: "20261028", event: "卢森堡", scene: nil)
+        return NameTemplate.render(rule, allowsFolders: false, day: "20261028", event: String(localized: "卢森堡"), scene: nil)
     }
 
     var body: some View {
@@ -524,7 +524,7 @@ struct SessionNamingSection: View {
         }
     }
 
-    private func token(_ name: String, detail: String) -> some View {
+    private func token(_ name: String, detail: LocalizedStringKey) -> some View {
         GridRow {
             Text(name).monospaced()
             Text(detail).foregroundStyle(.secondary)
@@ -610,11 +610,11 @@ struct ImportDestinationPreview: View {
         var seen = Set<String>()
         for item in files {
             let video = item.kind == .video
-            let roll = video && needsRoll ? (RollStore.shared.roll(of: item) ?? "〈卷号〉") : nil
+            let roll = video && needsRoll ? (RollStore.shared.roll(of: item) ?? String(localized: "〈卷号〉")) : nil
             let primary = model.plannedFolder(for: item, roll: roll)
             let key = (video ? "video:" : "photo:") + primary.path
             guard seen.insert(key).inserted else { continue }
-            result.append((video ? "视频" : "照片", primary))
+            result.append((video ? String(localized: "视频") : String(localized: "照片"), primary))
             if model.backupEnabled {
                 for target in model.enabledBackupTargets {
                     let root = target.root
@@ -632,7 +632,7 @@ struct ImportDestinationPreview: View {
                         }
                         backup = custom
                     }
-                    result.append((target.name + (video ? " · 视频" : " · 照片"), backup))
+                    result.append((video ? String(localized: "\(target.name) · 视频") : String(localized: "\(target.name) · 照片"), backup))
                 }
             }
             if seen.count == 8 { break }
@@ -643,16 +643,16 @@ struct ImportDestinationPreview: View {
 
 /// 一个命名模板：输入框和示例。
 private struct NameField: View {
-    let title: String
+    let title: LocalizedStringKey
     let kind: NameTemplate.Kind
     @Binding var text: String
 
     var body: some View {
         let t = text.trimmingCharacters(in: .whitespaces).isEmpty ? kind.defaultValue : text
-        let example = NameTemplate.render(t, allowsFolders: kind.allowsFolders, day: "20261028", event: "卢森堡", scene: 2)
+        let example = NameTemplate.render(t, allowsFolders: kind.allowsFolders, day: "20261028", event: String(localized: "卢森堡"), scene: 2)
         VStack(alignment: .leading, spacing: 3) {
             TextField(title, text: $text, prompt: Text(kind.defaultValue))
-            Text("示例：" + example).font(.caption).foregroundStyle(.secondary)
+            Text("示例：\(example)").font(.caption).foregroundStyle(.secondary)
         }
     }
 }
@@ -684,7 +684,7 @@ struct FCPTargetOptions: View {
     private var libraryType: UTType { UTType(filenameExtension: "fcpbundle", conformingTo: .package) ?? .package }
     private func openExisting() {
         let panel = NSOpenPanel()
-        panel.title = "选择资源库"; panel.prompt = "选择"
+        panel.title = String(localized: "选择资源库"); panel.prompt = String(localized: "选择")
         panel.allowedContentTypes = [libraryType]
         panel.canChooseFiles = true; panel.canChooseDirectories = false; panel.treatsFilePackagesAsDirectories = false
         panel.directoryURL = model.fcpEventLibrary.deletingLastPathComponent()
@@ -694,7 +694,7 @@ struct FCPTargetOptions: View {
     /// 只定下位置和名字，第一次发送时由 FCP 新建。
     private func createNew() {
         let panel = NSSavePanel()
-        panel.title = "新建资源库"; panel.prompt = "选择"; panel.nameFieldLabel = "资源库："
+        panel.title = String(localized: "新建资源库"); panel.prompt = String(localized: "选择"); panel.nameFieldLabel = String(localized: "资源库：")
         panel.allowedContentTypes = [libraryType]
         panel.directoryURL = model.fcpEventLibrary.deletingLastPathComponent()
         panel.nameFieldStringValue = "MiniDiT"
@@ -726,7 +726,7 @@ struct PremiereImportToggle: View {
 /// 剪映没有脚本接口：通过草稿文件交接，打开开关时说明一次。
 struct JianyingImportToggle: View {
     @Environment(AppModel.self) private var model
-    let title: String
+    let title: LocalizedStringKey
     @State private var showingHint = false
     var body: some View {
         Toggle(title, isOn: Binding(

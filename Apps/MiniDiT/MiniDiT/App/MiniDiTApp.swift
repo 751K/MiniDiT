@@ -57,12 +57,12 @@ struct MiniDiTApp: App {
                     .keyboardShortcut("y", modifiers: .command)
             }
             CommandMenu("来源") {
-                Button(model.alignCandidate.map { "按选中的两张对齐时间（\(model.sourceLabel($0.adjust)) \(CameraProfile.offsetText($0.offset))）" }
-                       ?? "按选中的两张对齐时间") { model.alignClocks() }
+                Button(model.alignCandidate.map { String(localized: "按选中的两张对齐时间（\(model.sourceLabel($0.adjust)) \(CameraProfile.offsetText($0.offset))）") }
+                       ?? String(localized: "按选中的两张对齐时间")) { model.alignClocks() }
                     .disabled(model.alignCandidate == nil)
                 Divider()
                 ForEach(model.sources) { src in
-                    Menu(model.sources.count > 1 ? model.sourceLabel(src.id) : "当前来源") {
+                    Menu(model.sources.count > 1 ? model.sourceLabel(src.id) : String(localized: "当前来源")) {
                         SourceMenu(id: src.id) { model.renamingSource = $0 }.environment(model)
                     }
                 }
@@ -127,9 +127,9 @@ struct RootView: View {
 
     private var lightroomTitle: String {
         switch model.lightroomPrompt {
-        case .appMissing: "未安装 Lightroom Classic"
-        case .pluginOutdated: "MiniDiT 插件需要更新"
-        default: "需要安装 Lightroom Classic 插件"
+        case .appMissing: String(localized: "未安装 Lightroom Classic")
+        case .pluginOutdated: String(localized: "MiniDiT 插件需要更新")
+        default: String(localized: "需要安装 Lightroom Classic 插件")
         }
     }
 
@@ -170,8 +170,8 @@ struct RootView: View {
             if model.enabledBackupTargets.isEmpty {
                 Text("本次先保存工作文件，不删除卡上原片；之后可在项目的导入记录中添加备份位置。")
             } else {
-                Text("不可用的必需位置：" + model.missingRequiredBackupTargets.map(\.name).joined(separator: "、")
-                     + "。继续后仍会备份到可用位置；未完成的目标保留在导入记录中，可单独补齐。")
+                let names = model.missingRequiredBackupTargets.map(\.name).joined(separator: String(localized: "、"))
+                Text("不可用的必需位置：\(names)。继续后仍会备份到可用位置；未完成的目标保留在导入记录中，可单独补齐。")
             }
         }
         .alert(model.spaceProblem?.isBackup == true ? "备份磁盘空间不足" : "存储空间不足",
@@ -187,9 +187,12 @@ struct RootView: View {
         } message: { p in
             let free = ByteCountFormatter.string(fromByteCount: Int64(p.available), countStyle: .file)
             let need = ByteCountFormatter.string(fromByteCount: Int64(p.needed), countStyle: .file)
-            Text("“\(p.folder.path(percentEncoded: false))”所在磁盘剩余 \(free)，本次导入约需 \(need)。\n"
-                 + (p.isBackup ? "请清理备份磁盘、更换备份位置或减少所选照片；也可本次仅存储一份，此时不会删除存储卡上的文件。"
-                               : "请清理磁盘、更换存储位置，或减少所选照片。"))
+            let folder = p.folder.path(percentEncoded: false)
+            if p.isBackup {
+                Text("“\(folder)”所在磁盘剩余 \(free)，本次导入约需 \(need)。\n请清理备份磁盘、更换备份位置或减少所选照片；也可本次仅存储一份，此时不会删除存储卡上的文件。")
+            } else {
+                Text("“\(folder)”所在磁盘剩余 \(free)，本次导入约需 \(need)。\n请清理磁盘、更换存储位置，或减少所选照片。")
+            }
         }
         .alert(lightroomTitle, isPresented: Binding(get: { model.lightroomPrompt != nil }, set: { if !$0 { model.lightroomPrompt = nil } })) {
             switch model.lightroomPrompt {
@@ -199,12 +202,12 @@ struct RootView: View {
                         let restart = try LightroomBridge.installPlugin()
                         model.lightroomPrompt = nil
                         if restart {
-                            model.errorMessage = "插件已安装。请退出并重新打开 Lightroom Classic，然后再进行导入。"
+                            model.errorMessage = String(localized: "插件已安装。请退出并重新打开 Lightroom Classic，然后再进行导入。")
                         } else {
                             model.beginImport(checkBackup: false, checkSpace: false)
                         }
                     } catch {
-                        model.errorMessage = "安装插件失败：\(error.localizedDescription)"
+                        model.errorMessage = String(localized: "安装插件失败：\(error.localizedDescription)")
                     }
                 }
                 Button("取消", role: .cancel) {}

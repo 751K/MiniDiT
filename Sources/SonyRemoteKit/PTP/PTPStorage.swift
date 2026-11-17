@@ -224,7 +224,7 @@ extension PTPTransport {
                     if size == nil || r.data.isEmpty { break }
                 }
             }
-            if let size, offset < size { throw PTPDecodeError.invalid("文件不完整：\(offset)/\(size) 字节") }
+            if let size, offset < size { throw PTPDecodeError.invalid(String(localized: "文件不完整：\(offset)/\(size) 字节", bundle: .miniDiT)) }
             return
         }
 
@@ -234,7 +234,7 @@ extension PTPTransport {
                 try Task.checkCancellation()
                 let want = UInt32(min(UInt64(chunkSize), size - offset))
                 let chunk = try await partialObject(handle, offset: UInt32(offset), length: want)
-                guard !chunk.isEmpty else { throw PTPDecodeError.invalid("相机返回了空数据块") }
+                guard !chunk.isEmpty else { throw PTPDecodeError.invalid(String(localized: "相机返回了空数据块", bundle: .miniDiT)) }
                 try fh.write(contentsOf: chunk)
                 offset += UInt64(chunk.count)
                 progress(offset, size)

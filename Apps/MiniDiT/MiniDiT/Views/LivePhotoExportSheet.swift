@@ -221,14 +221,14 @@ struct LivePhotoExportSheet: View {
                     if allMarks {
                         Picker("预览标记", selection: Binding(get: { editor.activeMark ?? markCenters.first ?? 0 }, set: { editor.selectMark($0) })) {
                             ForEach(Array(markCenters.enumerated()), id: \.offset) { index, time in
-                                Text("Shot Mark \(index + 1) · " + String(format: "%.2f 秒", time)).tag(time)
+                                Text("Shot Mark \(index + 1) · \(time, specifier: "%.2f") 秒").tag(time)
                             }
                         }
                         .labelsHidden()
                     } else {
                         segmentMenu
                     }
-                    Text(String(format: "%.2f 秒", window.duration))
+                    Text("\(window.duration, specifier: "%.2f") 秒")
                         .monospacedDigit().foregroundStyle(.secondary)
                     Spacer(minLength: 4)
                     Button(editor.playing ? "停止" : "预览") { editor.toggle() }
@@ -240,7 +240,7 @@ struct LivePhotoExportSheet: View {
                 HStack {
                     Text(String(format: "In %.2f", window.start))
                     Spacer()
-                    Text(String(format: "封面 %.2f", window.sourcePoster))
+                    Text("封面 \(window.sourcePoster, specifier: "%.2f")")
                     Spacer()
                     Text(String(format: "Out %.2f", window.end))
                 }
@@ -257,7 +257,7 @@ struct LivePhotoExportSheet: View {
                 Button {
                     editor.selectSegment(segment.id)
                 } label: {
-                    let title = String(format: "片段 %d · %.2f–%.2f 秒", index + 1, segment.window.start, segment.window.end)
+                    let title = String(localized: "片段 \(index + 1) · \(segment.window.start, specifier: "%.2f")–\(segment.window.end, specifier: "%.2f") 秒")
                     if segment.id == editor.activeSegmentID {
                         Label(title, systemImage: "checkmark")
                     } else {
@@ -317,7 +317,7 @@ struct LivePhotoExportSheet: View {
             defer { exporting = false; committing = false; task = nil; if toPhotos { try? FileManager.default.removeItem(at: directory) } }
             do {
                 if toPhotos {
-                    guard try await LivePhotoLibrary.canAdd() else { throw LivePhotoExporter.Failure("未获得添加照片的权限。可改为导出文件，或在系统设置中允许 MiniDiT 添加照片。") }
+                    guard try await LivePhotoLibrary.canAdd() else { throw LivePhotoExporter.Failure(String(localized: "未获得添加照片的权限。可改为导出文件，或在系统设置中允许 MiniDiT 添加照片。")) }
                     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
                 }
                 var generated: [LivePhotoExporter.Result] = []
@@ -338,9 +338,9 @@ struct LivePhotoExportSheet: View {
                     savedToPhotos = true
                 }
             } catch is CancellationError {
-                problem = outputs.isEmpty ? "已取消导出。" : "已取消，其余文件未导出；已完成的 \(outputs.count) 张保留在所选文件夹。"
+                problem = outputs.isEmpty ? String(localized: "已取消导出。") : String(localized: "已取消，其余文件未导出；已完成的 \(outputs.count) 张保留在所选文件夹。")
                 // Keep the editor open after a partial batch, with a visible result link below the error.
-            } catch { problem = "导出未完成：" + error.localizedDescription }
+            } catch { problem = String(localized: "导出未完成：\(error.localizedDescription)") }
         }
     }
 }
@@ -398,9 +398,9 @@ struct LivePhotoTimeline: View {
     }
     private func label(_ handle: Handle) -> String {
         switch handle {
-        case .start: "In 入点"
-        case .cover: "封面"
-        case .end: "Out 出点"
+        case .start: String(localized: "In 入点")
+        case .cover: String(localized: "封面")
+        case .end: String(localized: "Out 出点")
         }
     }
     private func handle(_ handle: Handle, at value: Double, width: Double) -> some View {
@@ -435,7 +435,7 @@ struct LivePhotoTimeline: View {
         .help(label(handle))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(label(handle))
-        .accessibilityValue(String(format: "%.2f 秒", value))
+        .accessibilityValue(String(localized: "\(value, specifier: "%.2f") 秒"))
         .accessibilityAdjustableAction { direction in
             switch direction {
             case .increment: update(handle, value + 1 / media.frameRate)
@@ -462,8 +462,8 @@ struct LivePhotoTimeline: View {
         return authorized == .authorized
     }
     static func add(_ results: [LivePhotoExporter.Result]) async throws {
-        guard !results.isEmpty, results.allSatisfy({ $0.video != nil }) else { throw LivePhotoExporter.Failure("实况照片文件不完整，未写入照片图库。") }
-        guard PHPhotoLibrary.authorizationStatus(for: .addOnly) == .authorized else { throw LivePhotoExporter.Failure("未获得添加照片的权限，未写入照片图库。") }
+        guard !results.isEmpty, results.allSatisfy({ $0.video != nil }) else { throw LivePhotoExporter.Failure(String(localized: "实况照片文件不完整，未写入照片图库。")) }
+        guard PHPhotoLibrary.authorizationStatus(for: .addOnly) == .authorized else { throw LivePhotoExporter.Failure(String(localized: "未获得添加照片的权限，未写入照片图库。")) }
         try await PHPhotoLibrary.shared().performChanges {
             for result in results {
                 let request = PHAssetCreationRequest.forAsset()

@@ -1,4 +1,5 @@
 import Foundation
+import SonyRemoteKit
 
 /// Frozen handoff data belongs to an import, not to the current UI preferences.
 public struct VideoDelivery: Codable, Identifiable, Sendable, Equatable {
@@ -62,10 +63,10 @@ public struct VideoDelivery: Codable, Identifiable, Sendable, Equatable {
             try Task.checkCancellation()
             let url = URL(filePath: file.path)
             guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isReadableKey, .fileSizeKey]), values.isRegularFile == true, values.isReadable == true else {
-                throw Failure("文件无法访问，请连接原存储位置后重试：\(url.lastPathComponent)")
+                throw Failure(String(localized: "文件无法访问，请连接原存储位置后重试：\(url.lastPathComponent)", bundle: .miniDiT))
             }
-            if let expected = file.volumeID, BackupRepair.volumeID(at: url) != expected { throw Failure("存储位置已更换，请连接原磁盘后重试：\(url.lastPathComponent)") }
-            guard values.fileSize.map({ UInt64($0) }) == file.size else { throw Failure("文件大小已变化，请检查本地文件：\(url.lastPathComponent)") }
+            if let expected = file.volumeID, BackupRepair.volumeID(at: url) != expected { throw Failure(String(localized: "存储位置已更换，请连接原磁盘后重试：\(url.lastPathComponent)", bundle: .miniDiT)) }
+            guard values.fileSize.map({ UInt64($0) }) == file.size else { throw Failure(String(localized: "文件大小已变化，请检查本地文件：\(url.lastPathComponent)", bundle: .miniDiT)) }
         }
     }
     public struct Failure: LocalizedError, Sendable {

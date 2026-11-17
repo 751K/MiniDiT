@@ -34,7 +34,7 @@ final class USBCameraBrowser: NSObject, ICDeviceBrowserDelegate {
     }
 
     private func publish() {
-        onChange(cameras.map { USBCamera(id: $0.uuidString ?? $0.name ?? "usb", name: $0.name ?? "USB 相机", device: .init($0)) })
+        onChange(cameras.map { USBCamera(id: $0.uuidString ?? $0.name ?? "usb", name: $0.name ?? String(localized: "USB 相机"), device: .init($0)) })
     }
 
     nonisolated func deviceBrowser(_ browser: ICDeviceBrowser, didAdd device: ICDevice, moreComing: Bool) {

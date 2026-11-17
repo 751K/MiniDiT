@@ -127,7 +127,7 @@ final class TetherSession {
         touchPoint = nil
         liveTask?.cancel()
         liveFrame = nil
-        message = "与相机的连接已断开。已经拍下的照片保存在联机缓存中。"
+        message = String(localized: "与相机的连接已断开。已经拍下的照片保存在联机缓存中。")
         log("联机拍摄：相机断开")
     }
 
@@ -199,7 +199,7 @@ final class TetherSession {
                 focusLocked = false
                 await download()
             } catch {
-                fail("拍摄失败", error)
+                fail(String(localized: "拍摄失败"), error)
             }
         }
     }
@@ -212,7 +212,7 @@ final class TetherSession {
                 focusLocked = on
                 await refresh()
             } catch {
-                fail("对焦失败", error)
+                fail(String(localized: "对焦失败"), error)
             }
         }
     }
@@ -226,7 +226,7 @@ final class TetherSession {
                 try? await Task.sleep(for: .milliseconds(300))
                 await refresh()
             } catch {
-                fail(on ? "开始录像失败" : "停止录像失败", error)
+                fail(on ? String(localized: "开始录像失败") : String(localized: "停止录像失败"), error)
             }
         }
     }
@@ -234,21 +234,21 @@ final class TetherSession {
     func set(_ kind: CameraSettingKind, value: Int64) {
         Task {
             do { try await camera.set(kind, value: value); await refresh() }
-            catch { fail("调整\(kind.title)失败", error) }
+            catch { fail(String(localized: "调整\(kind.title)失败"), error) }
         }
     }
 
     func step(_ kind: CameraSettingKind, by delta: Int) {
         Task {
             do { try await camera.step(kind, by: delta); await refresh() }
-            catch { fail("调整\(kind.title)失败", error) }
+            catch { fail(String(localized: "调整\(kind.title)失败"), error) }
         }
     }
 
     func logLine(_ s: String) { log(s) }
 
     private func fail(_ what: String, _ error: Error) {
-        message = "\(what)：\(error.localizedDescription)"
+        message = String(localized: "\(what)：\(error.localizedDescription)")
         log("联机拍摄：\(what) \(String(reflecting: error))")
     }
 
@@ -339,7 +339,7 @@ final class TetherSession {
             onFiles?(urls)
             await refresh()
         } catch {
-            fail("接收照片失败", error)
+            fail(String(localized: "接收照片失败"), error)
         }
     }
 

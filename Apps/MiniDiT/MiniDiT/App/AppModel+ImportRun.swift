@@ -127,7 +127,7 @@ extension AppModel {
         let state = beginJob(job, run)
         for item in job.files {
             if Task.isCancelled || run.journal.persistenceError != nil { break }
-            progress?.current = "导入 \(item.filename)"
+            progress?.current = String(localized: "导入 \(item.filename)")
             progress?.resumingFrom = nil
             if await importFile(item, state, run) == .stop { break }
         }
@@ -237,7 +237,7 @@ extension AppModel {
             state.firstInCollection = false
             if !run.wokeLightroom { LightroomBridge.wake(); run.wokeLightroom = true }
         } catch {
-            updateDelivery("Lightroom Classic", message: "部分文件未能发送：" + error.localizedDescription, failed: true, id: run.token)
+            updateDelivery("Lightroom Classic", message: String(localized: "部分文件未能发送：\(error.localizedDescription)"), failed: true, id: run.token)
             log.add("交给 Lightroom Classic 失败 \(photos.map(\.url.lastPathComponent).joined(separator: "、"))：\(error.localizedDescription)")
         }
     }

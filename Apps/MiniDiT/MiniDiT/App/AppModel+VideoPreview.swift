@@ -28,12 +28,12 @@ extension AppModel {
             previewVideoURL = proxy; previewIsProxy = true; return
         }
         guard progress == nil, !isRefreshingSources else {
-            previewVideoMessage = "正在导入，完成后可加载 Wi-Fi 视频预览。"; return
+            previewVideoMessage = String(localized: "正在导入，完成后可加载 Wi-Fi 视频预览。"); return
         }
         let proxy = await route.library.proxy(of: route.local)
         guard !Task.isCancelled, previewShot == id, previewRequest == request else { return }
         guard let file = proxy ?? (allowOriginal ? localItem(item) : nil) else {
-            previewVideoMessage = "相机未提供代理。可缓存原片后播放，原文件保留在相机上。"; return
+            previewVideoMessage = String(localized: "相机未提供代理。可缓存原片后播放，原文件保留在相机上。"); return
         }
         previewIsProxy = proxy != nil
         let identity = stableKey(item) + "|\(file.filename)|\(file.size)"
@@ -71,7 +71,7 @@ extension AppModel {
         } catch is CancellationError {
         } catch {
             guard !Task.isCancelled, previewShot == id, previewRequest == request else { return }
-            previewVideoMessage = "无法加载预览：\(error.localizedDescription)"
+            previewVideoMessage = String(localized: "无法加载预览：\(error.localizedDescription)")
         }
     }
 

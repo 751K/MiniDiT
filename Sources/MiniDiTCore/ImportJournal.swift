@@ -1,4 +1,5 @@
 import Foundation
+import SonyRemoteKit
 #if canImport(Darwin)
 import Darwin
 #endif
@@ -103,12 +104,12 @@ public actor BackupRepair {
         case noBaseline, noTrustedCopy, invalidPath, targetUnavailable, wrongVolume, insufficientSpace
         public var errorDescription: String? {
             switch self {
-            case .noBaseline: "缺少原始校验记录，无法确认用于补备份的文件。"
-            case .noTrustedCopy: "现有副本缺失、无法读取或内容已变化；未用于补备份。"
-            case .invalidPath: "备份路径无效或与原文件位置重叠。"
-            case .targetUnavailable: "备份位置不可用，请连接磁盘并检查写入权限。"
-            case .wrongVolume: "此位置连接的磁盘与原备份目标不同，请重新选择备份位置。"
-            case .insufficientSpace: "备份位置的可用空间不足。"
+            case .noBaseline: String(localized: "缺少原始校验记录，无法确认用于补备份的文件。", bundle: .miniDiT)
+            case .noTrustedCopy: String(localized: "现有副本缺失、无法读取或内容已变化；未用于补备份。", bundle: .miniDiT)
+            case .invalidPath: String(localized: "备份路径无效或与原文件位置重叠。", bundle: .miniDiT)
+            case .targetUnavailable: String(localized: "备份位置不可用，请连接磁盘并检查写入权限。", bundle: .miniDiT)
+            case .wrongVolume: String(localized: "此位置连接的磁盘与原备份目标不同，请重新选择备份位置。", bundle: .miniDiT)
+            case .insufficientSpace: String(localized: "备份位置的可用空间不足。", bundle: .miniDiT)
             }
         }
     }

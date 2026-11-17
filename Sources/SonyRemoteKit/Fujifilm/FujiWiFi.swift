@@ -57,9 +57,9 @@ public enum FujiWiFi {
         case refused, notConfirmed, protocolError(String)
         public var errorDescription: String? {
             switch self {
-            case .refused: "富士相机拒绝了连接。请确认没有别的设备（如手机上的 FUJIFILM XApp）连着相机，然后在相机上重新打开「无线通信」。"
-            case .notConfirmed: "相机上没有确认连接。请在相机上按 OK 允许这台 Mac 连接后重试。"
-            case .protocolError(let s): "与富士相机通信出错：\(s)"
+            case .refused: String(localized: "富士相机拒绝了连接。请确认没有别的设备（如手机上的 FUJIFILM XApp）连着相机，然后在相机上重新打开「无线通信」。", bundle: .miniDiT)
+            case .notConfirmed: String(localized: "相机上没有确认连接。请在相机上按 OK 允许这台 Mac 连接后重试。", bundle: .miniDiT)
+            case .protocolError(let s): String(localized: "与富士相机通信出错：\(s)", bundle: .miniDiT)
             }
         }
     }

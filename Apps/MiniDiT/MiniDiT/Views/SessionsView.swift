@@ -223,9 +223,9 @@ struct SessionBrowser: View {
     }
 
     private var subtitle: String {
-        let date = ShootSession.date(session.day).map { $0.formatted(.dateTime.year().month().day().locale(Locale(identifier: "zh_CN"))) } ?? "无日期"
-        let type = media.map { $0.title + " · " } ?? ""
-        return "起始 \(date) · \(type)\(filteredFiles.count) 个文件"
+        let date = ShootSession.date(session.day).map { $0.formatted(.dateTime.year().month().day().locale(.app)) } ?? String(localized: "无日期")
+        if let media { return String(localized: "起始 \(date) · \(media.title) · \(filteredFiles.count) 个文件") }
+        return String(localized: "起始 \(date) · \(filteredFiles.count) 个文件")
     }
 
     private var filteredFiles: [String] {

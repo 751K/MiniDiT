@@ -26,8 +26,8 @@ public enum CanonWiFi {
         public var errorDescription: String? {
             switch self {
             case .notPaired:
-                "佳能相机拒绝了连接，这台 Mac 可能尚未与相机配对。请在相机上进入「Wi-Fi › 遥控（EOS Utility）」，选择与电脑配对，然后在 MiniDiT 中重新连接，并在相机上确认。"
-            case .noStorage: "未能读取相机的存储卡。请确认已插卡，并且相机处于「遥控（EOS Utility）」连接。"
+                String(localized: "佳能相机拒绝了连接，这台 Mac 可能尚未与相机配对。请在相机上进入「Wi-Fi › 遥控（EOS Utility）」，选择与电脑配对，然后在 MiniDiT 中重新连接，并在相机上确认。", bundle: .miniDiT)
+            case .noStorage: String(localized: "未能读取相机的存储卡。请确认已插卡，并且相机处于「遥控（EOS Utility）」连接。", bundle: .miniDiT)
             }
         }
     }
@@ -41,7 +41,7 @@ public enum CanonWiFi {
     /// 连接并打开存储卡接口。相机还没配对时，这一步会让相机弹出确认，`pairingTimeout` 内等用户确认。
     public static func openLibrary(host: String, port: UInt16 = PTPIPClient.defaultPort, identity: PTPIPHostIdentity,
                                    progress: @escaping @Sendable (String) -> Void = { _ in }) async throws -> PTPCameraLibrary {
-        progress("正在建立 PTP/IP 连接…")
+        progress(String(localized: "正在建立 PTP/IP 连接…", bundle: .miniDiT))
         let client = PTPIPClient(host: host, port: port, identity: identity)
         do {
             // 未配对时相机要等用户在机身上确认，握手可能要好一会儿。
@@ -56,7 +56,7 @@ public enum CanonWiFi {
                 _ = try? await client.transaction(setRemoteMode, [1], requireOK: false)
             }
             guard let storages = try? await client.storageIDs(), !storages.isEmpty else { throw Failure.noStorage }
-            progress("正在读取存储卡…")
+            progress(String(localized: "正在读取存储卡…", bundle: .miniDiT))
             let keepAlive = info.map { $0.operations.contains(keepDeviceOn) } ?? false
                 ? Task { [client] in
                     while !Task.isCancelled {

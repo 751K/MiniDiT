@@ -3,7 +3,7 @@ import Foundation
 enum ProjectMedia: String, CaseIterable, Identifiable {
     case photos, videos
     var id: String { rawValue }
-    var title: String { self == .photos ? "照片" : "视频" }
+    var title: String { self == .photos ? String(localized: "照片") : String(localized: "视频") }
 
     static func forPath(_ path: String) -> ProjectMedia {
         let ext = URL(filePath: path).pathExtension.lowercased()

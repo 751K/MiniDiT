@@ -22,7 +22,7 @@ final class JournalDatabase {
         do {
             sqlite3_busy_timeout(handle, 1500)
             let version = try integer("PRAGMA user_version")
-            guard version == 0 || version == 1 else { throw Failure(message: "导入记录版本较新，请使用更新的 MiniDiT。") }
+            guard version == 0 || version == 1 else { throw Failure(message: String(localized: "导入记录版本较新，请使用更新的 MiniDiT。")) }
             try execute("PRAGMA journal_mode = WAL")
             try execute("PRAGMA synchronous = FULL")
             try execute("CREATE TABLE IF NOT EXISTS batches (id TEXT PRIMARY KEY NOT NULL, payload TEXT NOT NULL)")
@@ -90,7 +90,7 @@ final class JournalDatabase {
     }
 
     private func data(_ statement: OpaquePointer, column: Int32) throws -> Data {
-        guard let bytes = sqlite3_column_text(statement, column) else { throw Failure(message: "导入记录缺少内容。") }
+        guard let bytes = sqlite3_column_text(statement, column) else { throw Failure(message: String(localized: "导入记录缺少内容。")) }
         return Data(bytes: bytes, count: Int(sqlite3_column_bytes(statement, column)))
     }
     private func prepare(_ sql: String) throws -> OpaquePointer {
@@ -116,6 +116,6 @@ final class JournalDatabase {
         guard sqlite3_exec(handle, sql, nil, nil, nil) == SQLITE_OK else { throw error() }
     }
     private func error() -> Failure {
-        Failure(message: handle.map { String(cString: sqlite3_errmsg($0)) } ?? "无法打开导入记录。")
+        Failure(message: handle.map { String(cString: sqlite3_errmsg($0)) } ?? String(localized: "无法打开导入记录。"))
     }
 }

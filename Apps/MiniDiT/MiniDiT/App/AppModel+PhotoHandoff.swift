@@ -13,7 +13,7 @@ extension AppModel {
         lightroomWatch?.cancel()
         let deliveryToken = deliveryID
         let total = names.count
-        lightroomStatus = "等待 Lightroom Classic 添加 \(total) 个文件…"
+        lightroomStatus = String(localized: "等待 Lightroom Classic 添加 \(total) 个文件…")
         lightroomWatch = Task {
             var remaining = Set(names)
             var sum = LightroomBridge.Results()
@@ -34,16 +34,17 @@ extension AppModel {
                     lastWake = Date()
                 }
                 if !fresh, Date().timeIntervalSince(lastProgress) > 45 {
-                    lightroomStatus = "Lightroom Classic 无响应（已添加 \(done)/\(total)）。请打开 Lightroom Classic 并确认 MiniDiT 插件已启用，其余照片将继续添加"
+                    lightroomStatus = String(localized: "Lightroom Classic 无响应（已添加 \(done)/\(total)）。请打开 Lightroom Classic 并确认 MiniDiT 插件已启用，其余照片将继续添加")
                 } else {
-                    lightroomStatus = "Lightroom Classic 已添加 \(done)/\(total)"
+                    lightroomStatus = String(localized: "Lightroom Classic 已添加 \(done)/\(total)")
                 }
             }
             guard !Task.isCancelled else { return }
-            var s = "Lightroom Classic 已添加 \(sum.added + sum.skipped) 个文件"
-            if sum.skipped > 0 { s += "（其中 \(sum.skipped) 个已在目录中）" }
+            let added = sum.added + sum.skipped
+            var s = String(localized: "Lightroom Classic 已添加 \(added) 个文件")
+            if sum.skipped > 0 { s += String(localized: "（其中 \(sum.skipped) 个已在目录中）") }
             if sum.failed > 0 {
-                s += "，\(sum.failed) 个失败"
+                s += String(localized: "，\(sum.failed) 个失败")
                 log.add("Lightroom Classic 添加失败：" + sum.failures.joined(separator: "；"))
             }
             lightroomStatus = s
@@ -60,13 +61,13 @@ extension AppModel {
             if !pendingCaptureOneSessions.isEmpty {
                 let handoff = await finishCaptureOneSessions(pendingCaptureOneSessions)
                 pendingCaptureOneSessions = handoff.failed
-                lastSummary = "Capture One" + handoff.message
+                lastSummary = String(localized: "Capture One\(handoff.message)")
                 lastResult?.c1Failed = !handoff.failed.isEmpty
                 updateDelivery("Capture One", message: lastSummary ?? "", failed: !handoff.failed.isEmpty, id: deliveryID)
             } else {
                 let r = await sendToCaptureOne(lastBatch, inPlace: captureOneMode == .inPlace)
-                lastSummary = "重新导入 \(lastBatch.count) 个文件" + r
-                lastResult?.c1Failed = r.contains("失败")
+                lastSummary = String(localized: "重新导入 \(lastBatch.count) 个文件\(r)")
+                lastResult?.c1Failed = r == Self.captureOneImportFailedText
             }
         }
     }
@@ -77,25 +78,28 @@ extension AppModel {
         var failed: [CaptureOneBridge.SessionTarget: [URL]] = [:]
         for target in files.keys.sorted(by: { $0.database.path < $1.database.path }) {
             let photos = files[target, default: []]
-            progress?.current = "正在打开 Capture One 会话…"
+            progress?.current = String(localized: "正在打开 Capture One 会话…")
             do {
                 try await CaptureOneBridge.openCompletedSession(target)
-                message += "，已打开 Capture One 会话“\(target.name)”"
+                message += String(localized: "，已打开 Capture One 会话“\(target.name)”")
                 if applyCreativeLook, !photos.isEmpty {
-                    progress?.current = "正在套用 Capture One 创意外观…"
+                    progress?.current = String(localized: "正在套用 Capture One 创意外观…")
                     if let look = await applyLooks(photos, target: target) { message += look }
                 }
                 if let ratings = await applyRatings(photos, target: target) { message += ratings }
             } catch {
                 failed[target] = photos
-                message += "，Capture One 会话“\(target.name)”未打开"
+                message += String(localized: "，Capture One 会话“\(target.name)”未打开")
                 log.add("打开 Capture One 会话失败：\(error.localizedDescription)")
-                if !Task.isCancelled { errorMessage = "照片已保存至 \(target.captureDir.path)。\n\(error.localizedDescription)" }
+                if !Task.isCancelled { errorMessage = String(localized: "照片已保存至 \(target.captureDir.path)。\n\(error.localizedDescription)") }
             }
         }
         refreshCaptureOne()
         return (message, failed)
     }
+
+    /// 交由 Capture One 导入失败时返回的说明；导入结果据此判断是否失败。
+    static var captureOneImportFailedText: String { String(localized: "，Capture One 导入失败") }
 
     func sendToCaptureOne(_ urls: [URL], inPlace: Bool) async -> String {
         if !CaptureOneBridge.isRunning {
@@ -110,13 +114,13 @@ extension AppModel {
         refreshCaptureOne()
         do {
             try CaptureOneBridge.importFiles(urls, inPlace: inPlace)
-            let target = captureOneDocument.map { "\($0.kind)“\($0.name)”" } ?? "Capture One"
+            let target = captureOneDocument.map { String(localized: "\($0.kindTitle)“\($0.name)”") } ?? "Capture One"
             log.add("已交给 \(target) 导入 \(urls.count) 个文件")
-            return "，已交由 \(target) 导入"
+            return String(localized: "，已交由 \(target) 导入")
         } catch {
             log.add("Capture One 导入失败：\(error.localizedDescription)")
-            errorMessage = "文件已下载至文件夹，但交由 Capture One 导入失败：\(error.localizedDescription)"
-            return "，Capture One 导入失败"
+            errorMessage = String(localized: "文件已下载至文件夹，但交由 Capture One 导入失败：\(error.localizedDescription)")
+            return Self.captureOneImportFailedText
         }
     }
 
@@ -139,7 +143,7 @@ extension AppModel {
         if !todo.isEmpty { log.add("星级：\(todo.count) 张在 C1 里没找到") }
         guard applied > 0 else { return nil }
         log.add("星级：已按相机里的星级设置 \(applied) 张")
-        return "，已设置星级 \(applied) 张"
+        return String(localized: "，已设置星级 \(applied) 张")
     }
 
     /// 打开「对 RAW 自动加载创意外观」时，RAW 所属机型还没装 Lightroom / Capture One 的 Look 配置文件，就在后台下载安装。
@@ -148,7 +152,7 @@ extension AppModel {
     func ensureLookPack(forRaw url: URL) -> String? {
         guard let model = LookPacks.model(ofRaw: url), let camera = LookPacks.camera(model: model) else { return nil }
         return startLookPackInstall(camera, parts: .lightroomAndCaptureOne,
-                                    after: "重新启动 Lightroom Classic 或 Capture One 后，此后导入的 RAW 将自动加载创意外观。")
+                                    after: String(localized: "重新启动 Lightroom Classic 或 Capture One 后，此后导入的 RAW 将自动加载创意外观。"))
     }
 
     /// 本次运行中第一次遇到这台机型、这些软件的配置文件没装时，开始后台下载，返回说明；其余情况为 nil。
@@ -166,17 +170,17 @@ extension AppModel {
             case .installed, .present:
                 _ = LightroomLooks.installed(fresh: true)
                 log.add("创意外观：已安装 \(camera.name) 的配置文件")
-                if notify { Notifier.shared.post(id: "look-" + key, title: "创意外观配置文件已安装",
-                    body: "\(camera.name) 的创意外观配置文件已安装。" + after, info: [:]) }
+                if notify { Notifier.shared.post(id: "look-" + key, title: String(localized: "创意外观配置文件已安装"),
+                    body: String(localized: "\(camera.name) 的创意外观配置文件已安装。\(after)"), info: [:]) }
             case .failed(let message):
                 tracker.known.remove(key)
                 log.add("创意外观：未能安装 \(camera.name) 的配置文件：\(message)")
-                if notify { Notifier.shared.post(id: "look-" + key, title: "未能安装创意外观配置文件", body: message, info: [:]) }
+                if notify { Notifier.shared.post(id: "look-" + key, title: String(localized: "未能安装创意外观配置文件"), body: message, info: [:]) }
             case .unsupported:
                 break
             }
         }
-        return "正在后台下载 \(camera.name) 的创意外观配置文件，安装完成后将另行通知"
+        return String(localized: "正在后台下载 \(camera.name) 的创意外观配置文件，安装完成后将另行通知")
     }
 
     /// 用 DxO PhotoLab 打开前，给每张 RAW 写一份套好创意外观的 .dop。已有 .dop 的不动；
@@ -194,7 +198,7 @@ extension AppModel {
             let packs = LookPacks.shared, lut = packs.dxoLook(camera, code: code)
             guard packs.isInstalled(camera, parts: .dxo), FileManager.default.fileExists(atPath: lut.path) else {
                 pending += 1
-                if let note = startLookPackInstall(camera, parts: .dxo, after: "此后导入并在 DxO PhotoLab 中打开的 RAW 将自动加载创意外观。") { notes.append(note) }
+                if let note = startLookPackInstall(camera, parts: .dxo, after: String(localized: "此后导入并在 DxO PhotoLab 中打开的 RAW 将自动加载创意外观。")) { notes.append(note) }
                 continue
             }
             do {
@@ -209,9 +213,9 @@ extension AppModel {
         log.add("创意外观（DxO）：已写入 \(written) 张" + (kept > 0 ? "，\(kept) 张已有 DxO 设置" : "")
                 + (unknown > 0 ? "，\(unknown) 张不认识" : "") + (unsupported > 0 ? "，\(unsupported) 张机型暂不支持" : "")
                 + (pending > 0 ? "，\(pending) 张等待配置文件" : ""))
-        var summary = written > 0 ? "，DxO 创意外观已设置 \(written) 张" : ""
-        if kept > 0 { summary += "，\(kept) 张已有 DxO 设置，未更改" }
-        for note in notes { summary += "，" + note }
+        var summary = written > 0 ? String(localized: "，DxO 创意外观已设置 \(written) 张") : ""
+        if kept > 0 { summary += String(localized: "，\(kept) 张已有 DxO 设置，未更改") }
+        for note in notes { summary += String(localized: "，\(note)") }
         return summary
     }
 
@@ -249,10 +253,13 @@ extension AppModel {
         log.add("创意外观：已确认 \(applied) 张" + (missingProfiles.isEmpty ? "" : "，未安装 \(missingProfiles.sorted().joined(separator: "、"))")
                 + (unknown > 0 ? "，\(unknown) 张不认识" : "") + (notFound > 0 ? "，\(notFound) 张在 C1 里没找到" : ""))
         let unapplied = max(0, raws.count - applied)
-        var summary = applied > 0 ? "，Capture One 已套用创意外观 \(applied) 张" : ""
-        if unapplied > 0 { summary += "，\(unapplied) 张 RAW 未套用创意外观" }
-        if !missingProfiles.isEmpty { summary += "（缺少：\(missingProfiles.sorted().joined(separator: "、"))）" }
-        for note in notes { summary += "，" + note }
+        var summary = applied > 0 ? String(localized: "，Capture One 已套用创意外观 \(applied) 张") : ""
+        if unapplied > 0 { summary += String(localized: "，\(unapplied) 张 RAW 未套用创意外观") }
+        if !missingProfiles.isEmpty {
+            let missing = missingProfiles.sorted().joined(separator: String(localized: "、"))
+            summary += String(localized: "（缺少：\(missing)）")
+        }
+        for note in notes { summary += String(localized: "，\(note)") }
         return summary
     }
 }

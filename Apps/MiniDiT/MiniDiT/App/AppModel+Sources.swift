@@ -70,9 +70,11 @@ struct CameraProfile: Codable, Equatable {
     static func offsetText(_ t: Double) -> String {
         let n = Int(abs(t).rounded())
         let sign = t >= 0 ? "+" : "−"
-        if n < 60 { return "\(sign)\(n) 秒" }
-        if n < 3600 { return "\(sign)\(n / 60) 分" + (n % 60 > 0 ? " \(n % 60) 秒" : "") }
-        return "\(sign)\(n / 3600) 小时" + (n % 3600 / 60 > 0 ? " \(n % 3600 / 60) 分" : "")
+        if n < 60 { return String(localized: "\(sign)\(n) 秒") }
+        if n < 3600 {
+            return n % 60 > 0 ? String(localized: "\(sign)\(n / 60) 分 \(n % 60) 秒") : String(localized: "\(sign)\(n / 60) 分")
+        }
+        return n % 3600 / 60 > 0 ? String(localized: "\(sign)\(n / 3600) 小时 \(n % 3600 / 60) 分") : String(localized: "\(sign)\(n / 3600) 小时")
     }
 }
 
@@ -409,9 +411,9 @@ extension AppModel {
         removeSource(id)
         do {
             try NSWorkspace.shared.unmountAndEjectDevice(at: root)
-            notice = "已推出 \(root.lastPathComponent)，可安全取出存储卡"
+            notice = String(localized: "已推出 \(root.lastPathComponent)，可安全取出存储卡")
         } catch {
-            errorMessage = "推出存储卡失败：\(error.localizedDescription)"
+            errorMessage = String(localized: "推出存储卡失败：\(error.localizedDescription)")
         }
     }
 }

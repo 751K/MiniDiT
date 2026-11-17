@@ -139,9 +139,9 @@ extension AppModel {
         var id: String { rawValue }
         var title: String {
             switch self {
-            case .single: "合并为一个会话"
-            case .perDay: "每天一个"
-            case .perScene: "每场一个"
+            case .single: String(localized: "合并为一个会话")
+            case .perDay: String(localized: "每天一个")
+            case .perScene: String(localized: "每场一个")
             }
         }
     }

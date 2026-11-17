@@ -1,5 +1,6 @@
 import Foundation
 import MiniDiTCore
+import SonyRemoteKit
 #if os(macOS)
 import Darwin
 
@@ -8,19 +9,19 @@ func emit(_ value: AgentJSON, pretty: Bool = false) {
     catch { FileHandle.standardError.write(Data("MiniDiT: output encoding failed\n".utf8)) }
 }
 func perform(_ method: String, _ params: AgentJSON) throws -> AgentJSON {
-    guard let tool = AgentTools.find(method) else { throw AgentControlError("unknown_method", "未知命令：\(method)") }
+    guard let tool = AgentTools.find(method) else { throw AgentControlError("unknown_method", String(localized: "未知命令：\(method)", bundle: .miniDiT)) }
     try tool.validate(params)
     if tool.method == "app.launch" {
         let process = Process(); process.executableURL = URL(filePath: "/usr/bin/open")
         process.arguments = ["-b", "com.kong.MiniDiT"]
         process.standardOutput = FileHandle.standardError
         try process.run(); process.waitUntilExit()
-        guard process.terminationStatus == 0 else { throw AgentControlError("app_not_found", "未找到已安装的 MiniDiT。") }
+        guard process.terminationStatus == 0 else { throw AgentControlError("app_not_found", String(localized: "未找到已安装的 MiniDiT。", bundle: .miniDiT)) }
         for _ in 0..<100 {
             if let status = try? AgentSocket.request(.init(method: "app.status")) { return status }
             Thread.sleep(forTimeInterval: 0.1)
         }
-        throw AgentControlError("launch_timeout", "应用已启动，但本地控制接口尚未就绪。")
+        throw AgentControlError("launch_timeout", String(localized: "应用已启动，但本地控制接口尚未就绪。", bundle: .miniDiT))
     }
     let path = ProcessInfo.processInfo.environment["MINIDIT_SOCKET_PATH"] ?? AgentSocket.path
     // 拍摄要等相机把文件传完；设置要等回读确认。
@@ -151,38 +152,38 @@ func cli(_ arguments: [String]) throws {
         emit(.array(AgentTools.all.map { .object(["method": .string($0.method), "tool": $0.mcp]) }), pretty: true); return
     }
     if arguments.first == "call" {
-        guard arguments.count == 2 || arguments.count == 3 else { throw AgentControlError("invalid_params", "用法：minidit call METHOD 'JSON'") }
+        guard arguments.count == 2 || arguments.count == 3 else { throw AgentControlError("invalid_params", String(localized: "用法：minidit call METHOD 'JSON'", bundle: .miniDiT)) }
         let params = arguments.count == 3 ? try JSONDecoder().decode(AgentJSON.self, from: Data(arguments[2].utf8)) : .object([:])
         emit(try perform(arguments[1], params), pretty: true); return
     }
     var words = arguments, method: String
     if ["status", "launch"].contains(words[0]) { method = "app." + words.removeFirst() }
     else {
-        guard words.count >= 2, !words[1].hasPrefix("--") else { throw AgentControlError("invalid_params", "请指定命令和操作，或运行 minidit --help。") }
+        guard words.count >= 2, !words[1].hasPrefix("--") else { throw AgentControlError("invalid_params", String(localized: "请指定命令和操作，或运行 minidit --help。", bundle: .miniDiT)) }
         method = words.removeFirst() + "." + words.removeFirst().replacingOccurrences(of: "-", with: "_")
     }
-    guard let tool = AgentTools.find(method) else { throw AgentControlError("unknown_method", "未知命令：" + method) }
+    guard let tool = AgentTools.find(method) else { throw AgentControlError("unknown_method", String(localized: "未知命令：\(method)", bundle: .miniDiT)) }
     var values: [String: AgentJSON] = [:]
     while !words.isEmpty {
         let flag = words.removeFirst()
-        guard flag.hasPrefix("--") else { throw AgentControlError("invalid_params", "参数需要 -- 前缀：" + flag) }
+        guard flag.hasPrefix("--") else { throw AgentControlError("invalid_params", String(localized: "参数需要 -- 前缀：\(flag)", bundle: .miniDiT)) }
         let parts = flag.dropFirst(2).split(separator: "-")
         let key = (parts.first.map(String.init) ?? "") + parts.dropFirst().map { $0.prefix(1).uppercased() + $0.dropFirst() }.joined()
-        guard let schema = tool.properties[key], values[key] == nil else { throw AgentControlError("invalid_params", "未知或重复的参数：" + key) }
-        guard !words.isEmpty else { throw AgentControlError("invalid_params", "参数缺少取值：" + key) }
+        guard let schema = tool.properties[key], values[key] == nil else { throw AgentControlError("invalid_params", String(localized: "未知或重复的参数：\(key)", bundle: .miniDiT)) }
+        guard !words.isEmpty else { throw AgentControlError("invalid_params", String(localized: "参数缺少取值：\(key)", bundle: .miniDiT)) }
         let value = words.removeFirst()
         switch schema["type"].string {
         case "boolean":
-            guard value == "true" || value == "false" else { throw AgentControlError("invalid_params", key + " 需要 true 或 false。") }
+            guard value == "true" || value == "false" else { throw AgentControlError("invalid_params", String(localized: "\(key) 需要 true 或 false。", bundle: .miniDiT)) }
             values[key] = .bool(value == "true")
         case "integer":
-            guard let n = Int(value) else { throw AgentControlError("invalid_params", key + " 需要整数。") }
+            guard let n = Int(value) else { throw AgentControlError("invalid_params", String(localized: "\(key) 需要整数。", bundle: .miniDiT)) }
             values[key] = .integer(n)
         case "array":
             if value.hasPrefix("[") { values[key] = try JSONDecoder().decode(AgentJSON.self, from: Data(value.utf8)) }
             else if schema["items"]["type"].string == "integer" {
                 values[key] = .array(try value.split(separator: ",").map { part in
-                    guard let number = Int(part) else { throw AgentControlError("invalid_params", "ids 需要逗号分隔的整数。") }
+                    guard let number = Int(part) else { throw AgentControlError("invalid_params", String(localized: "ids 需要逗号分隔的整数。", bundle: .miniDiT)) }
                     return .integer(number)
                 })
             } else { values[key] = .array(value.split(separator: ",").map { .string(String($0)) }) }

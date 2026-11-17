@@ -1,4 +1,5 @@
 import Foundation
+import SonyRemoteKit
 
 /// 只负责筛选，不改变机内星级、文件或导入记录。
 public struct MediaFilter: Sendable, Equatable {
@@ -6,41 +7,41 @@ public struct MediaFilter: Sendable, Equatable {
         case all, marked, rated, twoStars, threeStars, fourStars, fiveStars, shotMark, rejected
         public var title: String {
             switch self {
-            case .all: "全部"
-            case .marked: "有星级或 Shot Mark"
-            case .rated: "照片：至少 1 星"
-            case .twoStars: "照片：至少 2 星"
-            case .threeStars: "照片：至少 3 星"
-            case .fourStars: "照片：至少 4 星"
-            case .fiveStars: "照片：5 星"
-            case .shotMark: "视频：有 Shot Mark"
-            case .rejected: "照片：机内删除标记"
+            case .all: String(localized: "全部", bundle: .miniDiT)
+            case .marked: String(localized: "有星级或 Shot Mark", bundle: .miniDiT)
+            case .rated: String(localized: "照片：至少 1 星", bundle: .miniDiT)
+            case .twoStars: String(localized: "照片：至少 2 星", bundle: .miniDiT)
+            case .threeStars: String(localized: "照片：至少 3 星", bundle: .miniDiT)
+            case .fourStars: String(localized: "照片：至少 4 星", bundle: .miniDiT)
+            case .fiveStars: String(localized: "照片：5 星", bundle: .miniDiT)
+            case .shotMark: String(localized: "视频：有 Shot Mark", bundle: .miniDiT)
+            case .rejected: String(localized: "照片：机内删除标记", bundle: .miniDiT)
             }
         }
         public var shortTitle: String {
             switch self {
-            case .all: "标记"
-            case .marked: "星级 / Shot Mark"
-            case .rated: "≥1 星"
-            case .twoStars: "≥2 星"
-            case .threeStars: "≥3 星"
-            case .fourStars: "≥4 星"
-            case .fiveStars: "5 星"
+            case .all: String(localized: "标记", bundle: .miniDiT)
+            case .marked: String(localized: "星级 / Shot Mark", bundle: .miniDiT)
+            case .rated: String(localized: "≥1 星", bundle: .miniDiT)
+            case .twoStars: String(localized: "≥2 星", bundle: .miniDiT)
+            case .threeStars: String(localized: "≥3 星", bundle: .miniDiT)
+            case .fourStars: String(localized: "≥4 星", bundle: .miniDiT)
+            case .fiveStars: String(localized: "5 星", bundle: .miniDiT)
             case .shotMark: "Shot Mark"
-            case .rejected: "删除标记"
+            case .rejected: String(localized: "删除标记", bundle: .miniDiT)
             }
         }
         public var menuTitle: String {
             switch self {
-            case .all: "全部"
-            case .marked: "有星级或 Shot Mark"
-            case .rated: "至少 1 星"
-            case .twoStars: "至少 2 星"
-            case .threeStars: "至少 3 星"
-            case .fourStars: "至少 4 星"
-            case .fiveStars: "至少 5 星"
-            case .shotMark: "有 Shot Mark"
-            case .rejected: "删除标记"
+            case .all: String(localized: "全部", bundle: .miniDiT)
+            case .marked: String(localized: "有星级或 Shot Mark", bundle: .miniDiT)
+            case .rated: String(localized: "至少 1 星", bundle: .miniDiT)
+            case .twoStars: String(localized: "至少 2 星", bundle: .miniDiT)
+            case .threeStars: String(localized: "至少 3 星", bundle: .miniDiT)
+            case .fourStars: String(localized: "至少 4 星", bundle: .miniDiT)
+            case .fiveStars: String(localized: "至少 5 星", bundle: .miniDiT)
+            case .shotMark: String(localized: "有 Shot Mark", bundle: .miniDiT)
+            case .rejected: String(localized: "删除标记", bundle: .miniDiT)
             }
         }
     }

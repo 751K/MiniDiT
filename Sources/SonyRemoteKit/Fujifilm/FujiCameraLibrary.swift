@@ -28,7 +28,7 @@ public actor FujiCameraLibrary: CameraLibrary {
                             log: @escaping @Sendable (String) -> Void = { _ in }) async throws -> FujiCameraLibrary {
         typealias P = FujiWiFi.Prop
         let client = FujiPTPClient(host: host, port: port, identity: identity)
-        progress("正在连接富士相机…")
+        progress(String(localized: "正在连接富士相机…", bundle: .miniDiT))
         try await client.connect()
         do {
             try await Task.sleep(for: .milliseconds(60))
@@ -37,7 +37,7 @@ public actor FujiCameraLibrary: CameraLibrary {
             var events = try await client.poll()
             var state = events[P.state] ?? 0
             if state == FujiWiFi.State.waiting {
-                progress("请在相机上按 OK，允许这台 Mac 连接。")
+                progress(String(localized: "请在相机上按 OK，允许这台 Mac 连接。", bundle: .miniDiT))
                 let deadline = Date().addingTimeInterval(waitForOK)
                 while state == FujiWiFi.State.waiting {
                     guard Date() < deadline else { throw FujiWiFi.Failure.notConfirmed }
@@ -55,7 +55,7 @@ public actor FujiCameraLibrary: CameraLibrary {
             notes.append(String(format: "富士：状态 %d，RemoteVersion %@", state, remoteVersion.map { String(format: "0x%X", $0) } ?? "无"))
             // 切到对应的模式；新机身可能在屏幕上弹「是 / 否」，多等一会儿。
             let mode: UInt32 = (remoteVersion != nil || state == FujiWiFi.State.remote) ? 5 : state
-            progress("正在建立连接，相机上如有提示请选择“是”。")
+            progress(String(localized: "正在建立连接，相机上如有提示请选择“是”。", bundle: .miniDiT))
             try await client.setProperty(P.mode, FujiWiFi.encode(mode, width: 2), timeout: 90)
             events = try await client.poll()
             _ = await value(P.storage)
@@ -108,7 +108,7 @@ public actor FujiCameraLibrary: CameraLibrary {
     // MARK: 列表
 
     public func folders() async throws -> [CameraFolder] {
-        [CameraFolder(id: 0, storageID: FujiWiFi.storageID, name: "全部文件", isVideo: false, isFlat: true)]
+        [CameraFolder(id: 0, storageID: FujiWiFi.storageID, name: String(localized: "全部文件", bundle: .miniDiT), isVideo: false, isFlat: true)]
     }
 
     public func handles(in folder: CameraFolder) async throws -> [UInt32] {
@@ -170,7 +170,7 @@ public actor FujiCameraLibrary: CameraLibrary {
         var done = start
         while size.map({ done < $0 }) ?? true {
             try Task.checkCancellation()
-            guard done < UInt64(UInt32.max) else { throw FujiWiFi.Failure.protocolError("不支持 4 GB 以上的文件") }
+            guard done < UInt64(UInt32.max) else { throw FujiWiFi.Failure.protocolError(String(localized: "不支持 4 GB 以上的文件", bundle: .miniDiT)) }
             let want = size.map { UInt32(min(UInt64(FujiWiFi.downloadChunk), $0 - done)) } ?? FujiWiFi.downloadChunk
             let r = try await client.transaction(PTPOperation.getPartialObject, [item.id, UInt32(done), want])
             try fh.write(contentsOf: r.data)
@@ -178,7 +178,7 @@ public actor FujiCameraLibrary: CameraLibrary {
             progress(done, max(size ?? done, done))
             if r.data.isEmpty || (size == nil && r.data.count < Int(want)) { break }
         }
-        if let size, done < size { throw PTPDecodeError.invalid("文件不完整：\(done)/\(size) 字节") }
+        if let size, done < size { throw PTPDecodeError.invalid(String(localized: "文件不完整：\(done)/\(size) 字节", bundle: .miniDiT)) }
         _ = try? await client.poll()
     }
 

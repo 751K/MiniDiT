@@ -252,8 +252,8 @@ public actor PTPCameraLibrary: CameraLibrary {
                 let all = try await client.objectHandles(storage: storage, parent: 0)
                 listingNotes.append(String(format: "平铺读取 0x%08X：%d 个对象", storage, all.count))
                 if !all.isEmpty {
-                    let prefix = storages.count > 1 ? "卡槽\(storage >> 16) · " : ""
-                    flat.append(CameraFolder(id: 0, storageID: storage, name: prefix + "全部文件", isVideo: false, isFlat: true))
+                    let prefix = storages.count > 1 ? String(localized: "卡槽\(storage >> 16) · ", bundle: .miniDiT) : ""
+                    flat.append(CameraFolder(id: 0, storageID: storage, name: prefix + String(localized: "全部文件", bundle: .miniDiT), isVideo: false, isFlat: true))
                 }
             } catch let e as PTPError {
                 listingNotes.append(String(format: "平铺读取 0x%08X 失败：", storage) + e.localizedDescription)
@@ -267,7 +267,7 @@ public actor PTPCameraLibrary: CameraLibrary {
         var result: [CameraFolder] = []
         for storage in storages {
             // 双卡槽时在名字前标出卡槽（StorageID 高 16 位是物理卡槽号）。
-            let prefix = storages.count > 1 ? "卡槽\(storage >> 16) · " : ""
+            let prefix = storages.count > 1 ? String(localized: "卡槽\(storage >> 16) · ", bundle: .miniDiT) : ""
             var local: [CameraFolder] = []
             let root = try await children(storage, ptpRootParent)
             // 照片：DCIM/100MSDCF、101MSDCF…
@@ -279,11 +279,11 @@ public actor PTPCameraLibrary: CameraLibrary {
             if let priv = subfolder(root, named: "PRIVATE"),
                let m4 = subfolder(try await children(storage, priv), named: "M4ROOT"),
                let clip = subfolder(try await children(storage, m4), named: "CLIP") {
-                local.append(CameraFolder(id: clip, storageID: storage, name: prefix + "视频", isVideo: true))
+                local.append(CameraFolder(id: clip, storageID: storage, name: prefix + String(localized: "视频", bundle: .miniDiT), isVideo: true))
             }
             // 不符合 DCF 结构的卡（或相机平铺显示）：把根目录当一个文件夹。
             if local.isEmpty && root.contains(where: { !$0.1.isFolder }) {
-                local.append(CameraFolder(id: ptpRootParent, storageID: storage, name: prefix + "根目录", isVideo: false))
+                local.append(CameraFolder(id: ptpRootParent, storageID: storage, name: prefix + String(localized: "根目录", bundle: .miniDiT), isVideo: false))
             }
             result += local
         }

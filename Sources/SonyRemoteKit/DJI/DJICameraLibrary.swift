@@ -210,7 +210,7 @@ public actor DJICameraLibrary: CameraLibrary {
                     // 相机忽略了 Range：从头来。
                     try fh.truncate(atOffset: 0); try fh.seek(toOffset: 0); pos = 0
                 } else if code != 200, code != 206 {
-                    throw URLError(.badServerResponse, userInfo: [NSLocalizedDescriptionKey: "相机返回 HTTP \(code)"])
+                    throw URLError(.badServerResponse, userInfo: [NSLocalizedDescriptionKey: String(localized: "相机返回 HTTP \(code)", bundle: .miniDiT)])
                 }
                 if expected == 0, resp.expectedContentLength > 0 { expected = pos + UInt64(resp.expectedContentLength) }
                 var buf = Data(); buf.reserveCapacity(1 << 20)
@@ -234,7 +234,7 @@ public actor DJICameraLibrary: CameraLibrary {
             }
         }
         if expected > 0, pos != expected {
-            throw URLError(.cannotDecodeContentData, userInfo: [NSLocalizedDescriptionKey: "大小不符：收到 \(pos)，应为 \(expected)"])
+            throw URLError(.cannotDecodeContentData, userInfo: [NSLocalizedDescriptionKey: String(localized: "大小不符：收到 \(pos)，应为 \(expected)", bundle: .miniDiT)])
         }
     }
 

@@ -193,9 +193,9 @@ private struct SourceManagerRow: View {
     private var extra: String {
         var s = ""
         if model.sourceSlots(source.id).count > 1, let slot = model.onlySlot(source.id) {
-            s += " · 仅卡 \(slot)"
+            s += String(localized: " · 仅卡 \(slot)")
         }
-        if let t = model.profile(source.id)?.clockOffset, t != 0 { s += " · 时间 " + CameraProfile.offsetText(t) }
+        if let t = model.profile(source.id)?.clockOffset, t != 0 { s += String(localized: " · 时间 \(CameraProfile.offsetText(t))") }
         return s
     }
 
@@ -262,7 +262,7 @@ private struct SourceManagerRow: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(model.progress != nil)
-                    .help(model.isTetherSource(source.id) ? "结束联机拍摄并关闭联机缓存" : source.isCard ? "推出 \(source.detail.replacingOccurrences(of: "读卡器 · ", with: ""))" : "断开此相机")
+                    .help(model.isTetherSource(source.id) ? "结束联机拍摄并关闭联机缓存" : source.isCard ? "推出 \(source.detail.replacingOccurrences(of: String(localized: "读卡器") + " · ", with: ""))" : "断开此相机")
                     .accessibilityLabel(source.isCard ? "推出存储卡" : "断开相机")
                 }
             }
@@ -325,9 +325,9 @@ private struct SourceSlotPicker: View {
     let id: Int
 
     var body: some View {
-        let options: [SegmentPicker<UInt32?>.Option] = [.init(title: "合并", value: nil)]
-            + model.sourceSlots(id).map { .init(title: "卡 \($0)", value: $0) }
-        ChoicePicker(title: "卡槽", options: options,
+        let options: [SegmentPicker<UInt32?>.Option] = [.init(title: String(localized: "合并"), value: nil)]
+            + model.sourceSlots(id).map { .init(title: String(localized: "卡 \($0)"), value: $0) }
+        ChoicePicker(title: String(localized: "卡槽"), options: options,
                      selection: Binding(get: { model.onlySlot(id) }, set: { model.setOnlySlot(id, $0) }))
             .disabled(model.progress != nil)
             .help("合并两卡会去重；也可只看并只导入卡 1 或卡 2")
@@ -392,17 +392,24 @@ private struct DayRow: View {
     }
 }
 
-/// 侧栏的日期：「11月4日 周三」拆成日期和星期，日期占固定宽度（按最长的「00月00日」留位），星期上下对齐。
+/// 侧栏的日期：「11月4日 周三」（英文「Nov 4 Wed」）拆成日期和星期，日期占固定宽度（按最长的写法留位），星期上下对齐。
 struct DayTitle: View {
     let title: String
 
+    private static func placeholder(_ date: String) -> String {
+        if date.contains("年") { return "0000年00月00日" }
+        if date.contains("月") { return "00月00日" }
+        return date.contains(",") ? "Mmm 00, 0000" : "Mmm 00"
+    }
+
     var body: some View {
-        let parts = title.split(separator: " ", maxSplits: 1).map(String.init)
+        // 星期在最后：按最后一个空格拆（英文日期中间也有空格）。
+        let parts = title.range(of: " ", options: .backwards).map { [String(title[..<$0.lowerBound]), String(title[$0.upperBound...])] } ?? [title]
         if parts.count == 2 {
             HStack(spacing: 6) {
                 ZStack(alignment: .leading) {
                     // 占位：数字换成 0，月和日都按两位算。
-                    Text(parts[0].contains("年") ? "0000年00月00日" : "00月00日").hidden()
+                    Text(verbatim: Self.placeholder(parts[0])).hidden()
                     Text(parts[0])
                 }
                 .monospacedDigit()
@@ -458,7 +465,7 @@ private struct SceneRow: View {
             .accessibilityLabel("导入 \(day.title) \(AppModel.sceneTitle(scene))")
             .accessibilityValue(state == .on ? "已勾选" : state == .mixed ? "部分勾选" : "未勾选")
             .help(scene.newCount > 0 ? "勾选该场次 \(AppModel.countText(photos: scene.newPhotos, videos: scene.newVideos, fresh: true))" : "勾选该场次全部内容")
-            Text(scene.timeRange.isEmpty ? "第 \(scene.number) 场" : scene.timeRange).font(Theme.Font.caption).lineLimit(1)
+            Text(scene.timeRange.isEmpty ? String(localized: "第 \(scene.number) 场") : scene.timeRange).font(Theme.Font.caption).lineLimit(1)
             Spacer(minLength: 4)
             ShotCounts(new: scene.newCount, total: scene.shots.count, copies: 2, size: 11)
         }
@@ -471,7 +478,8 @@ private struct SceneRow: View {
 struct SceneGapMenu: View {
     @Environment(AppModel.self) private var model
 
-    static let options: [(String, Int)] = [("不分场次", 0), ("30 分钟", 30), ("1 小时", 60), ("2 小时", 120), ("3 小时", 180), ("4 小时", 240)]
+    static let options: [(String, Int)] = [(String(localized: "不分场次"), 0), (String(localized: "30 分钟"), 30), (String(localized: "1 小时"), 60),
+                                           (String(localized: "2 小时"), 120), (String(localized: "3 小时"), 180), (String(localized: "4 小时"), 240)]
 
     var body: some View {
         @Bindable var model = model

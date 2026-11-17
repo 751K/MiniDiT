@@ -8,9 +8,9 @@ enum ImportContent: String, CaseIterable, Identifiable, Codable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .all: "照片和视频"
-        case .photos: "照片"
-        case .videos: "视频"
+        case .all: String(localized: "照片和视频")
+        case .photos: String(localized: "照片")
+        case .videos: String(localized: "视频")
         }
     }
     /// 旧版本的全局「导入内容」设置。旧项目没有记类型，沿用当时的设置，升级后导入范围不变。
@@ -35,10 +35,10 @@ enum ImportFolderLayout: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .session: "按项目名称建立文件夹"
-        case .date: "按拍摄日期建立文件夹"
-        case .flat: "直接存入所选位置"
-        case .custom: "自定义文件夹规则"
+        case .session: String(localized: "按项目名称建立文件夹")
+        case .date: String(localized: "按拍摄日期建立文件夹")
+        case .flat: String(localized: "直接存入所选位置")
+        case .custom: String(localized: "自定义文件夹规则")
         }
     }
 }

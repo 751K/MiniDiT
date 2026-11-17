@@ -211,7 +211,7 @@ enum LightroomBridge {
                 r.done.append(name)
             } else if fm.fileExists(atPath: failed.path) {
                 r.failed += 1
-                r.failures.append("任务 \(name) 无法处理")
+                r.failures.append(String(localized: "任务 \(name) 无法处理"))
                 try? fm.removeItem(at: failed)
                 r.done.append(name)
             } else {

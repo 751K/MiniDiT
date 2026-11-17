@@ -15,11 +15,11 @@ struct SetupSheet: View {
 
         var title: String {
             switch self {
-            case .mode: "工作流程"
-            case .photos: "照片"
-            case .video: "视频"
-            case .backup: "备份"
-            case .done: "完成"
+            case .mode: String(localized: "工作流程")
+            case .photos: String(localized: "照片")
+            case .video: String(localized: "视频")
+            case .backup: String(localized: "备份")
+            case .done: String(localized: "完成")
             }
         }
         var symbol: String {
@@ -146,16 +146,16 @@ struct SetupSheet: View {
 
     private var title: String {
         switch step {
-        case .mode: reopened ? "工作流程" : "欢迎使用 MiniDiT"
-        case .photos: "照片"
-        case .video: "视频"
-        case .backup: "备份"
-        case .done: "设置完成"
+        case .mode: reopened ? String(localized: "工作流程") : String(localized: "欢迎使用 MiniDiT")
+        case .photos: String(localized: "照片")
+        case .video: String(localized: "视频")
+        case .backup: String(localized: "备份")
+        case .done: String(localized: "设置完成")
         }
     }
 
     private var subtitle: String? {
-        step == .mode ? "先选择要导入的内容。流程推荐可选，保留当前设置也可以直接继续。" : nil
+        step == .mode ? String(localized: "先选择要导入的内容。流程推荐可选，保留当前设置也可以直接继续。") : nil
     }
 
     @ViewBuilder private var content: some View {
@@ -174,10 +174,12 @@ struct SetupSheet: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top, spacing: 14) {
                 ModeTile(symbol: "person", title: "个人创作",
-                         points: ["自己拍摄、整理和后期", "视频按日期、事件整理", "命名、备份与色彩管理均可设置"],
+                         points: [String(localized: "自己拍摄、整理和后期"), String(localized: "视频按日期、事件整理"),
+                                  String(localized: "命名、备份与色彩管理均可设置")],
                          selected: recommendedMode == .personal) { setMode(.personal) }
                 ModeTile(symbol: "person.3", title: "团队协作",
-                         points: ["多人拍摄，素材交给团队后期", "视频按卷号分文件夹，便于交接", "推荐手动导入，并保留原卡文件"],
+                         points: [String(localized: "多人拍摄，素材交给团队后期"), String(localized: "视频按卷号分文件夹，便于交接"),
+                                  String(localized: "推荐手动导入，并保留原卡文件")],
                          selected: recommendedMode == .team) { setMode(.team) }
             }
             if let recommendation = recommendedMode {
@@ -341,13 +343,13 @@ struct SetupSheet: View {
             SummaryRow(icon: .symbol("film"), label: "视频", value: videoTitle, detail: short(model.videoDestination)) { go(.video) }
             PanelDivider()
             SummaryRow(icon: backupOn ? .symbol("externaldrive.badge.checkmark") : .symbol("internaldrive"), label: "备份",
-                       value: backupOn ? "同时备份" : "仅存储一份",
+                       value: backupOn ? String(localized: "同时备份") : String(localized: "仅存储一份"),
                        detail: backupOn ? model.backupSummary : nil) { go(.backup) }
         }
         // 和上面的分组同一种行：图标、文字的位置都对齐。
         Panel {
             PanelRow(icon: .symbol("lightbulb"), title: "后续步骤",
-                     detail: "插入存储卡，或将相机接入同一 Wi-Fi 并开启遥控拍摄。") {
+                     detail: String(localized: "插入存储卡，或将相机接入同一 Wi-Fi 并开启遥控拍摄。")) {
                 EmptyView()
             }
         }
@@ -359,18 +361,18 @@ struct SetupSheet: View {
 
     private var photoTitle: String {
         switch model.captureOneMode {
-        case .newSession: "Capture One · 新建会话"
-        case .c1Settings: "Capture One · 按导入设置"
-        case .inPlace: "Capture One · 添加到目录"
+        case .newSession: String(localized: "Capture One · 新建会话")
+        case .c1Settings: String(localized: "Capture One · 按导入设置")
+        case .inPlace: String(localized: "Capture One · 添加到目录")
         case .lightroom: "Lightroom Classic"
-        case .off: "文件夹"
+        case .off: String(localized: "文件夹")
         }
     }
 
     private var photoDetail: String? {
         switch model.captureOneMode {
         case .newSession: short(model.sessionsFolder)
-        case .c1Settings, .inPlace: "Capture One 当前文档"
+        case .c1Settings, .inPlace: String(localized: "Capture One 当前文档")
         case .lightroom, .off: short(model.destination)
         }
     }
@@ -380,8 +382,8 @@ struct SetupSheet: View {
         if model.sendToResolve, apps[.resolve]?.isInstalled == true { to.append("DaVinci Resolve") }
         if model.sendToFCP, apps[.finalCut]?.isInstalled == true { to.append("Final Cut Pro") }
         if model.sendToPremiere, apps[.premiere]?.isInstalled == true { to.append("Adobe Premiere Pro") }
-        if model.sendToJianying, apps[.jianying]?.isInstalled == true { to.append("剪映专业版") }
-        return to.isEmpty ? "仅存储至文件夹" : "发送至 " + to.joined(separator: "、")
+        if model.sendToJianying, apps[.jianying]?.isInstalled == true { to.append(String(localized: "剪映专业版")) }
+        return to.isEmpty ? String(localized: "仅存储至文件夹") : String(localized: "发送至 \(to.joined(separator: "、"))")
     }
 
     /// 「~/Pictures/MiniDiT」
@@ -467,7 +469,7 @@ private struct StepRow: View {
 /// 工作流程的一块：图标、名称、一句话、三条要点。
 private struct ModeTile: View {
     let symbol: String
-    let title: String
+    let title: LocalizedStringKey
     let points: [String]
     let selected: Bool
     let action: () -> Void
@@ -504,8 +506,8 @@ private struct ModeTile: View {
 /// 单选的一行（放在 Panel 里）：图标、标题、说明，右边开关。
 private struct ChoiceCard: View {
     let icon: CardIcon
-    let title: String
-    var detail: String? = nil
+    let title: LocalizedStringKey
+    var detail: LocalizedStringKey? = nil
     let selected: Bool
     let action: () -> Void
 
@@ -568,8 +570,8 @@ private struct PanelDivider: View {
 }
 
 private struct SectionTitle: View {
-    let text: String
-    init(_ text: String) { self.text = text }
+    let text: LocalizedStringKey
+    init(_ text: LocalizedStringKey) { self.text = text }
     var body: some View {
         Text(text).font(.headline).padding(.bottom, -10)
     }
@@ -578,7 +580,7 @@ private struct SectionTitle: View {
 /// 面板里的一行：图标、标题和说明，右边放控件。
 private struct PanelRow<Trailing: View>: View {
     let icon: CardIcon
-    let title: String
+    let title: LocalizedStringKey
     var detail: String? = nil
     /// 说明是一条路径：一行显示，中间省略。
     var isPath = false
@@ -605,9 +607,9 @@ private struct PanelRow<Trailing: View>: View {
 
 /// 选文件夹的一行：路径显示在标题下面，右边“更改…”。
 private struct FolderRow: View {
-    let title: String
+    let title: LocalizedStringKey
     let url: URL?
-    var empty = "尚未选择"
+    var empty = String(localized: "尚未选择")
     let set: (URL) -> Void
 
     var body: some View {
@@ -623,7 +625,7 @@ private struct FolderRow: View {
 /// 完成页的一行：图标、类别、选了什么、路径，右边“更改”。
 private struct SummaryRow: View {
     let icon: CardIcon
-    let label: String
+    let label: LocalizedStringKey
     let value: String
     var detail: String?
     let change: () -> Void
