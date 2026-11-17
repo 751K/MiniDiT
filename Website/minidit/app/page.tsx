@@ -268,7 +268,7 @@ export default function Home() {
       <section className="get-section" id="get"><div className="get-content">
         <div className="get-brand">MiniDiT</div><h2>开始下一次素材导入</h2>
         <p>免费开源 · 当前版本主要适配 Sony α 相机</p>
-        <a className="button button-primary" href={project} target="_blank" rel="noreferrer">在 GitHub 获取 MiniDiT <ArrowUpRight size={17} /></a>
+        <a className="button button-primary" href={`${project}/releases/latest`} target="_blank" rel="noreferrer">下载 MiniDiT <ArrowUpRight size={17} /></a>
         <div className="get-requirements"><Monitor size={13} /> Apple 芯片 · macOS 14 及以上 <span>持续打磨中的早期版本</span></div>
       </div></section>
     </main>

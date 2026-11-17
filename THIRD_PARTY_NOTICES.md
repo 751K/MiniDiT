@@ -15,7 +15,13 @@ Licensed under the BSD 3-Clause License: https://libssh2.org/license.html
 
 Copyright (C) The libssh2 project and its contributors.
 
-The full license texts ship with each source release. A shipped app must include them, for example on an in-app "Acknowledgements" page.
+The full license texts ship with each source release. The app shows them, together with the other licenses below, under MiniDiT › 关于 MiniDiT (`Apps/MiniDiT/MiniDiT/Resources/Acknowledgements.txt`).
+
+## Sparkle 2.10.1
+
+The app checks for and installs updates with Sparkle (https://sparkle-project.org), added as a Swift package and shipped as `Sparkle.framework`. Licensed under the MIT License, with the additional licenses for its bundled components listed in its `LICENSE` file.
+
+Copyright (c) 2006-2013 Andy Matuschak and the other authors named in that file.
 
 ## Protocol references (no code copied)
 

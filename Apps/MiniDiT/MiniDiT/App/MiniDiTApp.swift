@@ -26,7 +26,10 @@ struct MiniDiTApp: App {
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1280, height: 800)
         .commands {
-            CommandGroup(after: .appInfo) { CheckForUpdatesButton() }
+            CommandGroup(replacing: .appInfo) {
+                Button("关于 MiniDiT") { AboutPanel.show() }
+                CheckForUpdatesButton()
+            }
             CommandGroup(replacing: .newItem) {
                 Button("切换来源…") { model.disconnect() }
                     .keyboardShortcut("o", modifiers: [.command, .shift])

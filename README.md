@@ -73,6 +73,20 @@ MiniDiT 面向摄影与视频创作者，负责拍摄素材的导入、整理、
 
 每项功能的细节和实测情况见 [docs/MiniDiT-FEATURES.md](docs/MiniDiT-FEATURES.md)。
 
+## 下载与安装
+
+1. 从 [GitHub Releases](https://github.com/751K/MiniDiT/releases/latest) 下载最新的 `MiniDiT-<版本>.dmg`。需要 Apple 芯片的 Mac、macOS 14 以上。
+2. 打开 DMG，把 MiniDiT 拖进「应用程序」文件夹。应用已经过 Apple 公证，可以直接打开。
+3. 用到相关功能时，macOS 会请求权限：
+   - **本地网络**：搜索并连接 Wi-Fi 上的相机。
+   - **蓝牙**：连接大疆相机时，用蓝牙打开相机的 Wi-Fi。
+   - **自动化**：让 Capture One、DaVinci Resolve 等后期软件导入素材。
+   - **照片**：把导出的实况照片存入照片图库。
+
+   不小心拒绝时，可以在「系统设置 › 隐私与安全性」中重新打开。
+
+MiniDiT 会自动检查更新，有新版本时询问是否安装；也可以在「MiniDiT › 检查更新…」中手动检查，或在「设置 › 通用」中关闭自动检查。
+
 ## 开始使用
 
 1. **设置向导**：分别设置照片和视频的存放位置、整理方式、后期软件和备份。项目类型（照片 / 视频 / 照片和视频）在新建项目时选择，导入到该项目时只导入这一类素材，可在侧栏右键菜单中更改。可以稍后设置；个人 / 团队推荐需主动应用，所有功能均可自行选择。设置中可随时重新打开向导。
@@ -124,4 +138,4 @@ MiniDiT 提供 CLI 和 MCP，可让 agent 查询项目与设备、筛选和选�
 
 ## 许可证
 
-[MIT](LICENSE)。预编译的 OpenSSL、libssh2 使用各自的许可证，见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+[MIT](LICENSE)。随应用分发的 OpenSSL、libssh2 和 Sparkle 使用各自的许可证，见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)，应用内可在「MiniDiT › 关于 MiniDiT」中查看。
