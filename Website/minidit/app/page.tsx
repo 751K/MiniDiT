@@ -45,6 +45,38 @@ function VideoWorkflow() {
   </div>;
 }
 
+/** 联机拍摄的取景示意：画面、三分线、矢量示波器和相机屏幕式参数条，都是静态示意。 */
+function TetherWorkflow() {
+  return <div className="video-section tether-section">
+    <div className="video-copy">
+      <h2 id="tether-title">在 Mac 上取景、对焦<br />拍完直接进项目</h2>
+      <p>相机开启遥控拍摄后，MiniDiT 通过 Wi-Fi 显示实时取景，并在电脑上调整拍摄参数。每张照片先存入本机的联机缓存，再按当前项目的命名、备份和后期软件设置自动导入。</p>
+      <dl className="capability-list video-capabilities">
+        <div><dt>拍摄参数</dt><dd>切换拍照、录像、慢快动作和间隔录像，调整快门、光圈、ISO、曝光补偿和白平衡。白平衡可以设置色温、微调偏移，也可以用灰卡取白存入自定义白平衡。</dd></div>
+        <div><dt>监看工具</dt><dd>直方图、波形、斑马纹、峰值对焦、伪色、带肤色线的矢量示波器和点测光；取景框线可显示三分线、安全框和画幅遮罩，变形镜头画面可以反挤压显示。</dd></div>
+        <div><dt>对焦控制</dt><dd>点按画面对焦，放大检查细节；手动调焦时显示对焦距离，记下 A、B 两个焦点后可以按设定时长平滑拉焦。</dd></div>
+      </dl>
+      <p className="feature-note">目前支持 Sony α 相机的 Wi-Fi 遥控拍摄，已在 α7 V 上实机验证。命令行和 MCP 也可以遥控同一窗口。</p>
+    </div>
+    <div className="video-visual">
+      <div className="video-still tether-still">
+        <img src="images/coast-960.webp" width={960} height={640} alt="联机取景示意：画面叠加三分线、右上角为矢量示波器，底部为拍摄参数条" loading="lazy" />
+        <div className="tether-thirds" aria-hidden="true" />
+        <svg className="tether-scope" viewBox="0 0 100 100" aria-hidden="true">
+          <circle cx="50" cy="50" r="47" /><line x1="50" y1="3" x2="50" y2="97" /><line x1="3" y1="50" x2="97" y2="50" />
+          <line className="skin" x1="50" y1="50" x2="23" y2="11" />
+          <ellipse className="trace" cx="45" cy="47" rx="9" ry="5" transform="rotate(-35 45 47)" />
+        </svg>
+        <span className="tether-focus" aria-hidden="true" />
+      </div>
+      <div className="tether-bar" aria-label="拍摄参数示意">
+        <span>P</span><span>1/250</span><span>F2.8</span><span>ISO 400</span><span>±0.0</span><span>5600K</span>
+      </div>
+      <p className="video-example-caption">取景示意 · 参数可点按选择，也可以悬停后用滚轮逐档调整</p>
+    </div>
+  </div>;
+}
+
 const photoHandoffs = [
   { title: "Capture One", body: "按项目名新建或接续已有会话，照片直接写入 Capture 文件夹，机内星级一起带入；可按机型自动套用创意外观。" },
   { title: "Lightroom Classic", body: "通过插件加入当前目录，按项目建立收藏夹；RAW + JPG/HIF 自动叠放，保留机内星级。" },
@@ -53,7 +85,8 @@ const photoHandoffs = [
 
 const questions = [
   ["新建项目时要选什么？", "选择日期、事件名称和项目类型：照片、视频，或照片和视频。导入到这个项目时只取这一类素材；新建项目窗口只显示这一类的保存位置。类型可以之后在项目列表的右键菜单中更改，已导入的文件不受影响。"],
-  ["当前支持哪些相机和电脑？", "MiniDiT 面向摄影与视频创作者。当前版本仅适配 Sony α 相机，已在 α7 V（ILCE-7M5）上实机验证，其他品牌尚未适配。电脑需要 Apple 芯片和 macOS 14 或更新版本。"],
+  ["当前支持哪些相机和电脑？", "MiniDiT 面向摄影与视频创作者，当前主要适配 Sony α 相机，已在 α7 V（ILCE-7M5）上实机验证。读卡器还可以导入佳能 EOS（CR3 / CR2 照片，MP4 与 Cinema RAW Light 视频）、富士 RAF、尼康 NEF / NRW 照片，以及大疆 Osmo 等相机的存储卡（.LRF 作为代理）；佳能 EOS、富士 X / GFX、尼康 Z 系列与大疆 Osmo 的无线导入为试验性功能，尚未用真机验证。电脑需要 Apple 芯片和 macOS 14 或更新版本。"],
+  ["联机拍摄需要哪些准备，拍下的照片存到哪里？", "在相机上开启遥控拍摄，并让相机与 Mac 连接同一 Wi-Fi，然后在来源页相机的右键菜单中选择“联机拍摄”。目前只支持 Wi-Fi。每张照片先存入本机的联机缓存，再自动导入当前项目，执行项目已设置的命名、备份和后期软件交接；尚未选择项目时照片留在缓存中，选择项目后再补导。"],
   ["拍摄项目和磁盘文件夹怎样对应？", "项目记录同一拍摄任务中的已导入文件，以及它们的实际位置。照片和视频分别选择磁盘、目录规则与后期软件；可以按项目名称、拍摄日期、直接存放或自定义规则建立目录。使用 C1 新建会话时，照片写入该会话的 Capture 文件夹。从项目列表移除项目只移除记录，不删除磁盘文件。"],
   ["Wi-Fi 导过的素材，换读卡器还认得吗？", "两种连接方式共用导入记录，匹配的已导入文件可复用。Wi-Fi 仅导代理时，原片仍记为未导入；之后用读卡器补原片，会沿用原目录与卷号，并核对已有代理和 XML。无线连接需相机与 Mac 处于同一 Wi-Fi，并开启相机的遥控拍摄。"],
   ["“已备份”代表刚刚重新核验了吗？", "素材角标表示当前可访问的副本数量：一份是“已导入”，两份是“已备份”。副本检查通过文件存在和大小判断可访问性，不等于重新比较内容。导入时的内容校验与生成的 ASC MHL 清单，是另一份核验依据。"],
@@ -61,6 +94,7 @@ const questions = [
   ["导入前能预览视频和时间码吗？", "可以播放读卡器或已导入的视频，逐帧查看、跳到 Shot Mark，也能输入源时间码定位。Wi-Fi 优先缓存代理；没有代理时，会显示原片大小，由你决定是否缓存。预览缓存不写入导入记录，也不算完成备份。"],
   ["个人创作和团队交接会限制不同功能吗？", "所有功能均可使用。两种工作方式只提供推荐设置，需要你主动应用。项目类型、命名规则、存放位置、自动导入、备份和色彩处理都可自行选择；个人拍摄同样可以使用校验清单，团队任务也可以只取部分素材。"],
   ["连接后期软件需要哪些设置？", "Capture One 需要允许 macOS 自动化控制；Lightroom Classic 需要安装 MiniDiT 插件；DaVinci Resolve 需要把外部脚本使用设为“本地”；Premiere Pro 需要 25.6 或更新版本，并安装 MiniDiT 插件、打开其面板。Final Cut Pro 通过 FCPXML 接收素材。剪映专业版无需设置，但打开过的草稿会被剪映加密，之后需在剪映中手动导入。具体步骤见使用说明。也可以选择只存文件夹。"],
+  ["能让 AI 助手操作 MiniDiT 吗？", "可以。MiniDiT 提供命令行工具和 MCP 服务，助手可以查询项目与设备、筛选和选择素材、预览并开始导入，也可以遥控联机拍摄：读写相机设置并回读确认、拍摄、取一帧取景画面或曝光分析数据。两种方式都通过本机接口操作正在运行的应用，普通导入仍需先选择或新建项目。"],
   ["拖到访达和拖到项目，有什么区别？", "拖到桌面或访达文件夹，只复制所选原文件，保留卡上原片，不执行项目导入、备份或后期交接。拖到拍摄项目，则执行正常导入流程，包括已设置的校验、备份、项目记录和后期软件交接。"],
 ];
 
@@ -139,6 +173,7 @@ export default function Home() {
           <a href="#projects" onClick={closeMenu}>项目管理</a>
           <a href="#backup" onClick={closeMenu}>校验与备份</a>
           <a href="#workflow" onClick={closeMenu}>后期交接</a>
+          <a href="#tether" onClick={closeMenu}>联机拍摄</a>
         </div>
       </nav>
       <div className="nav-actions">
@@ -150,7 +185,7 @@ export default function Home() {
     <main id="main">
       <section className="hero container">
         <h1>把时间<br /><span>留给创作</span></h1>
-        <p className="hero-description">MiniDiT 是一款 Mac 上的拍摄素材导入与管理工具。<br className="desktop-break" />从相机或读卡器导入照片和视频，按项目整理、检查文件并按需备份，再交给修图和剪辑软件。</p>
+        <p className="hero-description">MiniDiT 是一款 Mac 上的拍摄素材导入与管理工具。<br className="desktop-break" />从相机或读卡器导入照片和视频，按项目整理、检查文件并按需备份，再交给修图和剪辑软件。<br className="desktop-break" />索尼相机还可以通过 Wi-Fi 联机拍摄，拍完直接进入项目。</p>
         <div className="hero-actions">
           <a className="button button-primary" href="#get">获取 MiniDiT <ArrowUpRight size={16} /></a>
           <a className="hero-secondary" href="#demo">查看导入演示 <span><ArrowDown size={14} /></span></a>
@@ -222,20 +257,24 @@ export default function Home() {
           <VideoWorkflow />
         </section>
       </div>
+      <section className="handoff-section video-handoff-section tether-handoff container" id="tether" aria-labelledby="tether-title">
+        <div className="section-label"><span>06 — 联机拍摄</span></div>
+        <TetherWorkflow />
+      </section>
       <section className="faq-section container" id="faq">
         <div><span className="eyebrow">当前版本</span><h2>兼容性与<br />使用边界</h2><a className="text-link" href={`${project}/issues`} target="_blank" rel="noreferrer">反馈问题 <ArrowUpRight size={15} /></a></div>
         <FAQList />
       </section>
       <section className="get-section" id="get"><div className="get-content">
         <div className="get-brand">MiniDiT</div><h2>开始下一次素材导入</h2>
-        <p>免费开源 · 当前版本适配 Sony α 相机</p>
+        <p>免费开源 · 当前版本主要适配 Sony α 相机</p>
         <a className="button button-primary" href={project} target="_blank" rel="noreferrer">在 GitHub 获取 MiniDiT <ArrowUpRight size={17} /></a>
         <div className="get-requirements"><Monitor size={13} /> Apple 芯片 · macOS 14 及以上 <span>持续打磨中的早期版本</span></div>
       </div></section>
     </main>
     <footer className="site-footer container">
       <div className="footer-main"><Brand /><div><a href={project} target="_blank" rel="noreferrer">GitHub <ArrowUpRight size={12} /></a><a href={`${project}/blob/main/README.md`} target="_blank" rel="noreferrer">使用说明 <ArrowUpRight size={12} /></a><a href={`${project}/issues`} target="_blank" rel="noreferrer">反馈问题 <ArrowUpRight size={12} /></a></div></div>
-      <div className="footer-bottom"><p>© {new Date().getFullYear()} MiniDiT</p><p>Sony / 索尼为索尼集团商标。MiniDiT 与索尼集团无关联。</p><a href="https://unsplash.com" target="_blank" rel="noreferrer">演示照片来自 Unsplash <ArrowUpRight size={10} /></a></div>
+      <div className="footer-bottom"><p>© {new Date().getFullYear()} MiniDiT</p><p>Sony / 索尼为索尼集团商标，Canon、FUJIFILM、Nikon、DJI 为各自所有者的商标。MiniDiT 与上述公司均无关联。</p><a href="https://unsplash.com" target="_blank" rel="noreferrer">演示照片来自 Unsplash <ArrowUpRight size={10} /></a></div>
     </footer>
   </div>;
 }
