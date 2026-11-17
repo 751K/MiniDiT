@@ -100,7 +100,7 @@ import FakeSonyCamera
     @Test func shootingModeGroups() {
         func mode(_ v: Int64) -> String? { SonyPropertyCatalog.shootingMode(v).map { "\($0.mode.rawValue) \($0.exposure)" } }
         #expect(mode(0x78053) == "movie m" && mode(1) == "photo m" && mode(0x10002) == "photo p")
-        #expect(mode(0x9805C) == "sq m" && mode(0xC8096) == nil)
+        #expect(mode(0x9805C) == "sq m" && mode(0xC8096) == "interval m" && mode(0xC8093) == "interval p" && mode(0xC8099) == nil)
         let a7v: [Int64] = [0x48000, 0x10002, 0x20003, 0x30004, 0x1, 0x78054, 0x78050, 0x78051, 0x78052, 0x78053]
         #expect(SonyPropertyCatalog.exposureProgram(.photo, exposure: "P", allowed: a7v) == 0x10002)
         #expect(SonyPropertyCatalog.exposureProgram(.photo, exposure: "p", allowed: [1, 2, 3, 4]) == 2)
@@ -217,6 +217,11 @@ import FakeSonyCamera
         #expect(mid > 0.4 && mid < 0.5)
         #expect(LensDistanceTable.text(0.453) == "0.45 m" && LensDistanceTable.text(1.24) == "1.2 m" && LensDistanceTable.text(12.4) == "12 m")
         #expect(LensDistanceTable.text(.infinity) == "∞")
+        // 反查：表里的点原样返回，中间的值往返一致，超出范围取两端。
+        #expect(t.position(forMeters: 0.5) == 0x7FFF && t.position(forMeters: .infinity) == t.entries.last?.position)
+        #expect(t.position(forMeters: 0.1) == 65535 || t.position(forMeters: 0.1) == t.entries.first?.position)
+        let p = try #require(t.position(forMeters: 0.45))
+        #expect(abs((t.meters(at: p) ?? 0) - 0.45) < 0.005)
     }
 
     @Test func focalFramesFromLiveViewDataset() {

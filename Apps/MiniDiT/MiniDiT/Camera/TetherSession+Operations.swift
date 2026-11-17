@@ -150,7 +150,31 @@ extension TetherSession {
         }
     }
 
+    /// 取景画面是不是 S-Log3：Log 拍摄打开且监看 LUT 关闭（实测 LUT 打开时传到电脑的取景已套 LUT），
+    /// 或者图片配置文件的伽马是 S-Log3。
+    var liveViewIsLog: Bool {
+        let p = properties
+        if let log = p[0xE000], log.isEnabled != 0, log.intValue == 0x501 {
+            return p[0xD04D]?.intValue == 1
+        }
+        if let pp = p[0xD23F]?.intValue, pp != 0, p[0xD0E1]?.intValue == 0x303 { return true }
+        return false
+    }
+
     func markFocus(_ name: String) { if let v = focusShown { focusMarks[name] = v } }
+    func clearFocusMark(_ name: String) { focusMarks[name] = nil }
+
+    /// 某个调焦位置对应的距离（只在录像模式用跟焦刻度时能换算；拍照模式的绝对位置刻度不同）。
+    func focusDistanceText(at v: Int64) -> String? {
+        guard focusControl?.setCode == 0xE088, let m = distanceTable?.meters(at: v) else { return nil }
+        return LensDistanceTable.text(m)
+    }
+
+    /// 切回自动对焦：优先 AF-C，其次 AF-S、AF-A。
+    func switchToAutoFocus() {
+        guard let d = properties[SonyProperty.focusMode] else { return }
+        if let v = [Int64(0x8004), 2, 0x8005].first(where: d.allowedValues.contains) { setProperty(SonyProperty.focusMode, v) }
+    }
 
     /// 切到手动对焦（调焦前用）。
     func switchToManualFocus() {

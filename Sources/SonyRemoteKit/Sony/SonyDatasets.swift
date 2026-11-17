@@ -285,6 +285,21 @@ public struct LensDistanceTable: Sendable, Equatable {
         return inv <= 0 ? .infinity : 1 / inv
     }
 
+    /// 反过来：某个距离（米，∞ 用 .infinity）对应的跟焦位置，同样按 1 / 距离插值；超出镜头范围时取最近 / 最远端。
+    public func position(forMeters meters: Double) -> Int64? {
+        guard let first = entries.first, let last = entries.last, meters > 0 else { return nil }
+        func inverse(_ e: Entry) -> Double { e.centimeters >= 0xFFFF ? 0 : 100 / Double(e.centimeters) }
+        let want = meters.isInfinite ? 0 : 1 / meters
+        if want >= inverse(first) { return first.position }
+        if want <= inverse(last) { return last.position }
+        for (near, far) in zip(entries, entries.dropFirst()) where want <= inverse(near) && want >= inverse(far) {
+            let span = inverse(near) - inverse(far)
+            let t = span > 0 ? (inverse(near) - want) / span : 0
+            return near.position - Int64((Double(near.position - far.position) * t).rounded())
+        }
+        return nil
+    }
+
     /// 显示用：0.45 m、1.2 m、12 m、∞。
     public static func text(_ meters: Double) -> String {
         if meters.isInfinite { return "∞" }

@@ -127,6 +127,8 @@ public enum SonyFormat {
                              7: "触摸快门", 8: "触摸对焦 + AE", 9: "触摸对焦", 10: "触摸跟踪 + AE", 11: "触摸跟踪"][v]
         case 0xD23F: return v == 0 ? "关" : nil
         case 0xD04D: return [1: "关", 2: "开"][v]
+        // 传到电脑的取景画质（α7 V 实测：高 1024×680、每帧 65–145 KB；低 640×424、约 44 KB，Wi-Fi 下稳定 25 帧/秒）。
+        case 0xD26A: return [1: "低（640×424）", 2: "高（1024×680）"][v]
         // 间隔录像的拍摄间隔：取值就是秒数（α7 V 实测 5 = 机身显示 5 秒）。
         case 0xD055: return "\(v) 秒"
         case 0xE000: return [1: "关", 0x501: "开（Flexible ISO）"][v]

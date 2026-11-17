@@ -97,9 +97,38 @@ extension AppModel {
             }
             return .object(["mimeType": .string("image/jpeg"), "width": .integer(jpeg.width), "height": .integer(jpeg.height),
                             "data": .string(jpeg.data.base64EncodedString()), "focalFrames": Self.focalFramesJSON(t.focalFrames)])
+        case "tether.exposure":
+            guard t.liveViewOn else { throw AgentControlError("live_view_off", "实时取景已关闭，可用 tether.configure 打开。") }
+            guard let data = t.liveFrameData, let src = CGImageSourceCreateWithData(data as CFData, nil),
+                  let image = CGImageSourceCreateImageAtIndex(src, 0, nil) else {
+                throw AgentControlError("no_frame", "还没有取景画面，请稍后重试。")
+            }
+            let log = t.liveViewIsLog
+            guard let r = ViewfinderAnalysis.exposureReport(image, log: log, zebraLevel: p["zebra"].int) else {
+                throw AgentControlError("analysis_failed", "无法分析这一帧取景画面。")
+            }
+            return Self.exposureJSON(r)
         default:
             throw AgentControlError("unknown_method", "未知操作：\(method)")
         }
+    }
+
+    static func exposureJSON(_ r: ViewfinderAnalysis.ExposureReport) -> AgentJSON {
+        var o: [String: AgentJSON] = [
+            "analyzedWidth": .integer(r.width), "analyzedHeight": .integer(r.height),
+            "encoding": .string(r.log ? "S-Log3" : "Rec.709"),
+            "meanPercent": .number(r.mean),
+            "percentiles": .object(Dictionary(uniqueKeysWithValues: r.percentiles.map { ("p\($0.p)", AgentJSON.number($0.value)) })),
+            "medianStopsFromMiddleGrey": .number(r.medianStops),
+            "highlightClipPercent": .number(r.highlightClip),
+            "shadowClipPercent": .number(r.shadowClip),
+            "channelClipPercent": .object(["r": .number(r.channelClip.r), "g": .number(r.channelClip.g), "b": .number(r.channelClip.b)]),
+            "stopZones": .array(r.stopZones.map { .object(["stop": .integer($0.stop), "percent": .number($0.percent)]) }),
+            "histogram32": .array(r.histogram.map { .number($0) }),
+            "note": .string("百分比都是占画面像素的比例；stopZones 相对 18% 中灰，−6 含更暗、+5 含更亮。分析的是传到电脑的取景画面（监看 LUT 打开时已套 LUT）。"),
+        ]
+        if let z = r.zebra { o["zebra"] = .object(["levelPercent": .integer(z.level), "percent": .number(z.percent)]) }
+        return .object(o)
     }
 
     func tetherStatusJSON() -> AgentJSON {
@@ -127,6 +156,22 @@ extension AppModel {
         o["receiving"] = .bool(t.downloading || s.pendingTransfers > 0)
         o["shotCount"] = .integer(t.shotCount)
         o["liveView"] = .bool(t.liveViewOn)
+        // 取景帧率和取帧耗时（最近 3 秒内的帧）。
+        let recent = t.liveSamples.filter { $0.at > Date().addingTimeInterval(-3) }
+        if recent.count >= 2, let first = recent.first, let last = recent.last {
+            let span = last.at.timeIntervalSince(first.at)
+            let fetch = recent.map(\.fetchMs).sorted()
+            o["liveViewStats"] = .object([
+                "fps": .number(span > 0 ? (Double(recent.count - 1) / span * 10).rounded() / 10 : 0),
+                "fetchMsAvg": .number((fetch.reduce(0, +) / Double(fetch.count)).rounded()),
+                "fetchMsP90": .number(fetch[min(fetch.count - 1, Int(Double(fetch.count) * 0.9))].rounded()),
+                "fetchMsMax": .number((fetch.last ?? 0).rounded()),
+                "bytesAvg": .integer(recent.map(\.bytes).reduce(0, +) / recent.count),
+                "width": .integer(Int(t.liveSize.width)), "height": .integer(Int(t.liveSize.height)),
+                "delayMs": .integer(TetherSession.liveDelayMs),
+                "frames": .integer(recent.count),
+            ])
+        }
         o["spoolPath"] = .string(t.spool.folder.path)
         o["changedProperties"] = .array(t.changed.map { c in .object([
             "code": .string(String(format: "0x%04X", c.code)), "name": .optional(SonyPropertyCatalog.name(c.code)),
@@ -359,7 +404,18 @@ extension AppModel {
             guard let c = SonyCamera.focusPositionControl(all) else {
                 throw AgentControlError("focus_unavailable", "相机现在不能远程调焦（跟焦 0xE088 和绝对位置 0xE042 都不可写）。")
             }
-            if let v = p["position"].int {
+            // 按距离调焦：用这支镜头的距离表换算成跟焦位置（只有跟焦 0xE088 的刻度和表对得上）。
+            var target = p["position"].int
+            if p["centimeters"].int != nil || p["infinity"].bool == true {
+                guard target == nil else { throw AgentControlError("invalid_params", "position、centimeters、infinity 只能给一个。") }
+                guard c.setCode == 0xE088, let table = t.distanceTable else {
+                    throw AgentControlError("distance_unavailable", "没有这支镜头的距离表：先在录像模式下连一次（相机只在录像模式提供），之后拍照模式也能按距离显示，但按距离调焦只在录像模式可用。")
+                }
+                let meters = p["infinity"].bool == true ? Double.infinity : Double(p["centimeters"].int!) / 100
+                guard let pos = table.position(forMeters: meters) else { throw AgentControlError("invalid_value", "无法换算这个距离。") }
+                target = Int(min(max(pos, c.range.lowerBound), c.range.upperBound))
+            }
+            if let v = target {
                 guard c.range.contains(Int64(v)) else {
                     throw AgentControlError("invalid_value", "position 要在 \(c.range.lowerBound)–\(c.range.upperBound) 之间。")
                 }
@@ -370,9 +426,16 @@ extension AppModel {
                     all = try await t.freshProperties()
                 }
             }
+            // 现在的距离：录像模式按跟焦位置查表；拍照模式调的是绝对位置，用相机仍在报告的跟焦当前位置 0xE089 查表。
+            let follow = c.setCode == 0xE088 ? all[c.currentCode]?.intValue : all[0xE089]?.intValue
+            let meters = follow.flatMap { t.distanceTable?.meters(at: $0) }
             return .object(["setCode": .string(String(format: "0x%04X", c.setCode)), "currentCode": .string(String(format: "0x%04X", c.currentCode)),
                             "min": .integer(c.range.lowerBound), "max": .integer(c.range.upperBound),
                             "current": all[c.currentCode]?.intValue.map { .integer($0) } ?? .null,
+                            "target": target.map { .integer($0) } ?? .null,
+                            "distanceMeters": meters.map { $0.isInfinite ? .string("infinity") : .number(($0 * 100).rounded() / 100) } ?? .null,
+                            "distanceText": meters.map { .string(LensDistanceTable.text($0)) } ?? .null,
+                            "distanceByTarget": .bool(c.setCode == 0xE088 && t.distanceTable != nil),
                             "manualFocus": .bool([1, 0x8006].contains(all[SonyProperty.focusMode]?.intValue ?? -1)),
                             "pulling": .bool(t.pullTask != nil)])
         case "tether.touch":

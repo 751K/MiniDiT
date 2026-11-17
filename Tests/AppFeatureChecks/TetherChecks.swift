@@ -189,6 +189,14 @@ import SonyRemoteKit
         precondition(!((try? fm.contentsOfDirectory(atPath: root.path)) ?? []).contains { $0.hasSuffix(".partial") })
         print("PASS: tether.live_view --out-file saves the full camera frame, refuses to overwrite, rejects relative paths and missing folders")
 
+        // 曝光分析：数字而不是图片；各档位加起来约等于 100%。
+        let exposure = try await call(["tether", "exposure", "--zebra", "90"])
+        let zoneSum = (exposure.json["stopZones"].array ?? []).compactMap { $0["percent"].double }.reduce(0, +)
+        precondition(exposure.code == 0 && exposure.json["data"] == .null && (exposure.json["analyzedWidth"].int ?? 0) > 0
+                     && exposure.json["histogram32"].array?.count == 32 && abs(zoneSum - 100) < 1
+                     && exposure.json["zebra"]["levelPercent"].int == 90 && exposure.json["percentiles"]["p50"].double != nil, "\(exposure.json)")
+        print("PASS: tether.exposure returns clipping, percentiles, stop zones, a 32-bin histogram and the zebra share")
+
         // 任意属性：列出、读取、设置（回读确认）、拍完等文件。
         let listed = try await call(["tether", "properties", "--query", "iso"])
         precondition(listed.code == 0 && listed.json["properties"].array?.contains { $0["name"].string == "IsoSensitivity" && $0["options"].array != nil } == true, "\(listed.json)")

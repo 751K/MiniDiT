@@ -94,6 +94,7 @@ MCP 暴露与 CLI 对应的 35 个工具，例如 `minidit_projects_list`、`min
 | `tether.shoot`、`tether.focus`、`tether.record` | 拍摄、锁定或释放对焦、开始或停止录像 |
 | `tether.set`、`tether.configure` | 调整曝光参数；设置自动导入和实时取景 |
 | `tether.live_view` | 取一帧实时取景 JPEG（MCP 中为图片内容），或把原始帧存成文件 |
+| `tether.exposure` | 分析当前取景帧的曝光，返回数字：亮度百分位、高光 / 暗部截断、R/G/B 单色过曝、按档位（相对中灰）的分布、32 档直方图；可给斑马纹阈值 |
 | `tether.properties`、`tether.get` | 列出相机的全部属性；读取指定属性 |
 | `tether.set_properties` | 设置任意属性，逐项回读确认 |
 | `tether.capture` | 拍一张并等所有文件传完，返回路径和参数快照 |
@@ -101,7 +102,7 @@ MCP 暴露与 CLI 对应的 35 个工具，例如 `minidit_projects_list`、`min
 | `tether.record_clip` | 录一段指定秒数的视频并取回 MP4 + XML |
 | `tether.mode` | 切换拍照 / 录像 / S&Q（需要时先改成 PC 优先） |
 | `tether.custom_wb` | 远程取白：结果存进自定义 1–3，返回色温和 G–M |
-| `tether.focus_position` | 远程调焦：读镜头位置，或移到 / 在几秒内平滑拉到某个位置（值越大越近） |
+| `tether.focus_position` | 远程调焦：读镜头位置和对焦距离（米），或移到 / 在几秒内平滑拉到某个位置（值越大越近）；录像模式下可按距离（`centimeters`、`infinity`）调焦 |
 | `tether.magnifier` | 放大对焦：读或设倍率和位置（α7 V 拍照模式 + MF 时可用） |
 | `tether.lens_info` | 读镜头信息 0x9223 的原始数据（跟焦位置 ↔ 距离换算表） |
 | `tether.touch` | 远程触摸：在 640×480 坐标处按机身的触摸功能对焦或跟踪；`cancel=true` 取消 |

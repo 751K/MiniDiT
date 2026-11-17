@@ -128,7 +128,9 @@ func cli(_ arguments: [String]) throws {
         minidit tether focus --locked true | tether record --on true
         minidit tether touch --x 320 --y 240 | tether touch --cancel true   tap to focus (640×480)
         minidit tether focus-position [--position 30000 [--seconds 2]]   read or move focus (larger = nearer)
+        minidit tether focus-position --centimeters 200 [--seconds 2]   focus to 2 m (movie mode, lens distance table)
         minidit tether live-view --max-width 1024      JPEG as base64 in "data"
+        minidit tether exposure --zebra 95             exposure numbers: clipping, percentiles, stop zones
         minidit tether live-view --out-file /abs/frame.jpg   save the full frame (never overwrites)
         minidit tether configure --auto-import true --live-view false
         minidit tether mode --mode movie [--exposure m]   switch photo / movie / sq

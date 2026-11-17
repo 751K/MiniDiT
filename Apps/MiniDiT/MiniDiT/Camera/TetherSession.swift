@@ -16,6 +16,13 @@ final class TetherSession {
     var liveFrame: NSImage?
     /// 最近一帧取景的 JPEG 原始数据（给 agent 用）。
     @ObservationIgnored var liveFrameData: Data?
+    /// 取景计时：最近的帧各自的取帧耗时（毫秒）、字节数和到达时间，算帧率和耗时（tether.status 的 liveViewStats）。
+    @ObservationIgnored var liveSamples: [(at: Date, fetchMs: Double, bytes: Int)] = []
+    @ObservationIgnored var liveSize: CGSize = .zero
+    /// 两次取帧之间的等待（毫秒），可用 tetherLiveViewDelayMs 覆盖。α7 V 实测：相机约每 40 毫秒（25 帧/秒）出一帧，
+    /// 请求会等到下一帧才返回（Wi-Fi 下取一帧 1024×680、约 65 KB，约 23 毫秒）。等 50 毫秒时每次都错过一帧，只有 10–12 帧/秒；
+    /// 等 10 毫秒能跟上 25 帧/秒；完全不等也是 25 帧/秒，但连接一直被取景占着，拍照、读属性要排更久的队，偶尔一帧要 200 毫秒。
+    static var liveDelayMs: Int { (UserDefaults.standard.object(forKey: "tetherLiveViewDelayMs") as? Int) ?? 10 }
     var liveViewOn = true { didSet { if liveViewOn != oldValue { restartLiveView() } } }
     var shooting = false
     var downloading = false
@@ -135,14 +142,22 @@ final class TetherSession {
             var failures = 0
             while !Task.isCancelled {
                 do {
+                    let t0 = Date()
                     if let data = try await camera.liveViewFrame(), let image = NSImage(data: data) {
+                        let now = Date()
+                        if let self {
+                            self.liveSamples.append((now, now.timeIntervalSince(t0) * 1000, data.count))
+                            if self.liveSamples.count > 60 { self.liveSamples.removeFirst(self.liveSamples.count - 60) }
+                            self.liveSize = image.size
+                        }
                         self?.liveFrame = image
                         self?.liveFrameData = data
                         let frames = await camera.focalFrames
                         if self?.focalFrames != frames { self?.focalFrames = frames }
                     }
                     failures = 0
-                    try await Task.sleep(for: .milliseconds(50))
+                    let delay = Self.liveDelayMs
+                    if delay > 0 { try await Task.sleep(for: .milliseconds(delay), tolerance: .milliseconds(2)) } else { await Task.yield() }
                 } catch is CancellationError {
                     return
                 } catch {

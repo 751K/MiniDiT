@@ -72,6 +72,7 @@ public enum SonyPropertyCatalog {
         0xD0E9: [1: "Movie", 2: "Still", 3: "S-Cinetone", 4: "Cinema", 5: "Pro", 6: "ITU709 Matrix", 7: "Black&White",
                  8: "S-Gamut3.Cine", 9: "S-Gamut3", 10: "BT.2020", 11: "709", 12: "S-Gamut", 13: "709tone"],
         0xD04D: [1: "Off", 2: "On"],
+        0xD26A: [1: "Low", 2: "High"],
         // Log 拍摄（α7 V 用 0xE000 MovieShootingMode，只在 0x9209 带扩展参数时报告）：1 关、0x501 Flexible ISO（SDK CrLogShootingMode）。
         0xE000: [1: "Off", 0x501: "FlexibleISO"],
         0xE001: [1: "S-Gamut3.Cine", 2: "S-Gamut3"],

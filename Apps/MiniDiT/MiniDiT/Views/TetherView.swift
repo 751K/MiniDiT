@@ -33,7 +33,24 @@ struct TetherWindow: View {
 struct TetherView: View {
     @Environment(AppModel.self) private var model
     @Bindable var session: TetherSession
+    /// 取景框线：总开关（底栏按钮），右键选三分网格、画幅遮罩、安全框、中心十字。
     @AppStorage("tetherGrid") private var grid = false
+    @AppStorage("tetherGuideThirds") private var guideThirds = true
+    /// 画幅遮罩的宽高比，0 = 不遮。
+    @AppStorage("tetherGuideMask") private var guideMask = 0.0
+    @AppStorage("tetherGuideSafe") private var guideSafe = false
+    @AppStorage("tetherGuideCenter") private var guideCenter = false
+    @AppStorage("tetherVectorscope") private var showVectorscope = false
+    @AppStorage("tetherVectorscopeZoom") private var vectorscopeZoom = false
+    /// 和达芬奇一样，默认用画面颜色画轨迹。
+    @AppStorage("tetherVectorscopeColor") private var vectorscopeColor = true
+    @AppStorage("tetherVectorscopeSkin") private var vectorscopeSkin = true
+    @AppStorage("tetherVectorscopePosition") private var vectorscopePosition = ""
+    @AppStorage("tetherVectorscopeSize") private var vectorscopeSize = ""
+    @AppStorage("tetherSpotMeter") private var showSpotMeter = false
+    /// 点测光钉住的位置（画面 0–1 坐标）和指针所在的位置。
+    @State private var spotPin: CGPoint?
+    @State private var spotHover: CGPoint?
     /// 变形镜头去挤压：开关和倍率分开记，关掉再开回到上次的倍率。
     @AppStorage("tetherDesqueeze") private var desqueezeOn = false
     @AppStorage("tetherDesqueezeFactor") private var desqueezeFactor = 2.0
@@ -155,14 +172,16 @@ struct TetherView: View {
 
     private var viewfinder: some View {
         ZStack {
-            if let img = session.liveFrame {
+            // 开着叠在画面上的辅助时，显示分析过的那一帧，叠加层和画面严格对齐（分析约 1–2 毫秒，几乎不增加延迟）。
+            if let img = ((showZebra || showPeaking || showFalseColor) ? aids.frame : nil) ?? session.liveFrame {
                 // 去挤压只改显示比例：叠加层、点按对焦都用相对坐标，跟着一起拉宽。
                 Image(nsImage: img).resizable()
                     .aspectRatio(img.size.height > 0 ? img.size.width * desqueeze / img.size.height : nil, contentMode: .fit)
                     .overlay { if showFalseColor, let fc = aids.result.falseColor { aidImage(fc) } }
                     .overlay { if showZebra || showPeaking, let o = aids.result.overlay { aidImage(o) } }
-                    .overlay { if grid { ThirdsGrid().stroke(.white.opacity(0.35), lineWidth: 0.5) } }
+                    .overlay { if grid { FrameGuides(mask: guideMask, thirds: guideThirds, safe: guideSafe, center: guideCenter) } }
                     .overlay { touchLayer }
+                    .overlay { if showSpotMeter { spotLayer } }
                     .accessibilityLabel("实时取景")
             } else {
                 VStack(spacing: 10) {
@@ -206,6 +225,19 @@ struct TetherView: View {
                 }
             }
             .padding(10)
+        }
+        // 测延迟用（defaults write com.kong.SonyImport tetherDebugClock -bool true）：取景区左上角显示毫秒时钟。
+        // 相机对着屏幕拍，取景画面里的时钟和这里的时钟之差就是延迟。
+        .overlay(alignment: .topLeading) {
+            if UserDefaults.standard.bool(forKey: "tetherDebugClock") {
+                TimelineView(.animation) { ctx in
+                    Text(ctx.date, format: .dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits).second(.twoDigits).secondFraction(.fractional(3)))
+                        .font(.system(size: 44, weight: .bold, design: .monospaced))
+                        .foregroundStyle(.black).padding(.horizontal, 10).background(.white)
+                }
+                .padding(.top, 60).padding(.leading, 12)
+                .allowsHitTesting(false)
+            }
         }
         .overlay(alignment: .bottomTrailing) {
             if session.downloading || session.status.pendingTransfers > 0 {
@@ -290,7 +322,16 @@ struct TetherView: View {
             }
             Spacer(minLength: 12)
             aidToggles
-            barToggle(grid, "square.grid.3x3", "网格线") { grid.toggle() }
+            barToggle(grid, "square.grid.3x3", "取景框线；右键选择网格、画幅遮罩、安全框") { grid.toggle() }
+                .contextMenu {
+                    Toggle("三分网格", isOn: $guideThirds)
+                    Picker("画幅遮罩", selection: $guideMask) {
+                        Text("不遮").tag(0.0)
+                        ForEach(FrameGuides.masks, id: \.ratio) { Text($0.title).tag($0.ratio) }
+                    }
+                    Toggle("安全框（90% / 80%）", isOn: $guideSafe)
+                    Toggle("中心十字", isOn: $guideCenter)
+                }
             barToggle(desqueezeOn, "arrow.left.and.right.square", "变形镜头去挤压（\(Self.desqueezeText(desqueezeFactor))）；右键选择倍率") {
                 desqueezeOn.toggle()
             }
@@ -299,9 +340,6 @@ struct TetherView: View {
                     ForEach(Self.desqueezeFactors, id: \.self) { Text(Self.desqueezeText($0)).tag($0) }
                 }
                 .pickerStyle(.inline)
-            }
-            barToggle(!session.liveViewOn, session.liveViewOn ? "eye" : "eye.slash", session.liveViewOn ? "关闭取景（照片接收更快）" : "打开取景") {
-                session.liveViewOn.toggle()
             }
             barToggle(session.focusLocked, "scope", "锁定对焦：相当于半按快门（F）") { session.setFocusLock(!session.focusLocked) }
                 .keyboardShortcut("f", modifiers: [])
@@ -460,23 +498,13 @@ struct TetherView: View {
         return true
     }
 
-    /// 底部格子按这些文字里最宽的预留宽度。白平衡后面带微调（A5 M2.75），每种模式和「8888K」都带上同样的微调来算，
-    /// 在日光、色温之间切换时格子不变宽窄。
+    /// 底部格子按这些文字里最宽的预留宽度（白平衡另算「8888K」），在日光、色温之间切换时格子不变宽窄。
     private func reserveTexts(_ s: CameraSetting) -> [String] {
         let labels = s.options.map(\.label).filter { $0.count <= 7 }
-        guard s.kind == .whiteBalance else { return labels }
-        let tint = wbTint().map { " " + $0 } ?? ""
-        return (labels + ["8888K"]).map { $0 + tint }
+        return s.kind == .whiteBalance ? labels + ["8888K"] : labels
     }
 
-    /// 白平衡微调的显示（A5 M2.75），都为 0 时为 nil。
-    private func wbTint() -> String? {
-        let p = session.properties
-        let tint = [UInt16(0xD21C), 0xD210].compactMap { c in p[c]?.intValue.flatMap { SonyPropertyCatalog.label(c, $0) } }.filter { $0 != "0" }
-        return tint.isEmpty ? nil : tint.joined(separator: " ")
-    }
-
-    /// 白平衡在色温或自定义时显示 K 值和微调，其余显示模式名。
+    /// 白平衡在色温或自定义时显示 K 值，其余显示模式名（微调只在侧栏显示）。
     private func cellValue(_ s: CameraSetting) -> String {
         let hoverValue = picking == s.kind ? preview : nil
         let pendingValue = pending.flatMap { $0.kind == s.kind && $0.value != s.currentValue ? $0.value : nil }
@@ -491,7 +519,7 @@ struct TetherView: View {
         if hoverValue != nil, hoverValue != s.currentValue { return text }
         let k = (picking == s.kind ? tempPreview : nil) ?? tempPending ?? p[0xD20F]?.intValue
         if wb == 0x8012 || (0x8020...0x8023).contains(wb), let k, k > 0 { text = "\(k)K" }
-        return wbTint().map { text + " " + $0 } ?? text
+        return text
     }
 
     // MARK: 拍摄辅助
@@ -499,6 +527,7 @@ struct TetherView: View {
     private var aidOptions: ViewfinderAidOptions {
         ViewfinderAidOptions(histogram: showHistogram, waveform: showWaveform, zebra: showZebra, peaking: showPeaking,
                              falseColor: showFalseColor,
+                             vectorscope: showVectorscope, vectorscopeZoom: vectorscopeZoom, vectorscopeColor: vectorscopeColor, spotMeter: showSpotMeter,
                              zebraMode: .init(rawValue: zebraMode) ?? .lowerLimit,
                              zebraLevel: zebraLevel, zebraCenter: zebraCenter, zebraRange: zebraRange,
                              peakingColor: .init(rawValue: peakingColor) ?? .red,
@@ -509,16 +538,7 @@ struct TetherView: View {
                              logInput: liveViewIsLog)
     }
 
-    /// 取景画面是不是 S-Log3：Log 拍摄打开且监看 LUT 关闭（实测 LUT 打开时传到电脑的取景已套 LUT），
-    /// 或者图片配置文件的伽马是 S-Log3。
-    private var liveViewIsLog: Bool {
-        let p = session.properties
-        if let log = p[0xE000], log.isEnabled != 0, log.intValue == 0x501 {
-            return p[0xD04D]?.intValue == 1
-        }
-        if let pp = p[0xD23F]?.intValue, pp != 0, p[0xD0E1]?.intValue == 0x303 { return true }
-        return false
-    }
+    private var liveViewIsLog: Bool { session.liveViewIsLog }
 
     /// 常见变形镜头倍率。
     static let desqueezeFactors: [Double] = [1.25, 1.33, 1.5, 1.6, 1.8, 2.0]
@@ -529,13 +549,57 @@ struct TetherView: View {
 
     private var desqueeze: Double { desqueezeOn ? desqueezeFactor : 1 }
 
+    /// 点测光层：盖在取景画面上（开着时接管点按，不再触摸对焦）。指针处显示读数，点按钉住一个点，再点同一处附近取消。
+    private var spotLayer: some View {
+        GeometryReader { geo in
+            let size = geo.size
+            ZStack {
+                Color.clear.contentShape(Rectangle())
+                    .onContinuousHover(coordinateSpace: .local) { phase in
+                        if case let .active(loc) = phase, size.width > 0 { spotHover = CGPoint(x: loc.x / size.width, y: loc.y / size.height) }
+                        else { spotHover = nil }
+                    }
+                    .onTapGesture(coordinateSpace: .local) { loc in
+                        guard size.width > 0, size.height > 0 else { return }
+                        let p = CGPoint(x: loc.x / size.width, y: loc.y / size.height)
+                        if let pin = spotPin, hypot((pin.x - p.x) * size.width, (pin.y - p.y) * size.height) < 12 { spotPin = nil } else { spotPin = p }
+                    }
+                if let pin = spotPin { spotMarker(pin, size: size, pinned: true) }
+                if let h = spotHover { spotMarker(h, size: size, pinned: false) }
+            }
+        }
+    }
+
+    @ViewBuilder private func spotMarker(_ p: CGPoint, size: CGSize, pinned: Bool) -> some View {
+        if let s = aids.result.sampler, let r = s.sample(p) {
+            let pct = Int((Double(r.luma) / 255 * 100).rounded())
+            let stops = ViewfinderAnalysis.stops(r.luma, log: aids.result.logInput)
+            let x = p.x * size.width, y = p.y * size.height
+            ZStack {
+                Circle().strokeBorder(.white, lineWidth: pinned ? 1.5 : 1).frame(width: 14, height: 14)
+                    .shadow(color: .black.opacity(0.7), radius: 1)
+                    .position(x: x, y: y)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("\(pct)%  \(String(format: "%+.1f", stops)) 档").font(.system(size: 11, weight: .semibold).monospacedDigit())
+                    Text("R \(r.r)  G \(r.g)  B \(r.b)").font(.system(size: 9).monospacedDigit()).foregroundStyle(.white.opacity(0.7))
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 6).padding(.vertical, 3)
+                .background(.black.opacity(pinned ? 0.75 : 0.55), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+                .fixedSize()
+                .position(x: min(max(x + 62, 60), size.width - 60), y: y + (y > size.height - 40 ? -26 : 26))
+            }
+            .allowsHitTesting(false)
+        }
+    }
+
     private func aidImage(_ image: CGImage) -> some View {
         Image(decorative: image, scale: 1).resizable().interpolation(.none).allowsHitTesting(false)
     }
 
     /// 直方图和波形图是可拖动的浮动面板（位置按取景区域的比例记住，双击回到默认位置）；伪色图例固定在左下角。
     @ViewBuilder private var aidPanels: some View {
-        if session.liveFrame != nil, showHistogram || showWaveform || showFalseColor {
+        if session.liveFrame != nil, showHistogram || showWaveform || showFalseColor || showVectorscope {
             GeometryReader { geo in
                 // 默认位置：左下角并排，开着伪色时让出图例那一行。
                 let bottom = geo.size.height - 10 - (showFalseColor ? 30 : 0)
@@ -561,6 +625,13 @@ struct TetherView: View {
                             WaveformView(image: wf, mode: aids.result.waveformMode)
                         }
                     }
+                    if showVectorscope, let vs = aids.result.vectorscope {
+                        FloatingAidPanel(position: $vectorscopePosition, sizeText: $vectorscopeSize, container: geo.size,
+                                         defaultSize: CGSize(width: 160, height: 160),
+                                         defaultCenter: CGPoint(x: geo.size.width - 10 - 80, y: bottom - 80)) {
+                            VectorscopeView(image: vs, zoom: aids.result.vectorscopeZoom, skinLine: vectorscopeSkin)
+                        }
+                    }
                 }
             }
         }
@@ -582,6 +653,16 @@ struct TetherView: View {
                 }
                 .pickerStyle(.inline)
             }
+        barToggle(showVectorscope, "target", "矢量示波器；右键放大 2 倍（Log 画面饱和度低时用）") { showVectorscope.toggle() }
+            .contextMenu {
+                Toggle("放大 2 倍", isOn: $vectorscopeZoom)
+                Toggle("彩色轨迹", isOn: $vectorscopeColor)
+                Toggle("肤色线", isOn: $vectorscopeSkin)
+            }
+        barToggle(showSpotMeter, "eyedropper.halffull", "点测光：指针所在处显示亮度和档位，点按钉住一个测光点（开着时点按画面不对焦）") {
+            showSpotMeter.toggle()
+            if !showSpotMeter { spotPin = nil; spotHover = nil }
+        }
         barToggle(showFalseColor, "swatchpalette", "伪色；右键切换按档位或按百分比") { showFalseColor.toggle() }
             .contextMenu {
                 Picker("伪色", selection: $falseColorMode) {
@@ -1230,6 +1311,61 @@ private struct FloatingAidPanel<Content: View>: View {
     }
 }
 
+/// 取景框线：画幅遮罩（遮掉画幅外的部分，边上画一条细线）、在可见区域里的三分网格、90% / 80% 安全框和中心十字。
+private struct FrameGuides: View {
+    let mask: Double
+    let thirds: Bool
+    let safe: Bool
+    let center: Bool
+
+    static let masks: [(ratio: Double, title: String)] = [
+        (2.39, "2.39:1 宽银幕"), (2.0, "2:1"), (1.85, "1.85:1"), (16.0 / 9, "16:9"), (4.0 / 3, "4:3"),
+        (1, "1:1"), (0.8, "4:5 竖"), (9.0 / 16, "9:16 竖屏"),
+    ]
+
+    var body: some View {
+        GeometryReader { geo in
+            let full = CGRect(origin: .zero, size: geo.size)
+            let area = active(in: full)
+            ZStack {
+                if area != full {
+                    Path { p in p.addRect(full); p.addRect(area) }
+                        .fill(.black.opacity(0.6), style: FillStyle(eoFill: true))
+                    Path(area).stroke(.white.opacity(0.5), lineWidth: 0.5)
+                }
+                if thirds { ThirdsGrid().stroke(.white.opacity(0.35), lineWidth: 0.5).frame(width: area.width, height: area.height).position(x: area.midX, y: area.midY) }
+                if safe {
+                    ForEach([0.9, 0.8], id: \.self) { k in
+                        Path(area.insetBy(dx: area.width * (1 - k) / 2, dy: area.height * (1 - k) / 2))
+                            .stroke(.white.opacity(0.4), style: StrokeStyle(lineWidth: 0.5, dash: [4, 3]))
+                    }
+                }
+                if center {
+                    Path { p in
+                        p.move(to: CGPoint(x: area.midX - 10, y: area.midY)); p.addLine(to: CGPoint(x: area.midX + 10, y: area.midY))
+                        p.move(to: CGPoint(x: area.midX, y: area.midY - 10)); p.addLine(to: CGPoint(x: area.midX, y: area.midY + 10))
+                    }
+                    .stroke(.white.opacity(0.75), lineWidth: 1)
+                }
+            }
+        }
+        .allowsHitTesting(false)
+    }
+
+    /// 遮罩后的可见区域：画面比遮罩宽就遮左右，否则遮上下。
+    private func active(in r: CGRect) -> CGRect {
+        guard mask > 0, r.width > 0, r.height > 0 else { return r }
+        let aspect = r.width / r.height
+        if abs(aspect - mask) < 0.01 { return r }
+        if aspect > mask {
+            let w = r.height * mask
+            return CGRect(x: (r.width - w) / 2, y: 0, width: w, height: r.height)
+        }
+        let h = r.width / mask
+        return CGRect(x: 0, y: (r.height - h) / 2, width: r.width, height: h)
+    }
+}
+
 private struct ThirdsGrid: Shape {
     func path(in r: CGRect) -> Path {
         var p = Path()
@@ -1255,15 +1391,12 @@ private struct TetherSidebar: View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
+                    // 分组之间不画分割线，靠留白和分组标题区分。
                     review.padding(14)
-                    Hairline()
-                    whiteBalanceCard.padding(.horizontal, 14).padding(.vertical, 12)
-                    movieCard
+                    // 拍摄时常调的展开放在上面；一次性设好的收成「设置」里的摘要行，点开弹出完整列表（像机身的二级菜单）。
                     focusCard
-                    shootingCard
-                    lookCard
-                    photoCard
-                    lensCard
+                    whiteBalanceCard.padding(.horizontal, 14).padding(.vertical, 12)
+                    settingsCard
                 }
             }
             Hairline()
@@ -1397,27 +1530,42 @@ private struct TetherSidebar: View {
     private var whiteBalanceCard: some View {
         let p = session.properties
         // 模式和色温在底部白平衡弹出框里选；侧栏只放微调和取白。
+        let shifted = [UInt16(0xD21C), 0xD210].contains { p[$0]?.intValue.map { $0 != 192 } ?? false }
+        let shiftWritable = p[0xD21C]?.isWritable == true && p[0xD210]?.isWritable == true && !session.lost
         return VStack(alignment: .leading, spacing: 4) {
-            collapsibleTitle("白平衡")
+            collapsibleTitle("白平衡") {
+                if shifted {
+                    Button {
+                        for c in [UInt16(0xD21C), 0xD210] where p[c]?.intValue != 192 { session.setProperty(c, 192) }
+                    } label: { Image(systemName: "arrow.counterclockwise").font(.system(size: 10, weight: .semibold)) }
+                    .buttonStyle(.borderless).help("微调回到 0").disabled(!shiftWritable)
+                    .accessibilityLabel("微调回到 0")
+                }
+            }
             if !isCollapsed("白平衡") { PanelCard {
                 if let ab = p[0xD21C], let gm = p[0xD210] {
-                    WBShiftPad(session: session, ab: ab, gm: gm)
+                    WBShiftSliders(session: session, ab: ab, gm: gm)
                 }
                 if p[0xD270] != nil {
                     if p[0xD21C] != nil, p[0xD210] != nil { PanelDivider() }
-                    PanelRow("取白", enabled: session.busy == nil && !session.lost) {
+                    // 取白和取白框放一行：框大小是取白时才用的设置。
+                    PanelRow("自定义白平衡", enabled: session.busy == nil && !session.lost) {
+                        if let size = p[0xD135], let v = size.intValue, !size.allowedValues.isEmpty {
+                            ValueMenu(text: "框 " + PropertyRow.text(0xD135, v), options: size.allowedValues.map { ($0, PropertyRow.text(0xD135, $0)) },
+                                      current: v) { session.setProperty(0xD135, $0) }
+                                .disabled(!size.isWritable)
+                                .help("取白框大小")
+                        }
                         Menu {
                             ForEach(1...3, id: \.self) { slot in
                                 Button("存入自定义 \(slot)") { captureWB(slot) }
                             }
                         } label: {
-                            Label("取白", systemImage: "eyedropper")
+                            MenuValueLabel(text: "取白…")
                         }
-                        .menuStyle(.button).controlSize(.small).fixedSize()
+                        .sidebarMenuStyle()
                         .help("先让相机对准灰卡或白纸，再选择存入哪个自定义白平衡。会覆盖该槽位原来的结果。")
                     }
-                    if p[0xD135] != nil { PanelDivider() }
-                    PropertyRow(session: session, title: "取白框", code: 0xD135)
                 }
             } }
         }
@@ -1430,58 +1578,35 @@ private struct TetherSidebar: View {
         }
     }
 
-    /// 拍照时的存储设置。统一记录和分卡槽各有一组属性，哪组可写取决于记录媒体设置：用可写的那组（都不可写时用相机报告了的）。
-    private var photoCard: some View {
-        let p = session.properties
-        func pick(_ codes: [UInt16]) -> [UInt16] {
-            (codes.first { p[$0]?.isWritable == true } ?? codes.first { p[$0] != nil }).map { [$0] } ?? []
-        }
-        let rows: [(String, UInt16)] = pick([0xD28B, 0xD253]).map { ("文件格式", $0) } + [("压缩格式", 0xD287)]
-            + pick([0xD28D, 0xD252]).map { ("画质", $0) } + pick([0xD28F, 0xD203]).map { ("图像尺寸", $0) }
-            + pick([0xD289, 0xD288]).map { ("RAW 压缩", $0) }
-            + [("传到电脑", 0xD269), ("色彩空间", 0xD15E), ("DRO", 0xD201)]
-        return propertySection("照片", rows)
-    }
-
     /// 调焦：近 ↔ 远滑块、两个记忆点和拉焦（相机能远程调焦时才显示）。
     @ViewBuilder private var focusCard: some View {
         if let c = session.focusControl, let shown = session.focusShown {
-            Hairline()
             VStack(alignment: .leading, spacing: 4) {
                 collapsibleTitle("对焦")
                 if !isCollapsed("对焦") {
                     PanelCard {
-                        FocusSlider(range: c.range, value: shown, marks: session.focusMarks, distance: session.focusDistanceText,
-                                    enabled: !session.lost) {
+                        FocusHeader(session: session)
+                        FocusSlider(range: c.range, value: shown, marks: session.focusMarks, enabled: !session.lost) {
                             session.moveFocus(to: $0)
                         }
-                        if session.properties[0xD254] != nil {
-                            PanelDivider()
-                            magnifierRow
-                        }
-                        if !session.isManualFocus {
-                            PanelDivider()
-                            PanelRow("自动对焦时相机会重新对焦") {
-                                Button("切到 MF") { session.switchToManualFocus() }
-                                    .controlSize(.small)
-                                    .disabled(session.properties[SonyProperty.focusMode]?.isWritable != true)
-                            }
-                        }
-                        ForEach(["A", "B"], id: \.self) { name in
-                            PanelDivider()
-                            PanelRow("记忆点 \(name)") {
-                                Button("记下") { session.markFocus(name) }
-                                    .help("把现在的对焦位置记为 \(name)")
-                                Button("拉过去") { session.pullFocus(to: session.focusMarks[name] ?? shown, seconds: pullSeconds) }
-                                    .disabled(session.focusMarks[name] == nil)
-                                    .help(pullSeconds == 0 ? "直接跳到 \(name)" : "用 \(Self.secondsText(pullSeconds))平滑拉到 \(name)")
-                            }
-                            .controlSize(.small)
-                        }
-                        PanelDivider()
-                        PanelRow("拉焦时长") {
-                            ValueMenu(text: Self.secondsText(pullSeconds), options: [0, 1, 2, 4, 8].map { (Int64($0), Self.secondsText(Double($0))) },
+                        HStack(spacing: 6) {
+                            ForEach(["A", "B"], id: \.self) { FocusMarkChip(session: session, name: $0, seconds: pullSeconds) }
+                            Spacer(minLength: 6)
+                            ValueMenu(text: "拉焦 " + Self.secondsText(pullSeconds),
+                                      options: [0, 1, 2, 4, 8].map { (Int64($0), Self.secondsText(Double($0))) },
                                       current: Int64(pullSeconds)) { pullSeconds = Double($0) }
+                                .help("点记忆点时拉焦用的时长")
+                        }
+                        .frame(minHeight: 30)
+                        // 放大只在相机允许时出现（α7 V：拍照模式、MF）。
+                        if let m = session.magnifier {
+                            let ratios = m.ratios.filter { $0 > 10 }
+                            PanelRow("放大", enabled: !session.lost) {
+                                ValueMenu(text: m.isOn ? TetherSession.ratioText(m.ratio) : "关",
+                                          options: [(Int64(0), "关")] + ratios.map { ($0, TetherSession.ratioText($0)) },
+                                          current: m.isOn ? m.ratio : 0) { session.setMagnifier($0) }
+                            }
+                            .help("放大取景画面检查焦点；放大时点按画面移动放大区域，Esc 退出")
                         }
                     }
                 }
@@ -1492,68 +1617,74 @@ private struct TetherSidebar: View {
 
     private static func secondsText(_ s: Double) -> String { s == 0 ? "即时" : "\(Int(s)) 秒" }
 
-    /// 放大对焦：关 / 各倍率（相机列出的，×1.0 不算）。录像模式下相机不让远程放大，这时整行变灰并说明。
-    private var magnifierRow: some View {
-        let m = session.magnifier
-        let ratios = (m?.ratios ?? []).filter { $0 > 10 }
-        return PanelRow("放大", enabled: m != nil && !session.lost) {
-            Picker("放大", selection: Binding(get: { m?.ratio ?? 0 }, set: { session.setMagnifier($0) })) {
-                Text("关").tag(Int64(0))
-                ForEach(ratios, id: \.self) { Text(TetherSession.ratioText($0)).tag($0) }
-            }
-            .pickerStyle(.segmented).labelsHidden().controlSize(.small).fixedSize()
-        }
-        .help(m == nil ? "相机现在不支持远程放大（α7 V 在拍照模式、MF 时可用）" : "放大取景画面检查焦点；放大时点按画面移动放大区域，Esc 退出")
-    }
-
-    /// 对焦和驱动模式（驱动模式只在拍照时可用）。
-    private var shootingCard: some View {
-        propertySection("拍摄", [("对焦模式", 0x500A), ("驱动模式", 0x5013), ("点按画面", 0xD283)])
-    }
-
-    /// 创意外观和各项参数。换外观时各参数会跳到该外观的默认值，相机会回报新值。
-    private var lookCard: some View {
-        propertySection("创意外观", [("外观", 0xD0FA), ("对比度", 0xD0FB), ("高光", 0xD0FC), ("阴影", 0xD0FD), ("褪色", 0xD0FE),
-                                    ("饱和度", 0xD0FF), ("锐度", 0xD100), ("锐度范围", 0xD101), ("清晰度", 0xD102)])
-    }
-
-    private var lensCard: some View {
-        propertySection("镜头补偿", [("暗角补偿", 0xD1A2), ("色差补偿", 0xD1A3)])
-    }
-
-    /// 录像 / S&Q 时的格式、码率、帧率（拍照时不显示）。
-    @ViewBuilder private var movieCard: some View {
-        switch session.shootingMode {
-        // Log 拍摄打开时图片配置文件和伽马 / 色彩模式不可用（相机报告未启用，自动不显示），这时可改 Log 色域、Base Look 和监看 LUT。
-        case .movie?: propertySection("录像", [("文件格式", 0xD241), ("码率", 0xD242), ("帧率", 0xD286)] + Self.lookRows)
-        case .sq?: propertySection("慢快动作", [("文件格式", 0xD241), ("码率", 0xD0D1), ("记录帧率", 0xD0D0), ("慢快帧率", 0xD052)] + Self.lookRows)
-        case .interval?: propertySection("间隔录像", [("文件格式", 0xD241), ("录像设置", 0xD152), ("记录帧率", 0xD151), ("拍摄间隔", 0xD055)] + Self.lookRows)
-        default: EmptyView()
-        }
-    }
-
-    private static let lookRows: [(String, UInt16)] = [("Log 拍摄", 0xE000), ("Log 色域", 0xE001), ("图片配置文件", 0xD23F), ("伽马", 0xD0E1), ("色彩模式", 0xD0E9),
-                                                       ("Base Look", 0xD03C), ("监看 LUT", 0xD04D)]
-
-    /// 一段属性：相机没报告或不可用的行不显示；一行都没有时整段（连同上面的分隔线）不显示，免得留一条空的。
-    @ViewBuilder private func propertySection(_ title: String, _ rows: [(String, UInt16)]) -> some View {
-        let p = session.properties
-        let shown = rows.filter { r in p[r.1].map { $0.isEnabled != 0 && !$0.allowedValues.isEmpty } ?? false }
-        if !shown.isEmpty {
-            Hairline()
+    /// 「设置」：每组一行摘要，点开弹出该组的完整列表。相机没报告或未启用的项不显示，整组都没有时不显示这一行。
+    @ViewBuilder private var settingsCard: some View {
+        let groups = settingGroups.filter { !shownRows($0.rows).isEmpty }
+        if !groups.isEmpty {
             VStack(alignment: .leading, spacing: 4) {
-                collapsibleTitle(title)
-                if !isCollapsed(title) {
+                collapsibleTitle("设置")
+                if !isCollapsed("设置") {
                     PanelCard {
-                        ForEach(Array(shown.enumerated()), id: \.element.1) { i, r in
-                            if i > 0 { PanelDivider() }
-                            PropertyRow(session: session, title: r.0, code: r.1)
+                        ForEach(groups, id: \.title) { g in
+                            SettingsSummaryRow(session: session, title: g.title, rows: shownRows(g.rows), summary: g.summary)
                         }
                     }
                 }
             }
             .padding(.horizontal, 14).padding(.vertical, 12)
         }
+    }
+
+    private struct SettingGroup { let title: String; let rows: [(String, UInt16)]; let summary: [UInt16] }
+
+    private var settingGroups: [SettingGroup] {
+        var list: [SettingGroup] = []
+        switch session.shootingMode {
+        // Log 拍摄打开时图片配置文件和伽马 / 色彩模式不可用（相机报告未启用，自动不显示），这时可改 Log 色域、Base Look 和监看 LUT。
+        case .movie?: list.append(SettingGroup(title: "录像", rows: [("文件格式", 0xD241), ("码率", 0xD242), ("帧率", 0xD286)], summary: [0xD241, 0xD286, 0xD242]))
+        case .sq?: list.append(SettingGroup(title: "慢快动作", rows: [("文件格式", 0xD241), ("码率", 0xD0D1), ("记录帧率", 0xD0D0), ("慢快帧率", 0xD052)], summary: [0xD052, 0xD0D0, 0xD241]))
+        case .interval?: list.append(SettingGroup(title: "间隔录像", rows: [("文件格式", 0xD241), ("录像设置", 0xD152), ("记录帧率", 0xD151), ("拍摄间隔", 0xD055)], summary: [0xD055, 0xD151, 0xD241]))
+        default: break
+        }
+        if session.shootingMode != nil, session.shootingMode != .photo {
+            list.append(SettingGroup(title: "Log 与画面", rows: Self.lookRows, summary: [0xE000, 0xD03C, 0xD04D, 0xD23F]))
+        }
+        list.append(SettingGroup(title: "照片", rows: photoRows, summary: [photoRows.first?.1 ?? 0xD253, 0xD287] + photoRows.filter { $0.0 == "画质" || $0.0 == "图像尺寸" }.map(\.1)))
+        // 创意外观只在拍照时显示：录像时画面由 Log / 图片配置文件决定（相机在录像模式下也可能仍报告它可写）。
+        if session.shootingMode == .photo || session.shootingMode == nil {
+            list.append(SettingGroup(title: "创意外观", rows: [("外观", 0xD0FA)] + Self.lookParams, summary: [0xD0FA]))
+        }
+        // 对焦卡片顶部已有对焦模式；相机不能远程调焦（没有对焦卡片）时才放在这里。
+        let focusRow: [(String, UInt16)] = session.focusControl == nil ? [("对焦模式", 0x500A)] : []
+        list.append(SettingGroup(title: "拍摄", rows: focusRow + [("驱动模式", 0x5013), ("点按画面", 0xD283)], summary: focusRow.map(\.1) + [0x5013, 0xD283]))
+        list.append(SettingGroup(title: "镜头补偿", rows: [("暗角补偿", 0xD1A2), ("色差补偿", 0xD1A3)], summary: [0xD1A2, 0xD1A3]))
+        // 低画质分辨率减半，但 Wi-Fi 下更顺、延迟略低；检查对焦时用高。
+        list.append(SettingGroup(title: "取景", rows: [("取景画质", 0xD26A)], summary: [0xD26A]))
+        return list
+    }
+
+    private func shownRows(_ rows: [(String, UInt16)]) -> [(String, UInt16)] {
+        let p = session.properties
+        return rows.filter { r in p[r.1].map { $0.isEnabled != 0 && !$0.allowedValues.isEmpty } ?? false }
+    }
+
+    private static let lookParams: [(String, UInt16)] = [("对比度", 0xD0FB), ("高光", 0xD0FC), ("阴影", 0xD0FD), ("褪色", 0xD0FE),
+                                                          ("饱和度", 0xD0FF), ("锐度", 0xD100), ("锐度范围", 0xD101), ("清晰度", 0xD102)]
+
+    private static let lookRows: [(String, UInt16)] = [("Log 拍摄", 0xE000), ("Log 色域", 0xE001), ("图片配置文件", 0xD23F), ("伽马", 0xD0E1), ("色彩模式", 0xD0E9),
+                                                       ("Base Look", 0xD03C), ("监看 LUT", 0xD04D)]
+
+    /// 拍照时的存储设置（「设置」里的「照片」一组）。统一记录和分卡槽各有一组属性，哪组可写取决于记录媒体设置：用可写的那组（都不可写时用相机报告了的）。
+    private var photoRows: [(String, UInt16)] {
+        let p = session.properties
+        func pick(_ codes: [UInt16]) -> [UInt16] {
+            (codes.first { p[$0]?.isWritable == true } ?? codes.first { p[$0] != nil }).map { [$0] } ?? []
+        }
+        let rows: [(String, UInt16)] = pick([0xD28B, 0xD253]).map { ("文件格式", $0) } + [("压缩格式", 0xD287)]
+            + pick([0xD28D, 0xD252]).map { ("画质", $0) } + pick([0xD28F, 0xD203]).map { ("图像尺寸", $0) }
+            + pick([0xD289, 0xD288]).map { ("RAW 压缩", $0) }
+            + [("传到电脑", 0xD269), ("色彩空间", 0xD15E), ("DRO", 0xD201)]
+        return rows
     }
 
     // MARK: 导入
@@ -1648,43 +1779,214 @@ private struct PanelRow<Trailing: View>: View {
     }
 }
 
-/// 调焦滑块：左近右远（相机的值越大越近，所以反过来画），记忆点 A / B 标在滑块上方。
+/// 对焦卡片顶部：大号距离读数（没有换算表时显示位置百分比），右边是对焦模式菜单。
+private struct FocusHeader: View {
+    let session: TetherSession
+
+    var body: some View {
+        let mode = session.properties[SonyProperty.focusMode]
+        HStack(alignment: .firstTextBaseline) {
+            Text(session.focusDistanceText ?? positionText)
+                .font(.system(size: 22, weight: .semibold, design: .rounded).monospacedDigit())
+                .contentTransition(.numericText())
+            Spacer()
+            if let mode, let v = mode.intValue, !mode.allowedValues.isEmpty {
+                ValueMenu(text: PropertyRow.text(mode.code, v),
+                          options: mode.allowedValues.map { ($0, PropertyRow.text(mode.code, $0)) }, current: v) {
+                    session.setProperty(mode.code, $0)
+                }
+                .disabled(!mode.isWritable || session.lost)
+                .help(session.isManualFocus ? "对焦模式" : "自动对焦时相机会自己重新对焦，调焦不一定保持；切到 MF 再调")
+            }
+        }
+        .padding(.top, 2).padding(.bottom, 4)
+    }
+
+    private var positionText: String {
+        guard let c = session.focusControl, let v = session.focusShown, c.range.upperBound > c.range.lowerBound else { return "—" }
+        let f = Double(c.range.upperBound - v) / Double(c.range.upperBound - c.range.lowerBound)
+        return "\(Int((f * 100).rounded()))%"
+    }
+}
+
+/// 调焦刻度条：左近右远（相机的值越大越近，所以反过来画）。点按跳到该处，拖动连续调；记忆点 A / B 用小三角标在下方。
 private struct FocusSlider: View {
     let range: ClosedRange<Int64>
     let value: Int64
     let marks: [String: Int64]
-    /// 对焦距离（相机给了换算表时才有）。
-    let distance: String?
     let enabled: Bool
     let move: (Int64) -> Void
+    @State private var hovering = false
+
+    static func markColor(_ name: String) -> Color { name == "A" ? Color(red: 1, green: 0.62, blue: 0.2) : Color(red: 0.35, green: 0.78, blue: 1) }
 
     private func fraction(_ v: Int64) -> Double {
         Double(range.upperBound - v) / Double(range.upperBound - range.lowerBound)
     }
 
     var body: some View {
-        VStack(spacing: 2) {
-            GeometryReader { geo in
+        // 和白平衡滑杆同一种样子：细轨道 + 白色圆钮；记忆点是轨道下方的小三角。左近右远。
+        GeometryReader { geo in
+            let w = geo.size.width
+            let x = 7 + fraction(value) * (w - 14)
+            ZStack(alignment: .topLeading) {
+                Capsule().fill(.white.opacity(0.14)).frame(height: 4).offset(y: 7)
+                Capsule().fill(Color.accentColor.opacity(0.7)).frame(width: max(x, 0), height: 4).offset(y: 7)
                 ForEach(marks.sorted { $0.key < $1.key }, id: \.key) { name, v in
-                    Text(name).font(.system(size: 9, weight: .semibold)).foregroundStyle(.secondary)
-                        .position(x: 8 + fraction(v) * (geo.size.width - 16), y: 5)
+                    Triangle().fill(Self.markColor(name)).frame(width: 7, height: 5)
+                        .position(x: 7 + fraction(v) * (w - 14), y: 19)
                 }
+                Circle().fill(.white).frame(width: 14, height: 14)
+                    .shadow(color: .black.opacity(0.5), radius: 1.5)
+                    .scaleEffect(hovering ? 1.1 : 1)
+                    .position(x: x, y: 9)
             }
-            .frame(height: 10)
-            Slider(value: Binding(get: { fraction(value) }, set: { f in
+            .contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 0).onChanged { g in
+                guard enabled, w > 14 else { return }
+                let f = min(max((g.location.x - 7) / (w - 14), 0), 1)
                 move(range.upperBound - Int64((f * Double(range.upperBound - range.lowerBound)).rounded()))
-            }), in: 0...1)
-            .controlSize(.small)
-            .disabled(!enabled)
-            .accessibilityLabel("对焦位置")
-            HStack {
-                Text("近"); Spacer()
-                if let distance { Text(distance).monospacedDigit().foregroundStyle(.primary) }
-                Spacer(); Text("远")
-            }
-            .font(.system(size: 10)).foregroundStyle(.secondary)
+            })
+            .onHover { hovering = $0 }
         }
-        .padding(.vertical, 4)
+        .frame(height: 22)
+        .opacity(enabled ? 1 : 0.5)
+        .accessibilityElement()
+        .accessibilityLabel("对焦位置，左近右远")
+        .accessibilityValue("\(Int((fraction(value) * 100).rounded()))%")
+        .help("左近右远")
+        .padding(.bottom, 2)
+    }
+}
+
+private struct Triangle: Shape {
+    func path(in r: CGRect) -> Path {
+        Path { p in p.move(to: CGPoint(x: r.midX, y: r.minY)); p.addLine(to: CGPoint(x: r.maxX, y: r.maxY)); p.addLine(to: CGPoint(x: r.minX, y: r.maxY)); p.closeSubpath() }
+    }
+}
+
+/// 记忆点标签：没记时点按记下现在的位置；记过后点按拉焦过去，右键可重新记下或清除。
+private struct FocusMarkChip: View {
+    let session: TetherSession
+    let name: String
+    let seconds: Double
+    @State private var hovering = false
+
+    var body: some View {
+        let v = session.focusMarks[name]
+        let color = FocusSlider.markColor(name)
+        Button {
+            if let v { session.pullFocus(to: v, seconds: seconds) } else { session.markFocus(name) }
+        } label: {
+            HStack(spacing: 5) {
+                Text(name).font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(v == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(color))
+                Text(label(v)).font(.system(size: 11).monospacedDigit())
+                    .foregroundStyle(v == nil ? .tertiary : .primary)
+            }
+            .padding(.horizontal, 8).frame(height: 24)
+            .background(RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(v != nil ? color.opacity(hovering ? 0.26 : 0.16) : .white.opacity(hovering ? 0.1 : 0.06)))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(session.lost)
+        .onHover { hovering = $0 }
+        .contextMenu {
+            Button("记下当前位置") { session.markFocus(name) }
+            Button("清除") { session.clearFocusMark(name) }.disabled(v == nil)
+        }
+        .help(v == nil ? "点按记下现在的对焦位置为 \(name)" : "点按拉焦到 \(name)；右键重新记下或清除")
+    }
+
+    private func label(_ v: Int64?) -> String {
+        guard let v else { return "记下" }
+        return session.focusDistanceText(at: v) ?? "拉过去"
+    }
+}
+
+/// 「设置」里的一行：标题 + 几项当前值的摘要 + 箭头，点按弹出这一组的完整列表。
+private struct SettingsSummaryRow: View {
+    let session: TetherSession
+    let title: String
+    let rows: [(String, UInt16)]
+    let summary: [UInt16]
+    @State private var open = false
+    @State private var hovering = false
+
+    var body: some View {
+        Button { open.toggle() } label: {
+            HStack(spacing: 8) {
+                Text(title).foregroundStyle(.secondary)
+                Spacer(minLength: 8)
+                Text(summaryText).foregroundStyle(.primary).lineLimit(1).truncationMode(.tail)
+                Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold)).foregroundStyle(.tertiary)
+            }
+            .font(.system(size: 12))
+            .padding(.horizontal, 6).frame(minHeight: 28)
+            .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(.white.opacity(hovering || open ? 0.07 : 0)))
+            .contentShape(Rectangle())
+            .padding(.horizontal, -6)
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .popover(isPresented: $open, arrowEdge: .leading) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary).padding(.bottom, 4)
+                ForEach(rows, id: \.1) { PropertyRow(session: session, title: $0.0, code: $0.1) }
+            }
+            .padding(14).frame(width: 250)
+        }
+        .help("点按查看和修改\(title)的全部设置")
+    }
+
+    private static let shortNames: [UInt16: String] = [0xD0FB: "对比", 0xD0FF: "饱和"]
+    /// 这些项单写值看不出是哪个，要带上名字（值都一样时合成一个，比如两项都是「自动」只写「自动」）。
+    private static let namedValues: [UInt16: String] = [0xD1A2: "暗角", 0xD1A3: "色差"]
+
+    private var summaryText: String {
+        let p = session.properties
+        let parts = summary.compactMap { c -> String? in
+            guard let d = p[c], d.isEnabled != 0, let v = d.intValue else { return nil }
+            // 光秃秃的数字看不出是什么：创意外观的参数带上简称和正负号。
+            if let short = Self.shortNames[c] { return "\(short) \(v > 0 ? "+" : "")\(v)" }
+            if c == 0xE000 { return v == 1 ? "Log 关" : "Log 开" }
+            return PropertyRow.text(c, v)
+        }
+        let named = summary.filter { Self.namedValues[$0] != nil }
+        if !named.isEmpty {
+            let vals = named.compactMap { c in p[c]?.intValue.map { PropertyRow.text(c, $0) } }
+            if Set(vals).count == 1, let v = vals.first { return v }
+            return zip(named, vals).map { "\(Self.namedValues[$0.0]!) \($0.1)" }.joined(separator: " · ")
+        }
+        return parts.joined(separator: " · ")
+    }
+}
+
+/// 侧栏菜单的值：常规字重的值 + 小号淡色上下箭头，指针移上去时出现浅色底，提示可以点。
+private struct MenuValueLabel: View {
+    let text: String
+    @Environment(\.isEnabled) private var enabled
+    @State private var hovering = false
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Text(text).foregroundStyle(enabled ? .primary : .tertiary)
+            Image(systemName: "chevron.up.chevron.down").font(.system(size: 8, weight: .semibold)).foregroundStyle(.tertiary)
+        }
+        .font(.system(size: 12))
+        .padding(.horizontal, 6).padding(.vertical, 3)
+        .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(.white.opacity(hovering && enabled ? 0.08 : 0)))
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+        .padding(.trailing, -6)
+    }
+}
+
+extension View {
+    /// 不带系统按钮外框、用自定义标签的下拉菜单。
+    func sidebarMenuStyle() -> some View {
+        menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
     }
 }
 
@@ -1702,149 +2004,86 @@ private struct ValueMenu: View {
                 }
             }
         } label: {
-            // 菜单按钮会把图标放在文字前面：拼成一段文字，箭头才在值的后面。
-            Text("\(text) ") + Text(Image(systemName: "chevron.up.chevron.down")).font(.system(size: 9, weight: .semibold))
+            MenuValueLabel(text: text)
         }
-        .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+        .sidebarMenuStyle()
     }
 }
 
-/// 白平衡微调矩阵，照 α7 V 机身的微调画面画：15 × 15 个色块（左上绿、右上黄、左青、中白、右橙、
-/// 左下蓝、右下品红），G / M / B / A 写在四边，红色圆点是当前位置。
-/// 点按或拖动选位置，松手时按两个轴各自的档位取整后发给相机；读数旁的箭头回到中心。
-private struct WBShiftPad: View {
+/// 白平衡微调：A–B、G–M 两个滑杆，轨道用对应方向的颜色渐变。拖动时显示新值，松手按档位取整后发给相机。
+private struct WBShiftSliders: View {
     let session: TetherSession
     let ab: SonyPropertyDesc
     let gm: SonyPropertyDesc
-    @State private var dragging: (ab: Int64, gm: Int64)?
-
     private static let center: Int64 = 192
-    private static let cells = 15          // −7 … +7，每格 = 原始值 4
-    private static let margin: CGFloat = 13 // 四边留给 G / M / B / A
 
     var body: some View {
-        if case let .range(aLo, aHi, aStep) = ab.form, case let .range(gLo, gHi, gStep) = gm.form,
-           aHi > aLo, gHi > gLo, let curA = ab.intValue, let curG = gm.intValue {
-            let a = dragging?.ab ?? curA, g = dragging?.gm ?? curG
-            let enabled = ab.isWritable && gm.isWritable && !session.lost
-            VStack(spacing: 8) {
-                HStack {
-                    Text("微调").foregroundStyle(.secondary)
-                    Spacer()
-                    if curA != Self.center || curG != Self.center {
-                        Button { reset(curA, curG) } label: { Image(systemName: "arrow.counterclockwise") }
-                            .buttonStyle(.borderless).help("回到 0").disabled(!enabled)
-                            .accessibilityLabel("微调回到 0")
-                    }
-                }
+        let enabled = ab.isWritable && gm.isWritable && !session.lost
+        VStack(spacing: 4) {
+            ShiftSlider(session: session, desc: ab, low: "B", high: "A",
+                        colors: [Color(red: 0.3, green: 0.5, blue: 0.95), Color(white: 0.75), Color(red: 0.95, green: 0.6, blue: 0.25)])
+            ShiftSlider(session: session, desc: gm, low: "M", high: "G",
+                        colors: [Color(red: 0.85, green: 0.35, blue: 0.75), Color(white: 0.75), Color(red: 0.35, green: 0.8, blue: 0.4)])
+        }
+        .font(.system(size: 12))
+        .padding(.vertical, 4)
+        .opacity(enabled ? 1 : 0.5)
+        .disabled(!enabled)
+        .help(enabled ? "" : "当前设置下由相机决定")
+    }
+}
+
+private struct ShiftSlider: View {
+    let session: TetherSession
+    let desc: SonyPropertyDesc
+    let low: String
+    let high: String
+    let colors: [Color]
+    @State private var dragging: Int64?
+
+    var body: some View {
+        if case let .range(lo, hi, step) = desc.form, hi > lo, let cur = desc.intValue {
+            let v = dragging ?? cur
+            let f = CGFloat(v - lo) / CGFloat(hi - lo)
+            HStack(spacing: 8) {
                 GeometryReader { geo in
-                    let side = geo.size.width - Self.margin * 2
-                    let cell = side / CGFloat(Self.cells)
-                    // 当前值落在色块中心：第 0 格中心 = 最小值，第 14 格中心 = 最大值。
-                    let fx = CGFloat(a - aLo) / CGFloat(aHi - aLo)
-                    let fy = 1 - CGFloat(g - gLo) / CGFloat(gHi - gLo)
-                    ZStack(alignment: .topLeading) {
-                        // 格缝是深色（和机身一样），色块之间不露出浅色底。
-                        Rectangle().fill(Color(white: 0.05)).frame(width: side, height: side)
-                            .offset(x: Self.margin, y: Self.margin)
-                        Canvas { ctx, _ in
-                            let gap: CGFloat = 1
-                            for row in 0..<Self.cells {
-                                for col in 0..<Self.cells {
-                                    let u = CGFloat(col) / CGFloat(Self.cells - 1) * 2 - 1   // −1 = B，+1 = A
-                                    let v = 1 - CGFloat(row) / CGFloat(Self.cells - 1) * 2   // +1 = G，−1 = M
-                                    let r = CGRect(x: CGFloat(col) * cell + gap / 2, y: CGFloat(row) * cell + gap / 2,
-                                                   width: cell - gap, height: cell - gap)
-                                    ctx.fill(Path(r), with: .color(Self.color(u, v)))
-                                }
-                            }
-                        }
-                        .frame(width: side, height: side)
-                        .offset(x: Self.margin, y: Self.margin)
-                        Circle().fill(Color(red: 0.93, green: 0.26, blue: 0.2))
-                            .overlay(Circle().strokeBorder(.white, lineWidth: 1.5))
+                    let w = geo.size.width
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(LinearGradient(colors: colors, startPoint: .leading, endPoint: .trailing))
+                            .opacity(0.55).frame(height: 4)
+                        Rectangle().fill(.white.opacity(0.35)).frame(width: 1, height: 10).offset(x: w / 2 - 0.5)
+                        Circle().fill(.white).frame(width: 14, height: 14)
                             .shadow(color: .black.opacity(0.5), radius: 1.5)
-                            .frame(width: cell * 1.2, height: cell * 1.2)
-                            .position(x: Self.margin + (fx * CGFloat(Self.cells - 1) + 0.5) * cell,
-                                      y: Self.margin + (fy * CGFloat(Self.cells - 1) + 0.5) * cell)
-                        axis("G").position(x: geo.size.width / 2, y: Self.margin / 2)
-                        axis("M").position(x: geo.size.width / 2, y: geo.size.width - Self.margin / 2)
-                        axis("B").position(x: Self.margin / 2, y: geo.size.width / 2)
-                        axis("A").position(x: geo.size.width - Self.margin / 2, y: geo.size.width / 2)
+                            .offset(x: f * (w - 14))
                     }
+                    .frame(height: geo.size.height)
                     .contentShape(Rectangle())
                     .gesture(DragGesture(minimumDistance: 0)
-                        .onChanged { v in dragging = values(v.location, cell, aLo, aHi, aStep, gLo, gHi, gStep) }
-                        .onEnded { v in
-                            let t = values(v.location, cell, aLo, aHi, aStep, gLo, gHi, gStep)
+                        .onChanged { g in dragging = snap(g.location.x, w, lo, hi, step) }
+                        .onEnded { g in
+                            let t = snap(g.location.x, w, lo, hi, step)
                             dragging = nil
-                            if t.ab != curA { session.setProperty(ab.code, t.ab) }
-                            if t.gm != curG { session.setProperty(gm.code, t.gm) }
+                            if t != cur { session.setProperty(desc.code, t) }
                         })
+                    .onTapGesture(count: 2) { session.setProperty(desc.code, 192) }
                 }
-                .aspectRatio(1, contentMode: .fit)
-                .frame(maxWidth: 150)
-                .frame(maxWidth: .infinity)
-                .disabled(!enabled)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("白平衡微调")
-                .accessibilityValue(readout(curA, curG))
-                Text(readout(a, g)).font(.system(size: 11).monospacedDigit()).foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity)
+                .frame(height: 22)
+                .help("\(low) ← → \(high)，双击回到 0")
+                Text(SonyPropertyCatalog.label(desc.code, v) ?? "0")
+                    .monospacedDigit().frame(width: 44, alignment: .trailing)
+                    .foregroundStyle(v == 192 ? .tertiary : .primary)
             }
-            .font(.system(size: 12))
-            .padding(.vertical, 6)
-            .opacity(enabled ? 1 : 0.5)
-            .help(enabled ? "点按或拖动选择微调位置；右上角的箭头回到中心" : "当前设置下由相机决定")
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(low)–\(high) 微调")
+            .accessibilityValue(SonyPropertyCatalog.label(desc.code, cur) ?? "0")
         }
     }
 
-    private func axis(_ t: String) -> some View {
-        Text(t).font(.system(size: 9, weight: .semibold)).foregroundStyle(.secondary)
-    }
-
-    /// 和机身一样写成「A-B: B5  G-M: G4.5」。
-    private func readout(_ a: Int64, _ g: Int64) -> String {
-        "A-B: \(SonyPropertyCatalog.label(0xD21C, a) ?? "0")  G-M: \(SonyPropertyCatalog.label(0xD210, g) ?? "0")"
-    }
-
-    private func reset(_ curA: Int64, _ curG: Int64) {
-        if curA != Self.center { session.setProperty(ab.code, Self.center) }
-        if curG != Self.center { session.setProperty(gm.code, Self.center) }
-    }
-
-    private func values(_ pt: CGPoint, _ cell: CGFloat, _ aLo: Int64, _ aHi: Int64, _ aStep: Int64,
-                        _ gLo: Int64, _ gHi: Int64, _ gStep: Int64) -> (ab: Int64, gm: Int64) {
-        func snap(_ f: CGFloat, _ lo: Int64, _ hi: Int64, _ step: Int64) -> Int64 {
-            let raw = Double(lo) + Double(min(max(f, 0), 1)) * Double(hi - lo)
-            let s = Double(max(step, 1))
-            return min(hi, max(lo, lo + Int64(((raw - Double(lo)) / s).rounded()) * Int64(s)))
-        }
-        // 色块中心之间映射到取值范围（第一格中心 = 最小值，最后一格中心 = 最大值）。
-        let span = cell * CGFloat(Self.cells - 1)
-        let fx = (pt.x - Self.margin - cell / 2) / max(span, 1)
-        let fy = (pt.y - Self.margin - cell / 2) / max(span, 1)
-        return (snap(fx, aLo, aHi, aStep), snap(1 - fy, gLo, gHi, gStep))
-    }
-
-    /// 色块颜色：3 × 3 个控制色按象限双线性插值（上排 绿 / 黄绿 / 黄，中排 青 / 白 / 橙，下排 蓝 / 紫 / 品红）。
-    static func color(_ u: CGFloat, _ v: CGFloat) -> Color {
-        typealias RGB = (r: CGFloat, g: CGFloat, b: CGFloat)
-        let grid: [[RGB]] = [
-            [(0.15, 0.85, 0.25), (0.7, 0.92, 0.2), (1.0, 0.85, 0.1)],
-            [(0.1, 0.8, 0.95), (1, 1, 1), (1.0, 0.5, 0.3)],
-            [(0.15, 0.2, 1.0), (0.6, 0.25, 0.95), (1.0, 0.15, 0.75)],
-        ]
-        // u: −1 … 1 → 列 0 … 2；v: 1 … −1 → 行 0 … 2
-        let x = (u + 1), y = (1 - v)
-        let c0 = min(Int(x), 1), r0 = min(Int(y), 1)
-        let tx = x - CGFloat(c0), ty = y - CGFloat(r0)
-        func lerp(_ p: RGB, _ q: RGB, _ t: CGFloat) -> RGB { (p.r + (q.r - p.r) * t, p.g + (q.g - p.g) * t, p.b + (q.b - p.b) * t) }
-        let top = lerp(grid[r0][c0], grid[r0][c0 + 1], tx), bottom = lerp(grid[r0 + 1][c0], grid[r0 + 1][c0 + 1], tx)
-        let c = lerp(top, bottom, ty)
-        // 比纯色收一点饱和度和亮度，放在深色底上不刺眼。
-        let m = lerp(c, (0.5, 0.5, 0.5), 0.18)
-        return Color(red: m.r * 0.92, green: m.g * 0.92, blue: m.b * 0.92)
+    private func snap(_ x: CGFloat, _ w: CGFloat, _ lo: Int64, _ hi: Int64, _ step: Int64) -> Int64 {
+        let f = Double(min(max((x - 7) / max(w - 14, 1), 0), 1))
+        let s = Double(max(step, 1))
+        let raw = Double(lo) + f * Double(hi - lo)
+        return min(hi, max(lo, lo + Int64(((raw - Double(lo)) / s).rounded()) * Int64(s)))
     }
 }
 
@@ -1906,9 +2145,9 @@ private struct DriveModeMenu: View {
                 }
             }
         } label: {
-            Text("\(text) ") + Text(Image(systemName: "chevron.up.chevron.down")).font(.system(size: 9, weight: .semibold))
+            MenuValueLabel(text: text)
         }
-        .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+        .sidebarMenuStyle()
     }
 
     /// 包围子菜单里只写张数（组名和档位已在上级菜单）。

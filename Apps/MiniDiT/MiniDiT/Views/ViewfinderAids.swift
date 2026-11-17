@@ -10,6 +10,13 @@ struct ViewfinderAidOptions: Equatable, Sendable {
     var zebra = false
     var peaking = false
     var falseColor = false
+    var vectorscope = false
+    /// 矢量示波器放大 2 倍（Log 画面饱和度低，点都挤在中间）。
+    var vectorscopeZoom = false
+    /// 矢量示波器的轨迹用画面颜色（关掉是单色）。
+    var vectorscopeColor = false
+    /// 点测光：保留分析用的那一帧像素，指针 / 钉住的位置现查。
+    var spotMeter = false
     var zebraMode: ZebraMode = .lowerLimit
     /// 下限模式的阈值（%）：亮度不低于它的地方画斜纹。
     var zebraLevel = 95
@@ -24,7 +31,7 @@ struct ViewfinderAidOptions: Equatable, Sendable {
     /// 取景画面是 S-Log3（Log 拍摄打开、监看 LUT 关闭）：按档位时先按 S-Log3 曲线换算。
     var logInput = false
 
-    var anyOn: Bool { histogram || waveform || zebra || peaking || falseColor }
+    var anyOn: Bool { histogram || waveform || zebra || peaking || falseColor || vectorscope || spotMeter }
 
     enum PeakingColor: String, CaseIterable, Sendable {
         case red, yellow, white, blue
@@ -92,11 +99,110 @@ struct ViewfinderAidResult: Sendable {
     /// 斑马纹和峰值对焦合在一张透明图上。
     var overlay: CGImage?
     var falseColor: CGImage?
+    var vectorscope: CGImage?
+    var vectorscopeZoom = false
+    /// 点测光用的像素（和分析同一帧、同一尺寸）。
+    var sampler: FrameSampler?
+    var logInput = false
+}
+
+/// 点测光：在分析过的那一帧上取一小块的平均颜色。
+struct FrameSampler: Sendable {
+    let rgba: [UInt8]
+    let width: Int
+    let height: Int
+
+    struct Reading: Sendable { let r: Int, g: Int, b: Int, luma: Int }
+
+    /// p 是 0–1 的画面坐标；取周围 5×5 像素的平均（640 宽时约画面宽度的 0.8%）。
+    func sample(_ p: CGPoint) -> Reading? {
+        guard width > 0, height > 0, p.x >= 0, p.x <= 1, p.y >= 0, p.y <= 1 else { return nil }
+        let cx = min(width - 1, Int(p.x * CGFloat(width))), cy = min(height - 1, Int(p.y * CGFloat(height)))
+        var r = 0, g = 0, b = 0, n = 0
+        for y in max(0, cy - 2)...min(height - 1, cy + 2) {
+            for x in max(0, cx - 2)...min(width - 1, cx + 2) {
+                let i = (y * width + x) * 4
+                r += Int(rgba[i]); g += Int(rgba[i + 1]); b += Int(rgba[i + 2]); n += 1
+            }
+        }
+        guard n > 0 else { return nil }
+        r /= n; g /= n; b /= n
+        return Reading(r: r, g: g, b: b, luma: (54 * r + 183 * g + 19 * b) >> 8)
+    }
 }
 
 enum ViewfinderAnalysis {
     /// 分析用的最大宽度：取景画面一般 1024 宽，缩到 640 已足够看，且每帧计算量小。
     static let maxWidth = 640
+
+    /// 曝光统计（给 CLI / MCP 用）：按亮度和 RGB 数像素，结果都是占画面的百分比。
+    struct ExposureReport: Sendable {
+        var width = 0, height = 0
+        var log = false
+        /// 亮度的平均值和百分位（0–100，按 0–255 的码值换算）。
+        var mean = 0.0
+        var percentiles: [(p: Int, value: Double)] = []
+        /// 亮度 ≥ 99%（码值 253）的像素比例，以及 R、G、B 各自到顶的比例（单色过曝）。
+        var highlightClip = 0.0
+        var channelClip: (r: Double, g: Double, b: Double) = (0, 0, 0)
+        /// 亮度 ≤ 1%（码值 2）的像素比例。Log 画面黑位约 3%，这一项通常是 0，看 stopZones 的 ≤−6 档。
+        var shadowClip = 0.0
+        /// 按档位（相对中灰）分的像素比例，−6 档（含更暗）到 +5 档（含更亮），和伪色同一套换算。
+        var stopZones: [(stop: Int, percent: Double)] = []
+        /// 亮度中位数相对中灰的档数。
+        var medianStops = 0.0
+        /// 32 档亮度直方图（每档是像素百分比）。
+        var histogram: [Double] = []
+        /// 给了阈值时：亮度 ≥ 该百分比的像素比例（和斑马纹「下限」模式一致）。
+        var zebra: (level: Int, percent: Double)?
+    }
+
+    static func exposureReport(_ image: CGImage, log: Bool, zebraLevel: Int?) -> ExposureReport? {
+        let scale = min(1, Double(maxWidth) / Double(image.width))
+        let w = max(1, Int((Double(image.width) * scale).rounded())), h = max(1, Int((Double(image.height) * scale).rounded()))
+        guard let rgba = draw(image, width: w, height: h) else { return nil }
+        let n = w * h
+        var hist = [Int](repeating: 0, count: 256)
+        var clipR = 0, clipG = 0, clipB = 0
+        var sum = 0
+        rgba.withUnsafeBufferPointer { p in
+            for i in 0..<n {
+                let r = Int(p[i * 4]), g = Int(p[i * 4 + 1]), b = Int(p[i * 4 + 2])
+                let l = (54 * r + 183 * g + 19 * b) >> 8
+                hist[l] += 1
+                sum += l
+                if r >= 253 { clipR += 1 }
+                if g >= 253 { clipG += 1 }
+                if b >= 253 { clipB += 1 }
+            }
+        }
+        func pct(_ c: Int) -> Double { (Double(c) / Double(n) * 1000).rounded() / 10 }
+        func code(_ v: Int) -> Double { (Double(v) / 255 * 1000).rounded() / 10 }
+        var r = ExposureReport()
+        r.width = w; r.height = h; r.log = log
+        r.mean = (Double(sum) / Double(n) / 255 * 1000).rounded() / 10
+        var acc = 0, idx = 0
+        for p in [1, 5, 25, 50, 75, 95, 99] {
+            let target = Int((Double(n) * Double(p) / 100).rounded(.up))
+            while idx < 255, acc + hist[idx] < target { acc += hist[idx]; idx += 1 }
+            r.percentiles.append((p, code(idx)))
+            if p == 50 { r.medianStops = (stops(idx, log: log) * 10).rounded() / 10 }
+        }
+        r.highlightClip = pct(hist[253...].reduce(0, +))
+        r.shadowClip = pct(hist[...2].reduce(0, +))
+        r.channelClip = (pct(clipR), pct(clipG), pct(clipB))
+        var zones = [Int](repeating: 0, count: 12)
+        for v in 0..<256 where hist[v] > 0 {
+            zones[min(5, max(-6, Int(stops(v, log: log).rounded()))) + 6] += hist[v]
+        }
+        r.stopZones = zones.enumerated().map { ($0.offset - 6, pct($0.element)) }
+        r.histogram = stride(from: 0, to: 256, by: 8).map { pct(hist[$0..<($0 + 8)].reduce(0, +)) }
+        if let z = zebraLevel {
+            let from = min(255, Int((Double(z) / 100 * 255).rounded()))
+            r.zebra = (z, pct(hist[from...].reduce(0, +)))
+        }
+        return r
+    }
 
     static func analyze(_ image: CGImage, _ o: ViewfinderAidOptions) -> ViewfinderAidResult {
         let scale = min(1, Double(maxWidth) / Double(image.width))
@@ -125,6 +231,12 @@ enum ViewfinderAnalysis {
         }
         if o.zebra || o.peaking { out.overlay = overlay(luma, width: w, height: h, o) }
         if o.falseColor { out.falseColor = falseColor(luma, width: w, height: h, o) }
+        if o.vectorscope {
+            out.vectorscope = vectorscope(rgba, count: n, zoom: o.vectorscopeZoom, colorize: o.vectorscopeColor)
+            out.vectorscopeZoom = o.vectorscopeZoom
+        }
+        if o.spotMeter { out.sampler = FrameSampler(rgba: rgba, width: w, height: h) }
+        out.logInput = o.logInput
         return out
     }
 
@@ -358,6 +470,60 @@ enum ViewfinderAnalysis {
         return ok ? buf : nil
     }
 
+    // MARK: 矢量示波器
+
+    static let vectorscopeSize = 200
+    /// 每 1 单位色差占面板宽度的比例。照达芬奇：外圈半径 = 面板的 0.47，对应色差约 0.62，75% 色块落在外圈的六成处。
+    static let vectorscopeScale = 0.758
+    static let vectorscopeRadius = 0.47
+
+    /// Rec.709 色差（−0.5…0.5）：+Cb 向右、+Cr 向上，和监视器的矢量示波器一致。
+    static func chroma(_ r: Double, _ g: Double, _ b: Double) -> (cb: Double, cr: Double) {
+        (-0.1146 * r - 0.3854 * g + 0.5 * b, 0.5 * r - 0.4542 * g - 0.0458 * b)
+    }
+
+    /// 每个像素按色差落到 200×200 的格子里；亮度按对数（少量像素也看得见），颜色用落在这一格的像素的平均色（提亮）。
+    static func vectorscope(_ rgba: [UInt8], count n: Int, zoom: Bool, colorize: Bool) -> CGImage? {
+        let size = vectorscopeSize
+        let gain = (zoom ? 2.0 : 1.0) * vectorscopeScale
+        var count = [Int32](repeating: 0, count: size * size)
+        var sum = [Int32](repeating: 0, count: size * size * 3)
+        rgba.withUnsafeBufferPointer { p in
+            var i = 0
+            while i < n {
+                let r = Int(p[i * 4]), g = Int(p[i * 4 + 1]), b = Int(p[i * 4 + 2])
+                // 整数近似：系数 × 1024。
+                let cb = (-117 * r - 395 * g + 512 * b), cr = (512 * r - 465 * g - 47 * b)   // 范围约 ±130560
+                let x = Int((Double(cb) / 261_120 * gain + 0.5) * Double(size))
+                let y = Int((0.5 - Double(cr) / 261_120 * gain) * Double(size))
+                if x >= 0, x < size, y >= 0, y < size {
+                    let k = y * size + x
+                    count[k] += 1
+                    sum[k * 3] += Int32(r); sum[k * 3 + 1] += Int32(g); sum[k * 3 + 2] += Int32(b)
+                }
+                i += 2   // 隔一个取一个，够用
+            }
+        }
+        let peak = Double(count.max() ?? 1)
+        guard peak > 0 else { return nil }
+        let logPeak = log(peak + 1)
+        var px = [UInt8](repeating: 0, count: size * size * 4)
+        for k in 0..<(size * size) where count[k] > 0 {
+            let c = Double(count[k])
+            let a = min(1, 0.25 + 0.75 * log(c + 1) / logPeak)
+            var r = 225.0, g = 232.0, b = 225.0   // 单色：略带绿的白
+            if colorize {
+                r = Double(sum[k * 3]) / c; g = Double(sum[k * 3 + 1]) / c; b = Double(sum[k * 3 + 2]) / c
+                // 提亮到最大通道 = 255，再掺一点白，暗处的颜色也看得清。
+                let m = max(r, g, b, 1)
+                r = r / m * 255 * 0.75 + 64; g = g / m * 255 * 0.75 + 64; b = b / m * 255 * 0.75 + 64
+            }
+            px[k * 4] = UInt8(min(255, r * a)); px[k * 4 + 1] = UInt8(min(255, g * a)); px[k * 4 + 2] = UInt8(min(255, b * a))
+            px[k * 4 + 3] = UInt8(a * 255)
+        }
+        return makeImage(px, width: size, height: size)
+    }
+
     private static func makeImage(_ px: [UInt8], width w: Int, height h: Int) -> CGImage? {
         guard let provider = CGDataProvider(data: Data(px) as CFData) else { return nil }
         return CGImage(width: w, height: h, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: w * 4,
@@ -371,27 +537,30 @@ enum ViewfinderAnalysis {
 @MainActor @Observable
 final class ViewfinderAids {
     private(set) var result = ViewfinderAidResult()
+    /// 和 result 对应的那一帧：叠在画面上的辅助（斑马纹、峰值、伪色）要画在这一帧上，否则会比画面晚一帧。
+    private(set) var frame: NSImage?
     @ObservationIgnored private var running = false
-    @ObservationIgnored private var queued: (CGImage, ViewfinderAidOptions)?
+    @ObservationIgnored private var queued: (NSImage, CGImage, ViewfinderAidOptions)?
 
     func submit(_ image: NSImage?, _ options: ViewfinderAidOptions) {
         guard options.anyOn, let cg = image?.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
             queued = nil
-            if !running { result = ViewfinderAidResult() }
+            if !running { result = ViewfinderAidResult(); frame = nil }
             return
         }
-        queued = (cg, options)
+        queued = (image!, cg, options)
         if !running { runNext() }
     }
 
     private func runNext() {
-        guard let (image, options) = queued else { running = false; return }
+        guard let (source, image, options) = queued else { running = false; return }
         queued = nil
         running = true
         Task.detached(priority: .userInitiated) {
             let r = ViewfinderAnalysis.analyze(image, options)
             await MainActor.run {
                 self.result = r
+                self.frame = source
                 self.runNext()
             }
         }
@@ -467,6 +636,76 @@ struct WaveformView: View {
             }
         }
         .accessibilityLabel(mode == .luma ? "亮度波形图" : mode == .rgb ? "RGB 波形图" : "RGB 分量图")
+    }
+}
+
+/// 矢量示波器面板，照达芬奇的样子画：黑底、琥珀色刻度；外圈每 5° 一个向内的刻度（每 10° 长一点），
+/// 圈内十字，六个 75% 色块目标是只画四角的方框，字母（R M B C G Y）在方框右下，肤色线（约 123°，可在右键菜单关掉）。
+struct VectorscopeView: View {
+    let image: CGImage
+    var zoom = false
+    var skinLine = false
+
+    private static let targets: [(String, Double, Double, Double)] = [
+        ("R", 1, 0, 0), ("M", 1, 0, 1), ("B", 0, 0, 1), ("C", 0, 1, 1), ("G", 0, 1, 0), ("Y", 1, 1, 0),
+    ]
+    static let graticule = Color(red: 0.62, green: 0.48, blue: 0.16)
+
+    var body: some View {
+        GeometryReader { geo in
+            let side = min(geo.size.width, geo.size.height)
+            let gain = (zoom ? 2.0 : 1.0) * ViewfinderAnalysis.vectorscopeScale
+            ZStack {
+                Color.black
+                Canvas { ctx, size in
+                    let c = CGPoint(x: size.width / 2, y: size.height / 2)
+                    let ink = GraphicsContext.Shading.color(Self.graticule)
+                    let radius = ViewfinderAnalysis.vectorscopeRadius * size.width
+                    var p = Path(ellipseIn: CGRect(x: c.x - radius, y: c.y - radius, width: radius * 2, height: radius * 2))
+                    for deg in stride(from: 0, to: 360, by: 5) {
+                        let a = Double(deg) * .pi / 180
+                        let len = size.width * (deg % 10 == 0 ? 0.042 : 0.022)
+                        p.move(to: CGPoint(x: c.x + cos(a) * radius, y: c.y - sin(a) * radius))
+                        p.addLine(to: CGPoint(x: c.x + cos(a) * (radius - len), y: c.y - sin(a) * (radius - len)))
+                    }
+                    p.move(to: CGPoint(x: c.x, y: c.y - radius)); p.addLine(to: CGPoint(x: c.x, y: c.y + radius))
+                    p.move(to: CGPoint(x: c.x - radius, y: c.y)); p.addLine(to: CGPoint(x: c.x + radius, y: c.y))
+                    ctx.stroke(p, with: ink, lineWidth: 1)
+                    if skinLine {
+                        let a = 123.0 * .pi / 180
+                        var skin = Path()
+                        skin.move(to: c)
+                        skin.addLine(to: CGPoint(x: c.x + cos(a) * radius, y: c.y - sin(a) * radius))
+                        ctx.stroke(skin, with: ink, lineWidth: 1)
+                    }
+                    // 75% 目标：只画四个角的方框，字母在右下。
+                    let box = size.width * 0.04, arm = box * 0.32
+                    for (name, r, g, b) in Self.targets {
+                        let q = ViewfinderAnalysis.chroma(r * 0.75, g * 0.75, b * 0.75)
+                        let pt = CGPoint(x: c.x + q.cb * gain * size.width, y: c.y - q.cr * gain * size.height)
+                        let rect = CGRect(x: pt.x - box / 2, y: pt.y - box / 2, width: box, height: box)
+                        var corners = Path()
+                        for (x, y, sx, sy) in [(rect.minX, rect.minY, 1.0, 1.0), (rect.maxX, rect.minY, -1.0, 1.0),
+                                               (rect.minX, rect.maxY, 1.0, -1.0), (rect.maxX, rect.maxY, -1.0, -1.0)] {
+                            corners.move(to: CGPoint(x: x + sx * arm, y: y)); corners.addLine(to: CGPoint(x: x, y: y))
+                            corners.addLine(to: CGPoint(x: x, y: y + sy * arm))
+                        }
+                        ctx.stroke(corners, with: ink, lineWidth: 1.5)
+                        ctx.draw(Text(name).font(.system(size: max(8, size.width * 0.035), weight: .semibold)).foregroundStyle(Self.graticule),
+                                 at: CGPoint(x: rect.maxX + 1, y: rect.maxY + 1), anchor: .topLeading)
+                    }
+                }
+                Image(decorative: image, scale: 1).resizable().interpolation(.medium)
+                    .blendMode(.plusLighter)
+            }
+            .frame(width: side, height: side)
+            .clipped()
+            .position(x: geo.size.width / 2, y: geo.size.height / 2)
+            .overlay(alignment: .topTrailing) {
+                if zoom { Text("2x").font(.system(size: 9, weight: .semibold)).foregroundStyle(Self.graticule).padding(5) }
+            }
+        }
+        .accessibilityLabel("矢量示波器")
     }
 }
 
