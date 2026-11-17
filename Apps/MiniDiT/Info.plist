@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- 其余键由 Xcode 按 INFOPLIST_KEY_* 生成；这里只放生成不了的自动更新（Sparkle）设置。 -->
+	<key>SUFeedURL</key>
+	<string>https://github.com/751K/MiniDiT/releases/latest/download/appcast.xml</string>
+	<!-- 更新签名公钥；私钥在发布者的登录钥匙串里（Sparkle generate_keys）。 -->
+	<key>SUPublicEDKey</key>
+	<string>PZLMS8JZpeFhPPPn2Z5X9RPVqz5uWadmUypifMZLUNA=</string>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUScheduledCheckInterval</key>
+	<integer>86400</integer>
+</dict>
+</plist>

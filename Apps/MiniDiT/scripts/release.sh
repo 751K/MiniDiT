@@ -1,17 +1,18 @@
 #!/bin/sh
-# 打一个可以发给别人的 MiniDiT：Developer ID 签名 → 公证 → 钉上公证结果 → DMG（DMG 也公证）。
+# 打一个可以发给别人的 MiniDiT：Developer ID 签名 → 公证 → 钉上公证结果 → DMG（DMG 也公证）→ 自动更新清单。
 #
 # 需要（登录钥匙串里，只做一次）：
 #   · Developer ID Application 证书：不用事先建，导出时 Xcode 用已登录的账号自动申请（-allowProvisioningUpdates）
 #   · 公证凭据：xcrun notarytool store-credentials minidit-notary --team-id HGXZB3UC25 --keychain ~/Library/Keychains/login.keychain-db
 #     （按提示粘贴 appleid.apple.com 生成的 App 专用密码；脚本只用 minidit-notary 这个名字。）
+#   · Sparkle 更新签名私钥：Sparkle 的 generate_keys 生成，公钥写在 Apps/MiniDiT/Info.plist
 #
 # 用法：
 #   sh release.sh            版本号用工程里的 MARKETING_VERSION
 #   VERSION=0.2 sh release.sh
 #   NOTARIZE=0 sh release.sh 只签名打包，不公证（先检查签名用）
 #   BUILD=42 sh release.sh   指定构建号（默认取提交数；没有 .git 时用日期时间）
-# 结果在 Apps/MiniDiT/build/release/MiniDiT-<版本>.dmg。
+# 结果在 Apps/MiniDiT/build/release/MiniDiT-<版本>.dmg、appcast.xml。之后用 publish-release.sh 发布。
 set -eu
 DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 OUT="$DIR/build/release"
@@ -110,5 +111,33 @@ if [ "${NOTARIZE:-1}" = 1 ]; then
     xcrun stapler validate "$DMG"
 fi
 
+step "自动更新清单（appcast.xml）"
+# 用登录钥匙串里的 Sparkle 私钥给 DMG 签名（generate_keys 生成的那把），写出只含这一版的更新清单。
+# 发布到 GitHub Releases 后，旧版本从 releases/latest/download/appcast.xml 读到它。
+SPARKLE_BIN=${SPARKLE_BIN:-$HOME/Tools/Sparkle-2.10.1/bin}
+SIG=$("$SPARKLE_BIN/sign_update" "$DMG")   # 输出 sparkle:edSignature="…" length="…"
+case "$SIG" in *edSignature=*) ;; *) echo "error: sign_update 没有给出签名：$SIG"; exit 1 ;; esac
+NOTES=""
+[ -f "$DIR/release-notes/$VERSION.html" ] && NOTES=$(cat "$DIR/release-notes/$VERSION.html")
+URL="https://github.com/751K/MiniDiT/releases/download/v$VERSION/$(basename "$DMG")"
+cat > "$OUT/appcast.xml" <<EOF
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel>
+    <title>MiniDiT</title>
+    <item>
+      <title>MiniDiT $VERSION</title>
+      <pubDate>$(LC_ALL=C date -u "+%a, %d %b %Y %H:%M:%S +0000")</pubDate>
+      <sparkle:version>$BUILD</sparkle:version>
+      <sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[$NOTES]]></description>
+      <enclosure url="$URL" type="application/octet-stream" $SIG />
+    </item>
+  </channel>
+</rss>
+EOF
+echo "$VERSION" > "$OUT/version.txt"
+
 shasum -a 256 "$DMG"
-step "完成：$DMG"
+step "完成：$DMG 和 $OUT/appcast.xml"

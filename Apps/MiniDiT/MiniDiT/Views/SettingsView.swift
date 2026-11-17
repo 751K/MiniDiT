@@ -151,6 +151,7 @@ private struct ConnectSettings: View {
                     .help("窗口在前台时每 15 秒检查一次；导入、拖动选择和预览期间暂缓刷新。")
                 Toggle("登录时打开 MiniDiT", isOn: $model.launchAtLogin)
                 Toggle("关闭窗口后保留在菜单栏", isOn: $model.keepInMenuBar)
+                AutomaticUpdatesToggle()
                 Toggle("连接过的相机开机时发送通知", isOn: $model.notifyCameraOnline)
                 Toggle("连接过的相机开机后自动导入新照片", isOn: $model.autoImportCamera)
                     .disabled(!model.notifyCameraOnline)

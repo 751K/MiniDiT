@@ -11,6 +11,7 @@ struct MiniDiTApp: App {
         // 旧名 SonyImport 的设置和数据要在 AppModel 读取之前搬过来。
         LegacyMigration.run()
         _model = State(initialValue: AppModel())
+        _ = AppUpdater.shared
     }
 
     var body: some Scene {
@@ -25,6 +26,7 @@ struct MiniDiTApp: App {
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1280, height: 800)
         .commands {
+            CommandGroup(after: .appInfo) { CheckForUpdatesButton() }
             CommandGroup(replacing: .newItem) {
                 Button("切换来源…") { model.disconnect() }
                     .keyboardShortcut("o", modifiers: [.command, .shift])
