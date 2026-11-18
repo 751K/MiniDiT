@@ -187,6 +187,7 @@ public actor LocalCardLibrary: CameraLibrary {
     public func refresh() async {
         listed = nil
         clipCache = [:]
+        directoryNames = [:]
         listingNotes = []
     }
 
@@ -204,14 +205,26 @@ public actor LocalCardLibrary: CameraLibrary {
         public let url: URL
     }
 
+    /// 目录里的文件名（排好序），每个目录只列一次：每段视频找代理都重新列目录的话，上千段就是平方级。
+    /// 重新读卡、删文件时清掉。
+    private var directoryNames: [String: [String]] = [:]
+
+    private func names(in directory: URL) -> [String]? {
+        if let cached = directoryNames[directory.path] { return cached }
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: directory.path) else { return nil }
+        let sorted = names.sorted()
+        directoryNames[directory.path] = sorted
+        return sorted
+    }
+
     public func sidecars(_ handle: UInt32) -> [Sidecar] {
         guard let e = entries[handle], e.item.kind == .video else { return [] }
         var out: [Sidecar] = []
         if let xml = ClipInfo.sidecar(for: e.url) { out.append(Sidecar(kind: .metadata, url: xml)) }
         let sub = e.url.deletingLastPathComponent().deletingLastPathComponent().appending(path: "SUB", directoryHint: .isDirectory)
         let prefix = e.item.baseName.uppercased() + "S"
-        if let names = try? FileManager.default.contentsOfDirectory(atPath: sub.path),
-           let proxy = names.sorted().first(where: {
+        if let names = names(in: sub),
+           let proxy = names.first(where: {
                let u = $0.uppercased()
                return u.hasPrefix(prefix) && u.hasSuffix(".MP4") && u.dropFirst(prefix.count).dropLast(4).allSatisfy(\.isNumber)
            }) {
@@ -220,7 +233,7 @@ public actor LocalCardLibrary: CameraLibrary {
             // 大疆：原片旁边同名的 .LRF（低码率 MP4）。
             let dir = e.url.deletingLastPathComponent()
             let base = e.url.deletingPathExtension().lastPathComponent.uppercased()
-            if let names = try? FileManager.default.contentsOfDirectory(atPath: dir.path),
+            if let names = names(in: dir),
                let lrf = names.first(where: { ($0 as NSString).deletingPathExtension.uppercased() == base && ($0 as NSString).pathExtension.uppercased() == "LRF" }) {
                 out.append(Sidecar(kind: .proxy, url: dir.appending(path: lrf)))
             }
@@ -234,6 +247,7 @@ public actor LocalCardLibrary: CameraLibrary {
         try FileManager.default.removeItem(at: e.url)
         entries[handle] = nil
         listed?.removeAll { $0 == handle }
+        directoryNames = [:]
     }
 
     public func item(_ handle: UInt32) async throws -> CameraContentItem { try entry(handle).item }

@@ -20,6 +20,7 @@ extension AppModel {
 
     func startImport(jobs: [ImportJob], grouping: SessionGrouping,
                      captureOneFiles: [CaptureOneBridge.SessionTarget: [URL]] = [:]) {
+        if afterRefresh({ $0.startImport(jobs: jobs, grouping: grouping, captureOneFiles: captureOneFiles) }) { return }
         guard importJournal.repairTask == nil, !openSources.isEmpty, phase == .ready, progress == nil, !isRefreshingSources,
               !jobs.isEmpty, !retryingCaptureOne else { return }
         // 所有普通导入入口（含自动导入和续传）都必须携带有效项目；拖出由 FileExport 独立处理。

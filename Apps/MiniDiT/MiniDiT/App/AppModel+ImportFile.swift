@@ -91,7 +91,7 @@ extension AppModel {
                     item: item, kind: .original, sourceCompared: matchesSource, state, run)],
                     message: item.kind == .video ? "附属文件整理尚未完成" : nil, state, run)
                 ImportHistory.shared.record([.init(item: item, url: url, xxh64: hash, backup: nil)], camera: self.camera(of: item.id))
-                if let project = job.appSession { self.recordSessionFiles([url], in: project) }
+                if let project = job.appSession { self.recordSessionFiles([url], in: project, deferred: true) }
                })
             let actual = importer.weight(of: item, at: r.outcome.url)
             let estimate = transferSize(item) * run.weight

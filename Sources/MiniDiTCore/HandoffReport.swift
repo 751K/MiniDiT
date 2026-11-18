@@ -85,6 +85,8 @@ public struct HandoffReport: Codable, Sendable {
             for (id, error) in (batch.backupReportErrors ?? [:]).sorted(by: { $0.key < $1.key }) { result.issues.append(String(localized: "目标 \(id) 的校验清单未完成：\(error)", bundle: .miniDiT)) }
             if batch.reports.isEmpty { result.issues.append(String(localized: "导入 \(batch.id.uuidString)：没有记录 ASC MHL 校验清单。", bundle: .miniDiT)) }
             let expectedAssets = assets.count + files.filter { $0.assets.isEmpty }.count
+            // 每个备份位置的状态在这一批里只查一次：逐行去查是每行四五个系统调用，同一份清单里还可能前后不一致。
+            let targetStates = Dictionary(batch.targets.map { ($0.id, $0.availability) }, uniquingKeysWith: { first, _ in first })
             for target in batch.targets {
                 let matching = assets.map { asset in
                     asset.copies.filter { $0.role == .backup && contains($0.path, in: target.path) && ($0.targetID == target.id || $0.targetID == nil) }
@@ -93,7 +95,7 @@ public struct HandoffReport: Codable, Sendable {
                     copies.contains { valid($0, asset: asset) } && asset.error(for: target) == nil
                 }.count
                 let accessible = zip(assets, matching).filter { asset, copies in
-                    copies.contains { availability($0.path, size: asset.size, target: target) == "accessible" }
+                    copies.contains { availability($0.path, size: asset.size, target: target, states: targetStates) == "accessible" }
                 }.count
                 result.targets.append(.init(batchID: batch.id.uuidString, id: target.id.uuidString, name: target.name, root: target.path,
                     volumeID: target.volumeID, required: target.required, assets: expectedAssets, verified: verified,
@@ -133,7 +135,7 @@ public struct HandoffReport: Codable, Sendable {
                         role: target == nil && !historical ? "working" : "backup", required: historical ? false : target?.required ?? true,
                         root: root, relativePath: contains(path, in: root) ? String(path.dropFirst(root.count + (root == "/" ? 0 : 1))) : "", path: path,
                         verification: copy?.evidence.rawValue ?? "notVerified", verifiedAt: timestamp(copy?.verifiedAt),
-                        availability: copy.map { availability($0.path, size: asset?.size, target: target) } ?? "notRecorded",
+                        availability: copy.map { availability($0.path, size: asset?.size, target: target, states: targetStates) } ?? "notRecorded",
                         error: target.flatMap { asset?.error(for: $0) } ?? "", verified: asset.map { asset in copy.map { valid($0, asset: asset) } ?? false } ?? false,
                         historical: historical)
                 }
@@ -171,9 +173,11 @@ public struct HandoffReport: Codable, Sendable {
     static func contains(_ path: String, in root: String) -> Bool {
         !root.isEmpty && path.hasPrefix(root == "/" ? "/" : root + "/") && path != root
     }
-    static func availability(_ path: String, size: UInt64?, target: BackupDestination?) -> String {
-        if let target, target.availability == .wrongVolume { return "wrongVolume" }
-        if let target, target.availability == .unavailable { return "unavailable" }
+    static func availability(_ path: String, size: UInt64?, target: BackupDestination?,
+                             states: [UUID: BackupDestination.Availability] = [:]) -> String {
+        let state = target.map { states[$0.id] ?? $0.availability }
+        if state == .wrongVolume { return "wrongVolume" }
+        if state == .unavailable { return "unavailable" }
         guard let values = try? URL(filePath: path).resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey, .isReadableKey]),
               values.isRegularFile == true, values.isReadable == true else { return "unavailable" }
         if let size, values.fileSize.map({ UInt64($0) }) != size { return "sizeChanged" }

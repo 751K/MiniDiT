@@ -53,6 +53,8 @@ public final class DJIBluetooth: NSObject, @unchecked Sendable {
     private var fff4: CBCharacteristic?
     private var fff5: CBCharacteristic?
     private var connectWaiter: CheckedContinuation<Void, Error>?
+    /// 第几次连接；超时的定时块靠它认出自己那一次是不是还在等。
+    private var connectAttempt = 0
     private var armWaiter: CheckedContinuation<Void, Error>?
     private var notifying = Set<CBUUID>()
     private var parsers: [CBUUID: DUMLStreamParser] = [:]
@@ -94,16 +96,27 @@ public final class DJIBluetooth: NSObject, @unchecked Sendable {
     public func connect(_ camera: Found) async throws {
         try await poweredOn()
         let target = camera.id
-        try await withTimeout(20, String(localized: "蓝牙连接", bundle: .miniDiT)) {
-            try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
-                self.queue.async {
-                    guard let p = self.found[target]?.0 ?? self.central.retrievePeripherals(withIdentifiers: [target]).first else {
-                        c.resume(throwing: Failure.notFound); return
-                    }
-                    self.peripheral = p
-                    p.delegate = self
-                    self.connectWaiter = c
-                    self.central.connect(p)
+        // 超时在蓝牙队列上自己掐：CoreBluetooth 的连接不会自己超时，等待它的续体也不响应取消。
+        let what = String(localized: "蓝牙连接", bundle: .miniDiT)
+        try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
+            self.queue.async {
+                guard let p = self.found[target]?.0 ?? self.central.retrievePeripherals(withIdentifiers: [target]).first else {
+                    c.resume(throwing: Failure.notFound); return
+                }
+                self.connectAttempt += 1
+                let attempt = self.connectAttempt
+                self.peripheral = p
+                p.delegate = self
+                self.connectWaiter = c
+                self.central.connect(p)
+                self.queue.asyncAfter(deadline: .now() + 20) {
+                    guard self.connectAttempt == attempt, let waiter = self.connectWaiter else { return }
+                    self.connectWaiter = nil
+                    // 先清掉 peripheral，取消连接引出的「连接断开」回调才不会被当成掉线上报。
+                    let pending = self.peripheral
+                    self.peripheral = nil; self.fff4 = nil; self.fff5 = nil; self.notifying = []
+                    if let pending { self.central.cancelPeripheralConnection(pending) }
+                    waiter.resume(throwing: Failure.timeout(what))
                 }
             }
         }
@@ -233,26 +246,23 @@ public final class DJIBluetooth: NSObject, @unchecked Sendable {
     }
 
     private func poweredOn() async throws {
-        try await withTimeout(5, String(localized: "蓝牙", bundle: .miniDiT)) {
-            try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
-                self.queue.async {
-                    switch self.central.state {
-                    case .poweredOn: c.resume()
-                    case .unauthorized: c.resume(throwing: Failure.unauthorized)
-                    case .poweredOff, .unsupported: c.resume(throwing: Failure.bluetoothOff)
-                    default: self.poweredWaiters.append(c)
+        let what = String(localized: "蓝牙", bundle: .miniDiT)
+        try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
+            self.queue.async {
+                switch self.central.state {
+                case .poweredOn: c.resume()
+                case .unauthorized: c.resume(throwing: Failure.unauthorized)
+                case .poweredOff, .unsupported: c.resume(throwing: Failure.bluetoothOff)
+                default:
+                    self.poweredWaiters.append(c)
+                    // 5 秒还没等到蓝牙状态就放弃；到时还在等的一起结束。
+                    self.queue.asyncAfter(deadline: .now() + 5) {
+                        let waiting = self.poweredWaiters
+                        self.poweredWaiters = []
+                        waiting.forEach { $0.resume(throwing: Failure.timeout(what)) }
                     }
                 }
             }
-        }
-    }
-
-    private func withTimeout<T: Sendable>(_ seconds: TimeInterval, _ what: String, _ body: @escaping @Sendable () async throws -> T) async throws -> T {
-        try await withThrowingTaskGroup(of: T.self) { group in
-            group.addTask { try await body() }
-            group.addTask { try await Task.sleep(for: .seconds(seconds)); throw Failure.timeout(what) }
-            defer { group.cancelAll() }
-            return try await group.next()!
         }
     }
 

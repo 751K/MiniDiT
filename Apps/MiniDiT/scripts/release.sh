@@ -63,8 +63,13 @@ APP="$OUT/export/MiniDiT.app"
 step "检查签名"
 codesign --verify --deep --strict --verbose=2 "$APP"
 codesign -d --entitlements - --xml "$APP" >/dev/null
-codesign -dv "$APP" 2>&1 | grep -E "Authority=Developer ID|flags=.*runtime|TeamIdentifier" || {
-    echo "error: 签名不是 Developer ID 或没有开强化运行时"; exit 1; }
+# 两项要分别成立：Authority 行要 -dvv 才有；TeamIdentifier 行任何签名都有，不能拿来当依据。
+SIGNATURE="$(codesign -dvv "$APP" 2>&1)"
+printf '%s\n' "$SIGNATURE" | grep -E "^Authority=Developer ID Application|flags=.*runtime|^TeamIdentifier=" || true
+printf '%s\n' "$SIGNATURE" | grep -q "^Authority=Developer ID Application" || {
+    echo "error: 签名不是 Developer ID"; exit 1; }
+printf '%s\n' "$SIGNATURE" | grep -Eq "flags=.*runtime" || {
+    echo "error: 没有开强化运行时"; exit 1; }
 
 notarize() {
     step "公证 $(basename "$1")（一般几分钟）"

@@ -353,45 +353,6 @@ struct ChoicePicker<T: Hashable>: View {
     }
 }
 
-private struct DayRow: View {
-    /// 选中的行是蓝底：勾选框一律用白色；没选中的行用强调色 / 灰色。
-    private func checkColor(_ state: CheckState) -> Color {
-        if model.shownDays.contains(day.id) { return .white }
-        return state == .off ? Color(nsColor: .tertiaryLabelColor) : .accentColor
-    }
-
-    @Environment(AppModel.self) private var model
-    let day: ShootingDay
-
-    var body: some View {
-        let state = model.checkState(day)
-        HStack(spacing: 8) {
-            Button { model.toggleDay(day) } label: {
-                Image(systemName: state == .on ? "checkmark.square.fill" : state == .mixed ? "minus.square.fill" : "square")
-                    .font(.system(size: 15))
-                    .foregroundStyle(checkColor(state))
-                    .frame(width: 18, height: 22)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("导入 \(day.title)")
-            .accessibilityValue(state == .on ? "已勾选" : state == .mixed ? "部分勾选" : "未勾选")
-            .help(day.newCount > 0 ? "勾选当日 \(AppModel.countText(photos: day.newPhotos, videos: day.newVideos, fresh: true))" : "勾选当日全部内容")
-            DayTitle(title: day.title)
-            Spacer(minLength: 4)
-            let copies = day.newCount > 0 ? 0 : (day.shots.map { model.copyCount(shot: $0) }.min() ?? 0)
-            ShotCounts(new: day.newCount, total: day.shots.count, copies: copies, size: 12)
-        }
-        .contextMenu {
-            Button("选择当日新照片") { model.selectNew(in: [day.id]) }
-            Button("选择当日全部照片") { model.selectAll(in: [day.id]) }
-            Button("取消选择当日照片") { model.deselect(in: [day.id]) }
-            Divider()
-            SceneGapMenu()
-        }
-    }
-}
-
 /// 侧栏的日期：「11月4日 周三」（英文「Nov 4 Wed」）拆成日期和星期，日期占固定宽度（按最长的写法留位），星期上下对齐。
 struct DayTitle: View {
     let title: String
@@ -441,36 +402,6 @@ struct ShotCounts: View {
             Text(total.formatted()).font(.system(size: size).monospacedDigit()).foregroundStyle(.secondary)
                 .frame(minWidth: 22, alignment: .trailing)
         }
-    }
-}
-
-/// 侧栏里日期下面的场次：勾选框选这一场，点中这一行右边只显示这一场。
-private struct SceneRow: View {
-    @Environment(AppModel.self) private var model
-    let scene: ShootingScene
-    let day: ShootingDay
-
-    var body: some View {
-        let state = model.checkState(scene)
-        let shown = model.shownDays.contains(scene.id)
-        HStack(spacing: 8) {
-            Button { model.toggleScene(scene, in: day) } label: {
-                Image(systemName: state == .on ? "checkmark.square.fill" : state == .mixed ? "minus.square.fill" : "square")
-                    .font(.system(size: 13))
-                    .foregroundStyle(shown ? .white : state == .off ? Color(nsColor: .tertiaryLabelColor) : .accentColor)
-                    .frame(width: 18, height: 18)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("导入 \(day.title) \(AppModel.sceneTitle(scene))")
-            .accessibilityValue(state == .on ? "已勾选" : state == .mixed ? "部分勾选" : "未勾选")
-            .help(scene.newCount > 0 ? "勾选该场次 \(AppModel.countText(photos: scene.newPhotos, videos: scene.newVideos, fresh: true))" : "勾选该场次全部内容")
-            Text(scene.timeRange.isEmpty ? String(localized: "第 \(scene.number) 场") : scene.timeRange).font(Theme.Font.caption).lineLimit(1)
-            Spacer(minLength: 4)
-            ShotCounts(new: scene.newCount, total: scene.shots.count, copies: 2, size: 11)
-        }
-        .padding(.leading, 18)
-        .contextMenu { SceneGapMenu() }
     }
 }
 

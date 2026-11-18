@@ -385,15 +385,21 @@ public final class SSHSession: @unchecked Sendable {
 
     private func wake() {
         var b: UInt8 = 1
+        // Under the lock: the I/O thread closes the pipe when it exits, and a write to a
+        // closed descriptor could land in whatever file or socket reused that number.
+        lock.lock(); defer { lock.unlock() }
         if wakeWrite >= 0 { _ = Darwin.write(wakeWrite, &b, 1) }
     }
 
     private func startLoop() {
-        var fds: [Int32] = [0, 0]
-        pipe(&fds)
-        wakeRead = fds[0]; wakeWrite = fds[1]
-        _ = fcntl(wakeRead, F_SETFL, O_NONBLOCK)
-        _ = fcntl(wakeWrite, F_SETFL, O_NONBLOCK)
+        var fds: [Int32] = [-1, -1]
+        // Without the pipe (descriptor exhaustion) the loop still runs, woken only by the
+        // socket and the poll timeout; poll() ignores a negative descriptor.
+        if pipe(&fds) == 0 {
+            lock.lock(); wakeRead = fds[0]; wakeWrite = fds[1]; lock.unlock()
+            _ = fcntl(fds[0], F_SETFL, O_NONBLOCK)
+            _ = fcntl(fds[1], F_SETFL, O_NONBLOCK)
+        }
         let t = Thread { [self] in self.runLoop() }
         t.name = "ssh-io \(host)"
         t.qualityOfService = .userInitiated
@@ -504,7 +510,11 @@ public final class SSHSession: @unchecked Sendable {
         libssh2_session_set_blocking(s, 1)
         libssh2_session_set_timeout(s, 2000)
         teardown(reason: "bye")
-        Darwin.close(wakeRead); Darwin.close(wakeWrite)
+        lock.lock()
+        let pipeEnds = [wakeRead, wakeWrite]
+        wakeRead = -1; wakeWrite = -1
+        lock.unlock()
+        for fd in pipeEnds where fd >= 0 { Darwin.close(fd) }
         finished.signal()
     }
 }

@@ -2,14 +2,16 @@ import Foundation
 import MiniDiTCore
 import SonyRemoteKit
 
-/// 把一个文件从相机 / 存储卡导到本地：第一份 + 备份盘上的第二份，两份都用 xxHash64 校验。不碰界面状态。
+/// 把一个文件从相机 / 存储卡导到本地，用 xxHash64 校验。不碰界面状态。
 ///
-/// 第一份：目标位置已有同样的文件 → 用它；本地别处有（上次下载过）→ 复制过来；
+/// 目标位置已有同样的文件 → 用它；本地别处有（上次下载过）→ 复制过来；
 /// 都没有 → 先下载成 `.文件名.part`，校验通过再改名。
-/// 第二份：「备份位置/年-月-日-事件/文件名」，复制后从盘上读回来比对哈希。
 ///
-/// 读卡器来源会在复制时同时算卡上数据的哈希，和写好的文件比对，是真正的端到端校验；
-/// Wi-Fi 下载拿不到相机那边的哈希，第一份只能核对大小，哈希从写好的文件算出来，用来校验第二份。
+/// 读卡器来源会在复制时同时算卡上数据的哈希，和写好的文件比对，是端到端校验；
+/// Wi-Fi 下载拿不到相机那边的哈希：边收边算收到内容的哈希，写完和盘上读回的比对，能查出写盘出错，查不出传输途中的错。
+///
+/// 备份到各个备份位置由 `BackupRepair` 做（App 调用这里时 `backupRoot` 始终是 nil）。
+/// 这个类型里的 `backupRoot` 一路是旧版的单备份实现，现在只有功能检查还在用。
 @MainActor
 struct FileImporter {
     enum Outcome {
@@ -63,16 +65,25 @@ struct FileImporter {
     var sourceFolder: String?
     /// 备份盘上日期文件夹里再分的一层：视频放「视频/」，和照片分开。
     var backupSubfolder: String?
-    /// 要删卡上的文件时，对没有重新复制的文件（目标已有 / 用了本地的）也读卡比对一遍。
     /// 指定时镜像主副本的目录；nil 时沿用旧版自定义备份规则。
     var backupDirectory: URL?
+    /// 要删卡上的文件时，对没有重新复制的文件（目标已有 / 用了本地的）也读卡比对一遍。
     var checkSource = false
     var log: AppLog = .shared
 
-    /// 一个文件要计入进度的字节数（有备份时算两遍）。
-    /// 一个文件在总进度里的权重；大小未知时优先用实际写好的文件，其次按 4 GiB 估算。
+    /// 一个文件在总进度里的权重（有备份时算两遍）；大小未知时优先用实际写好的文件，其次按 4 GiB 估算。
     func weight(of item: CameraContentItem, at url: URL? = nil) -> UInt64 {
         (url.flatMap(Self.fileSize) ?? item.sizeEstimate) * (backupRoot == nil ? 1 : 2)
+    }
+
+    /// 文件最后一次写入是不是在这次开机之后。是的话，写进去的内容要么已经落盘、要么还在系统缓存里，读出来是完整的。
+    static func writtenSinceBoot(_ url: URL) -> Bool {
+        var boot = timeval()
+        var size = MemoryLayout<timeval>.size
+        var name = [CTL_KERN, KERN_BOOTTIME]
+        guard sysctl(&name, 2, &boot, &size, nil, 0) == 0,
+              let written = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date else { return false }
+        return written.timeIntervalSince1970 > Double(boot.tv_sec)
     }
 
     /// 文件实际大小（导入完成后的文件可能和 ObjectInfo 里的未知大小不同）。
@@ -172,16 +183,23 @@ struct FileImporter {
             // 断点续传：上次没传完的 .part 还在，就从它的末尾接着读。
             let have = (try? fm.attributesOfItem(atPath: part.path))?[.size] as? UInt64 ?? 0
             // 大小未知（≥4GB）时 item.size 是 0，不能拿来判断进度；从 0 开始流式下载。
-            let resume = item.sizeKnown && have <= item.size ? have : 0
+            // 上次写完之后系统重启过（可能是断电或死机）的话，.part 末尾不一定真的落了盘，不接着用，从头下。
+            let trusted = have == 0 || Self.writtenSinceBoot(part)
+            if !trusted { log.add("\(item.filename)：未传完的部分是上次开机前留下的，重新下载") }
+            let resume = trusted && item.sizeKnown && have <= item.size ? have : 0
             if resume > 0 {
                 log.add("续传 \(item.filename)：已有 \(resume)/\(item.size) 字节")
                 stage(String(localized: "续传 \(item.filename)"))
                 resumed(resume)
                 skipped(resume)
             }
+            // 边收边算哈希，写完再和盘上读回的比：Wi-Fi 来源拿不到相机端的校验值，这是唯一能核对写盘有没有出错的办法。
+            let received = ReceivedHash()
             if !item.sizeKnown || resume < item.size {
                 do {
-                    try await library.download(item, to: part, from: resume) { done, _ in progress(done) }
+                    try await DownloadTap.$current.withValue(received.tap) {
+                        try await library.download(item, to: part, from: resume) { done, _ in progress(done) }
+                    }
                     if let rt = library as? SonyRemoteTransferLibrary, let note = await rt.lastDownloadNote { log.add(note) }
                 } catch {
                     // 一个字节都没收到的 .part 没有续传价值，删掉，免得文件夹里留一堆空文件。
@@ -192,6 +210,15 @@ struct FileImporter {
             guard ImportHistory.matches(part, item) else { try? fm.removeItem(at: part); throw CocoaError(.fileReadCorruptFile) }
             stage(String(localized: "校验 \(item.filename)"))
             hash = try await FileOps.hash(part)
+            if let got = received.digest(expecting: Self.fileSize(part) ?? 0) {
+                guard got == hash else {
+                    log.add("\(item.filename)：盘上读回的内容和收到的不一致，已丢弃")
+                    try? fm.removeItem(at: part)
+                    throw CocoaError(.fileReadCorruptFile)
+                }
+            } else if !item.sizeKnown || resume < item.size {
+                log.add("\(item.filename)：没能算出收到内容的哈希，这次只核对了大小")
+            }
         }
         try fm.moveItem(at: part, to: final)
         if let date = item.captureDate {
@@ -452,5 +479,44 @@ struct FileImporter {
             if !FileManager.default.fileExists(atPath: u.path) { return u }
         }
         return dir.appending(path: "\(base)-\(UUID().uuidString.prefix(6)).\(ext)")
+    }
+}
+
+/// 下载时边收边算 xxHash64。续传时先把盘上已有的那段读进来接着算。
+/// 字节数对不上（比如某家相机的下载没走到这里）就不给结果，调用方退回只核对大小。
+final class ReceivedHash: @unchecked Sendable {
+    private let lock = NSLock()
+    private var hash = XXH64()
+    private var count: UInt64 = 0
+    private var usable = false
+
+    var tap: DownloadTap {
+        DownloadTap(begin: { [self] url, offset in begin(url, offset) }, received: { [self] data in add(data) })
+    }
+
+    private func begin(_ url: URL, _ offset: UInt64) {
+        lock.lock(); defer { lock.unlock() }
+        hash = XXH64(); count = 0; usable = true
+        guard offset > 0 else { return }
+        guard let input = try? FileHandle(forReadingFrom: url) else { usable = false; return }
+        defer { try? input.close() }
+        while count < offset {
+            let want = Int(min(UInt64(FileOps.chunk), offset - count))
+            guard let data = try? input.read(upToCount: want), !data.isEmpty else { usable = false; return }
+            hash.update(data)
+            count += UInt64(data.count)
+        }
+    }
+
+    private func add(_ data: Data) {
+        lock.lock(); defer { lock.unlock() }
+        guard usable else { return }
+        hash.update(data)
+        count += UInt64(data.count)
+    }
+
+    func digest(expecting size: UInt64) -> UInt64? {
+        lock.lock(); defer { lock.unlock() }
+        return usable && count == size ? hash.digest() : nil
     }
 }

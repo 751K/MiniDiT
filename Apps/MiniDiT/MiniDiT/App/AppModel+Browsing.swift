@@ -107,6 +107,22 @@ extension AppModel {
                 await lib.refresh()
             }
             guard !Task.isCancelled else { return }
+            // 自动刷新：各来源的文件句柄和上次读完时一样，说明没有增删，不用把每个文件的信息重读一遍、
+            // 也不用把整个网格换掉。手动点「重新读取」照常全读。
+            if automatically, !listedHandles.isEmpty {
+                var unchanged = true
+                for (sid, lib) in sourceList {
+                    guard let known = listedHandles[connectionID(for: sid)], let folders = try? await lib.folders() else { unchanged = false; break }
+                    var now = Set<UInt32>()
+                    for folder in folders {
+                        guard let handles = try? await lib.handles(in: folder) else { unchanged = false; break }
+                        now.formUnion(handles)
+                    }
+                    if !unchanged || now != known { unchanged = false; break }
+                }
+                guard !Task.isCancelled, refreshRequest == request else { return }
+                if unchanged { lastListed = Date(); return }
+            }
             if !automatically { metadataRead = [] }
             let listedBefore = lastListed
             await loadAll(restoring: keep, days: keepDays, quietly: true)

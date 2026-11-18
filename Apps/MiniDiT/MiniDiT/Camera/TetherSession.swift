@@ -323,33 +323,51 @@ final class TetherSession {
         guard !downloading, !lost else { return }
         downloading = true
         defer { downloading = false }
-        do {
-            let files = try await camera.downloadPendingFiles()
-            guard !files.isEmpty else { return }
+        // 分批取：每个文件取回来时整个在内存里，一次全取的话连拍几十张 RAW 会占掉几个 GB，
+        // 中途出错还会把已经从相机取走的一起丢掉。
+        let batch = 4
+        let spool = self.spool
+        while true {
             var urls: [URL] = []
-            for f in files {
-                let url = try spool.write(f.data, name: f.filename)
-                urls.append(url)
-                log("联机拍摄：收到 \(url.lastPathComponent)（\(f.data.count) 字节）")
+            var failure: Error?
+            var more = false
+            do {
+                let files = try await camera.downloadPendingFiles(limit: batch)
+                more = files.count >= batch
+                for f in files {
+                    let data = f.data, name = f.filename
+                    // 写盘放到后台：几十 MB 的 RAW 在主线程上写会让取景顿一下。
+                    let url = try await Task.detached(priority: .userInitiated) { try spool.write(data, name: name) }.value
+                    urls.append(url)
+                    log("联机拍摄：收到 \(url.lastPathComponent)（\(data.count) 字节）")
+                }
+            } catch {
+                failure = error
             }
-            shotCount += urls.count
-            shots = Self.groupShots(spool.files())
-            reviewedShotID = nil
-            showLatest(urls)
-            onFiles?(urls)
-            await refresh()
-        } catch {
-            fail(String(localized: "接收照片失败"), error)
+            // 出错前已经写好的照片照常登记、导入。
+            if !urls.isEmpty {
+                shotCount += urls.count
+                shots = Self.groupShots(spool.files())
+                reviewedShotID = nil
+                await showLatest(urls)
+                onFiles?(urls)
+                await refresh()
+            }
+            if let failure { fail(String(localized: "接收照片失败"), failure); return }
+            if !more || lost { return }
         }
     }
 
-    private func showLatest(_ urls: [URL]) {
+    private func showLatest(_ urls: [URL]) async {
         // RAW + JPG 一起来时优先显示 JPG（解码快、颜色是机内效果）。
         let pick = urls.first { ["JPG", "JPEG", "HIF", "HEIF"].contains($0.pathExtension.uppercased()) } ?? urls.last
         guard let pick else { return }
         lastShot = pick
         lastShotExif = ShotExif(url: pick)
-        lastShotImage = Self.previewImage(pick, maxPixel: 1600)
+        // 解码在后台做，主线程（取景）不等它。
+        let image = await Task.detached(priority: .userInitiated) { TetherSession.previewCGImage(pick, maxPixel: 1600) }.value
+        guard lastShot == pick else { return }
+        lastShotImage = image.map { NSImage(cgImage: $0, size: NSSize(width: $0.width, height: $0.height)) }
     }
 
     static func previewImage(_ url: URL, maxPixel: Int) -> NSImage? {

@@ -231,7 +231,13 @@ extension AppModel {
         for k in knownCameras where !hosts.contains(k.host) { hosts.append(k.host) }
         for host in hosts.prefix(8) {
             if Task.isCancelled { return }
-            if openHosts.contains(host) || connectingHost == host || phase == .searching { continue }
+            if openHosts.contains(host) {
+                // 正连着用：断开以后它还在线，不算「刚上线」，不发通知。
+                if watchOnline[host] == nil, let k = knownCameras.first(where: { $0.host == host }) { watchOnline[host] = k.fingerprint }
+                watchMisses[host] = 0
+                continue
+            }
+            if connectingHost == host || phase == .searching { continue }
             let cam = await probe(host: host)
             let k = cam.flatMap { c in knownCameras.first { $0.host == host && $0.fingerprint == c.fingerprint } }
             if let k {

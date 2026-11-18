@@ -26,7 +26,7 @@ public struct ClipInfo: Sendable, Hashable {
     public var mediaTimecode: VideoTimecode? { VideoFrameRate(formatFps).flatMap { startTimecode?.converted(to: $0) } }
     public var endTimecode: String? {
         guard let start = startTimecode, let rate = VideoFrameRate(formatFps), frames > 0 else { return nil }
-        return start.adding(seconds: Double(frames - 1) / rate.value).text
+        return start.adding(frames: Int64(frames - 1), at: rate).text
     }
     /// 有代理（SubStream）。
     public var hasProxy = false

@@ -95,6 +95,8 @@ import MiniDiTCore
         try Data([4,3,2,1]).write(to: URL(fileURLWithPath: oldPath))
         let second = try await worker.repair(first, to: target, expectedVolume: nil)
         #expect(second.copies.last?.path != oldPath)
+        #expect(second.copies.first(where: { $0.path == oldPath })?.verifiedAt == nil)
+        #expect(second.copies.last?.verifiedAt != nil)
         #expect(try Data(contentsOf: URL(fileURLWithPath: oldPath)) == Data([4,3,2,1]))
         #expect(try Data(contentsOf: URL(fileURLWithPath: #require(second.copies.last?.path))) == data)
     }

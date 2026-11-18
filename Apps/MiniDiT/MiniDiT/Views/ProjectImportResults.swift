@@ -13,6 +13,8 @@ struct ProjectImportResults: View {
     private var records: [ImportBatchRecord] { journal.records(for: project.id) }
 
     var body: some View {
+        // 只算一次：这是对全部批次的过滤加排序，下面每一行还会用到它。
+        let records = self.records
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {

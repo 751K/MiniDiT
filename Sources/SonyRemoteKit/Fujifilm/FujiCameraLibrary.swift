@@ -128,7 +128,8 @@ public actor FujiCameraLibrary: CameraLibrary {
         if let i = infoCache[handle] { return i }
         if !correctSizeOn {
             // 不开这个属性时 ObjectInfo 里的大小是假的。
-            try? await client.setProperty(FujiWiFi.Prop.correctFileSize, FujiWiFi.encode(1, width: 2))
+            // 开不成就不能往下走：按假大小下载会得到一个被截断、却通过大小核对的文件。下次再试。
+            try await client.setProperty(FujiWiFi.Prop.correctFileSize, FujiWiFi.encode(1, width: 2))
             correctSizeOn = true
         }
         let r = try await client.transaction(PTPOperation.getObjectInfo, [handle])

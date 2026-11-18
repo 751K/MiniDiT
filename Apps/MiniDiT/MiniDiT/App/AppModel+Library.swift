@@ -23,6 +23,8 @@ extension AppModel {
             var map: [UInt32: Origin] = [:]
             var next = nextGlobalHandle
             var grouped: [Shot] = []
+            var unread = 0
+            var handleSets: [UUID: Set<UInt32>] = [:]
             for (sid, lib) in sources {
                 let folders = try await lib.folders()
                 var ord: [UInt32] = []
@@ -30,9 +32,19 @@ extension AppModel {
                 for f in folders {
                     status = String(localized: "正在读取\(f.name)…")
                     let hs = try await lib.handles(in: f)
+                    handleSets[connectionID(for: sid), default: []].formUnion(hs)
                     for (i, h) in hs.enumerated() {
                         if i % 200 == 0 && i > 0 { status = String(localized: "正在读取\(f.name)：\(i)/\(hs.count)") }
-                        guard let item = try? await lib.item(h), item.kind != .other else { continue }
+                        let item: CameraContentItem
+                        do { item = try await lib.item(h) }
+                        catch {
+                            // 连接本身出了问题：后面的也读不到，整次读取按失败算，不能交出一份残缺的列表。
+                            if error is PTPIPTransportError || error is PTPUSBError || error is SSHTunnelError || error is CancellationError { throw error }
+                            unread += 1
+                            if unread == 1 { log.add("读卡：有文件的信息读不出来（\(error.localizedDescription)）") }
+                            continue
+                        }
+                        guard item.kind != .other else { continue }
                         guard generation == libraryGeneration, !Task.isCancelled else { return }
                         let key = "\(sourceIdentity(sid))|\(item.storageID >> 16)|\(item.filename)|\(item.captureDateRaw)|\(item.size)"
                         let g: UInt32
@@ -70,6 +82,8 @@ extension AppModel {
             thumbOrder.removeAll { !surviving.contains($0) }
             items = all
             origins = map
+            // 有文件没读到时不记：下次自动刷新照常重读。
+            listedHandles = unread == 0 ? handleSets : [:]
             // 几个来源的拍摄按时间合在一起排（新的在前）。
             if sources.count > 1 {
                 // 按校正过的时间排：两台相机的钟不一样快时，对齐后才排得对。
@@ -101,7 +115,9 @@ extension AppModel {
             phase = .ready
             loadFilterMetadata()
             lastListed = Date()
-            log.add("读卡完成：\(all.count) 个文件，\(allShots.count) 次拍摄，\(days.count) 天" + (sources.count > 1 ? "，\(sources.count) 个来源" : ""))
+            log.add("读卡完成：\(all.count) 个文件，\(allShots.count) 次拍摄，\(days.count) 天" + (sources.count > 1 ? "，\(sources.count) 个来源" : "")
+                    + (unread > 0 ? "；\(unread) 个文件没读到" : ""))
+            if unread > 0 { refreshMessage = String(localized: "有 \(unread) 个文件没读到，可点重新读取再试") }
         } catch {
             guard generation == libraryGeneration, !Task.isCancelled else { return }
             log.add("读取存储卡失败：\(error.localizedDescription)")
@@ -369,37 +385,6 @@ extension AppModel {
     }
 
     // MARK: 选择
-
-    func checkState(_ day: ShootingDay) -> CheckState { checkState(shots: day.shots) }
-    func checkState(_ scene: ShootingScene) -> CheckState { checkState(shots: scene.shots) }
-
-    /// 一组拍摄的勾选状态：没导入过的都选上了 = 勾上（都导过了就看是否全选）。
-    private func checkState(shots: [UInt32]) -> CheckState {
-        let n = shots.filter(grid.contains).count
-        if n == 0 { return .off }
-        return toggleTarget(shots).allSatisfy(grid.contains) ? .on : .mixed
-    }
-
-    private func toggleTarget(_ shots: [UInt32]) -> [UInt32] {
-        let new = shots.filter { !isImported(shot: $0) }
-        return new.isEmpty ? shots : new
-    }
-
-    /// 侧栏勾选框：勾上 = 这一天没导入过的全部选中（都导过了就全选）；再点一下取消这一天。
-    func toggleDay(_ day: ShootingDay) { toggle(shots: day.shots, show: day.id, day: day.id) }
-
-    /// 场次的勾选框，规则同一天。
-    func toggleScene(_ scene: ShootingScene, in day: ShootingDay) { toggle(shots: scene.shots, show: scene.id, day: day.id) }
-
-    private func toggle(shots: [UInt32], show id: String, day: String) {
-        if checkState(shots: shots) == .on {
-            grid.set(shots, selected: false)
-        } else {
-            grid.set(toggleTarget(shots), selected: true)
-            // 勾上的那天（或那一场）也显示在右边，选中的照片看得见。
-            if !visibleDays.contains(where: { $0.id == day && shots.first.map($0.shots.contains) == true }) { shownDays.insert(id) }
-        }
-    }
 
     func selectNew(in dayIDs: Set<String>) {
         for d in days where dayIDs.contains(d.id) { grid.set(d.shots.filter { !isImported(shot: $0) }, selected: true) }

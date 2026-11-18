@@ -110,6 +110,7 @@ extension AppModel {
         for (cam, entries) in Dictionary(grouping: run.done, by: { camera(of: $0.item.id) }) {
             ImportHistory.shared.record(entries, camera: cam)
         }
+        ImportHistory.shared.flush()
         for job in run.jobs {
             guard let sid = job.appSession else { continue }
             let ids = Set(job.files.map(\.id))

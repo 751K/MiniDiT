@@ -337,7 +337,6 @@ struct SetupSheet: View {
             SummaryRow(icon: .symbol(model.usageMode == .personal ? "person" : "person.3"),
                        label: "工作流程", value: model.usageMode.title) { go(.mode) }
             PanelDivider()
-            PanelDivider()
             SummaryRow(icon: photoIcon, label: "照片", value: photoTitle, detail: photoDetail) { go(.photos) }
             PanelDivider()
             SummaryRow(icon: .symbol("film"), label: "视频", value: videoTitle, detail: short(model.videoDestination)) { go(.video) }

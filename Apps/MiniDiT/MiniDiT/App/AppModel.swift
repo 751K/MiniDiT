@@ -176,9 +176,14 @@ final class AppModel {
     /// rebuild 时清空的派生缓存：每个 shot 要导入哪些文件、是否已经导入。
     @ObservationIgnored var importFilesCache: [UInt32: [UInt32]] = [:]
     @ObservationIgnored var importedCache: [UInt32: Bool] = [:]
-    var thumbOrder: [UInt32] = []
-    var pendingThumbs: [UInt32] = []
-    var thumbLoaderRunning = false
+    // 缩略图加载器自己的排队状态，界面不读：不参与观察，免得每到一张就多触发几轮刷新。
+    @ObservationIgnored var thumbOrder: [UInt32] = []
+    @ObservationIgnored var pendingThumbs: [UInt32] = []
+    @ObservationIgnored var thumbLoaderRunning = false
+    /// 上次读完列表时各来源（按连接）报告的文件句柄：自动刷新先拿它比，没变就不重读。
+    @ObservationIgnored var listedHandles: [UUID: Set<UInt32>] = [:]
+    /// 导入途中项目记录的合并写盘。
+    @ObservationIgnored let sessionSaver = DeferredSave()
     var thumbSize: Double = UserDefaults.standard.object(forKey: "thumbSize") as? Double ?? 170 {
         didSet { UserDefaults.standard.set(thumbSize, forKey: "thumbSize") }
     }

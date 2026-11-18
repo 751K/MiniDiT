@@ -127,8 +127,11 @@ extension AppModel {
     var sourcesOffline: Bool { offline || extraSources.contains { $0.offline } }
 
     /// 已经连着的相机地址。同一台相机开不开访问身份验证，指纹不一样（「直连」和 SSH），按地址也要排除。
+    /// 联机拍摄时主来源是本机的联机缓存（sourceKind 是 .card），相机地址要另外算进来，
+    /// 否则后台会把这台正在联机的相机当成「刚上线」去探测、发通知。
     var openHosts: Set<String> {
-        Set((sourceKind == .camera ? [connectedHost] : []).compactMap { $0 } + extraSources.compactMap { $0.camera?.host })
+        Set((sourceKind == .camera ? [connectedHost] : []).compactMap { $0 } + extraSources.compactMap { $0.camera?.host }
+            + (isTethering ? [lastTetherCamera?.host].compactMap { $0 } : []))
     }
 
     /// 已经打开的 Wi-Fi 相机的指纹（同一台不重复连）。

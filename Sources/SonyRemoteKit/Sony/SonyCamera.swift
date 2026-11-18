@@ -163,7 +163,7 @@ public actor SonyCamera: RemoteCamera {
     private func startEventLoop() {
         let events = client.events
         let notify = self.notify
-        eventTask = Task {
+        eventTask = Task { [weak self] in
             for await e in events {
                 switch e.code {
                 case SonyEvent.objectAdded, PTPEventCode.objectAdded:
@@ -174,10 +174,13 @@ public actor SonyCamera: RemoteCamera {
                     break
                 }
             }
+            await self?.contentsConnectionEnded()
             notify.yield(.disconnected)
             notify.finish()
         }
     }
+
+    private func contentsConnectionEnded() { contents?.connectionEnded() }
 
     public func disconnect() async {
         eventTask?.cancel()
@@ -528,7 +531,7 @@ public actor SonyCamera: RemoteCamera {
             else { failures.append(String(localized: "卡槽 \(slot)：\(PTPError(operation: SonyOperation.getCapturedDateList, code: r.code).localizedDescription)", bundle: .miniDiT)) }
         }
         guard !available.isEmpty else { throw SonyRemoteTransferError.cardsUnavailable(failures.joined(separator: "；")) }
-        let lib = SonyRemoteTransferLibrary(client: client, slots: available, notes: [], deviceInfo: nil)
+        let lib = SonyRemoteTransferLibrary(client: client, slots: available, notes: [], deviceInfo: nil, sharedConnection: true)
         contents = lib
         return lib
     }
@@ -625,10 +628,14 @@ public actor SonyCamera: RemoteCamera {
         }
     }
 
-    public func downloadPendingFiles() async throws -> [CapturedFile] {
+    public func downloadPendingFiles() async throws -> [CapturedFile] { try await downloadPendingFiles(limit: 50) }
+
+    /// - limit: 一次最多取几个。取回的文件整个在内存里，连拍积压几十张 RAW 时要分批取，
+    ///   取满 `limit` 个说明可能还有，调用方处理完这一批再调一次。
+    public func downloadPendingFiles(limit: Int) async throws -> [CapturedFile] {
         var files: [CapturedFile] = []
         let start = Date()
-        while files.count < 50 {
+        while files.count < limit {
             try await refreshProperties(force: true)
             if pendingCount == 0 {
                 // 已经下完，或 2 秒内都没有待传文件（事件可能不是新照片）就结束。

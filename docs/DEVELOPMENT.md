@@ -55,7 +55,7 @@ USB：`Sources/SonyRemoteKit/PTP/PTPTransport.swift` 是 PTP 传输接口（`PTP
 
 佳能无线：`Sources/SonyRemoteKit/Canon/CanonWiFi.swift`（握手、SetRemoteMode、1 MB 分块下载、KeepDeviceOn 保活，打开标准 `PTPCameraLibrary`；`CanonBonjour` 在握手被拒或超时时看 mDNS 里有没有佳能）。同一个 `openOtherBrandIfNeeded` 里按握手返回的相机名（含 Canon 或以 EOS 开头）分流。协议依据 libgphoto2 的 `camlibs/ptp2` 源码和 Troopers 2013「Paparazzi over IP」，独立实现。`swift test --filter Canon` 用 `FakeCamera` 模拟连接、下载和未配对；读卡检查用 `Tests/AppFeatureChecks/run.sh --canon-card`。
 
-联机拍摄：`Apps/MiniDiT/MiniDiT/Camera/TetherSession.swift`（遥控、取景、下载到缓存 `TetherSpool`）、`App/AppModel+Tether.swift`（换主来源、自动导入）、`Views/TetherView.swift`（独立窗口 `tether`）。遥控协议在 `Sources/SonyRemoteKit/Sony/SonyCamera.swift`。`swift build --product fake-sony-camera` 后运行 `sh Tests/AppFeatureChecks/run.sh --tether $(swift build --show-bin-path)/fake-sony-camera`（模拟相机监听 127.0.0.1:15740，缓存写在临时目录）。
+联机拍摄：`Apps/MiniDiT/MiniDiT/Camera/TetherSession.swift`（遥控、取景、下载到缓存 `TetherSpool`）、`App/AppModel+Tether.swift`（换主来源、自动导入）、`Views/TetherView.swift`（独立窗口 `tether`：取景和底部参数条；选择器在 `TetherPickers.swift`，右边的侧栏在 `TetherSidebar.swift`）。遥控协议在 `Sources/SonyRemoteKit/Sony/SonyCamera.swift`。`swift build --product fake-sony-camera` 后运行 `sh Tests/AppFeatureChecks/run.sh --tether $(swift build --show-bin-path)/fake-sony-camera`（模拟相机监听 127.0.0.1:15740，缓存写在临时目录）。
 
 大疆无线：协议层在 `Sources/SonyRemoteKit/DJI/`（`DUML` 帧与 CRC、`DJIManifest` 文件列表、`DJIDatalink` UDP 会话、`DJIBluetooth` 配对、`DJICameraLibrary` 实现 `CameraLibrary`），加入热点在 App 的 `Camera/DJIWiFi.swift`，连接流程在 `AppModel+DJI.swift`。协议资料和 Pocket 3 列表样本来自 osmosis / OsmoOffload（MIT，见 `THIRD_PARTY_NOTICES.md`）。`swift test --filter DJI` 覆盖帧编码（对照协议文档里的十六进制样例）、真实列表解析和模拟 Pocket 3 的端到端下载/续传；蓝牙、Wi-Fi 加入和真机行为只能实机验证，调试时看日志里以「大疆」开头的行。
 

@@ -34,6 +34,3 @@ struct ShootingScene: Identifiable, Hashable {
     var videos = 0
     var photos: Int { shots.count - videos }
 }
-
-/// 侧栏日期前的勾选框状态。
-enum CheckState { case off, mixed, on }

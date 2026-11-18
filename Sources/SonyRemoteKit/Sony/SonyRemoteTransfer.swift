@@ -143,19 +143,32 @@ public actor SonyRemoteTransferLibrary: CameraLibrary {
     private var thumbNoted = false
     public let deviceInfo: CameraDeviceInfo?
 
-    init(client: any PTPTransport, slots: [UInt32], notes: [String], deviceInfo: CameraDeviceInfo? = nil) {
+    /// 和遥控共用连接时，断线由 `SonyCamera` 转告（见 `connectionEnded`）；独占连接时为 nil。
+    private nonisolated let lostSignal: AsyncStream<Void>.Continuation?
+
+    /// - sharedConnection: 这条连接的事件已经有人在读（`SonyCamera` 的事件循环）。事件流的每个事件只会交给一个读者，
+    ///   这里再读就会把「有新照片」「设置变了」分走一部分，所以不读。
+    init(client: any PTPTransport, slots: [UInt32], notes: [String], deviceInfo: CameraDeviceInfo? = nil, sharedConnection: Bool = false) {
         self.client = client
         self.deviceInfo = deviceInfo
         self.slots = slots
         self.listingNotes = notes
         let (stream, cont) = AsyncStream.makeStream(of: Void.self)
         connectionLost = stream
+        guard !sharedConnection else { lostSignal = cont; return }
+        lostSignal = nil
         let events = client.events
         Task {
             for await _ in events {}
             cont.yield()
             cont.finish()
         }
+    }
+
+    /// 共用的连接断了。
+    nonisolated func connectionEnded() {
+        lostSignal?.yield()
+        lostSignal?.finish()
     }
 
     /// 连接相机并检查远程传输是否可用；不可用时抛错（调用方可以退回内容传输模式）。
@@ -356,6 +369,8 @@ public actor SonyRemoteTransferLibrary: CameraLibrary {
                          progress: @escaping @Sendable (UInt64, UInt64) -> Void) async throws {
         let e = try entry(item.id)
         let size = e.item.size
+        // 每次下载先清掉上一次的统计：小文件不写统计，否则调用方会把上一个文件的统计再打印一遍。
+        lastDownloadNote = nil
         let (fh, start) = try openForResume(url, offset: min(offset, size))
         defer { try? fh.close() }
         // 每块多大：一块一个请求来回。实测 a7 V：4 MB 14.0 MB/s，16 MB 15.2 MB/s（每个来回约 20 ms），瓶颈在相机一侧。

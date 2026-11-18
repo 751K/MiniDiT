@@ -541,11 +541,14 @@ final class ViewfinderAids {
     private(set) var frame: NSImage?
     @ObservationIgnored private var running = false
     @ObservationIgnored private var queued: (NSImage, CGImage, ViewfinderAidOptions)?
+    @ObservationIgnored private var generation = 0
 
     func submit(_ image: NSImage?, _ options: ViewfinderAidOptions) {
         guard options.anyOn, let cg = image?.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
             queued = nil
-            if !running { result = ViewfinderAidResult(); frame = nil }
+            // 还有一帧在分析：记下「已经清空」，它算完的结果不要了。否则相机断开后画面会停在那一帧。
+            generation += 1
+            result = ViewfinderAidResult(); frame = nil
             return
         }
         queued = (image!, cg, options)
@@ -556,11 +559,14 @@ final class ViewfinderAids {
         guard let (source, image, options) = queued else { running = false; return }
         queued = nil
         running = true
+        let generation = self.generation
         Task.detached(priority: .userInitiated) {
             let r = ViewfinderAnalysis.analyze(image, options)
             await MainActor.run {
-                self.result = r
-                self.frame = source
+                if generation == self.generation {
+                    self.result = r
+                    self.frame = source
+                }
                 self.runNext()
             }
         }

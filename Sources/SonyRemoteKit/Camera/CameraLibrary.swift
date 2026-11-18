@@ -160,9 +160,43 @@ public extension CameraLibrary {
     }
 }
 
+/// 下载时把写进文件的字节同时交给调用方，用来算「收到的内容」的哈希，写完后和盘上读回的比对。
+/// 用任务本地值传递，各家相机的下载实现不用改参数。
+public struct DownloadTap: Sendable {
+    @TaskLocal public static var current: DownloadTap?
+    /// 开始写：文件地址和沿用的前缀长度（续传起点）。下载途中推倒重来时会再调一次。
+    public let begin: @Sendable (URL, UInt64) -> Void
+    public let received: @Sendable (Data) -> Void
+    public init(begin: @escaping @Sendable (URL, UInt64) -> Void, received: @escaping @Sendable (Data) -> Void) {
+        self.begin = begin; self.received = received
+    }
+}
+
+/// 下载写入的文件。接口和 FileHandle 一样，多做一件事：把写入的内容报给 `DownloadTap`。
+final class DownloadFile: @unchecked Sendable {
+    private let handle: FileHandle
+    private let url: URL
+    private let tap: DownloadTap?
+
+    init(_ handle: FileHandle, url: URL, start: UInt64) {
+        self.handle = handle; self.url = url; tap = DownloadTap.current
+        tap?.begin(url, start)
+    }
+    func write<D: DataProtocol>(contentsOf data: D) throws {
+        try handle.write(contentsOf: data)
+        if let tap { tap.received(data as? Data ?? Data(data)) }
+    }
+    func truncate(atOffset offset: UInt64) throws {
+        try handle.truncate(atOffset: offset)
+        tap?.begin(url, offset)
+    }
+    func seek(toOffset offset: UInt64) throws { try handle.seek(toOffset: offset) }
+    func close() throws { try handle.close() }
+}
+
 /// 打开要写入的文件：`offset` > 0 且文件里确实有这么多字节时，截到 `offset` 并定位到末尾；否则清空重写。
 /// 返回实际的起点。
-func openForResume(_ url: URL, offset: UInt64) throws -> (FileHandle, UInt64) {
+func openForResume(_ url: URL, offset: UInt64) throws -> (DownloadFile, UInt64) {
     let existing = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? UInt64 ?? 0
     let start = offset > 0 && existing >= offset ? offset : 0
     if start == 0 || !FileManager.default.fileExists(atPath: url.path) {
@@ -171,7 +205,7 @@ func openForResume(_ url: URL, offset: UInt64) throws -> (FileHandle, UInt64) {
     let fh = try FileHandle(forWritingTo: url)
     try fh.truncate(atOffset: start)
     try fh.seek(toOffset: start)
-    return (fh, start)
+    return (DownloadFile(fh, url: url, start: start), start)
 }
 
 public actor PTPCameraLibrary: CameraLibrary {

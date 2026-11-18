@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import MiniDiTCore
 import SonyRemoteKit
@@ -9,6 +10,9 @@ final class ImportHistory {
     static var shared = ImportHistory()
     private var index: HistoryIndex
     private let url: URL
+    /// 原文件读不出来、又没能另存时为 false：这时不写，免得盖掉原件。
+    private var writable = true
+    private var saveFailed = false
 
     init(directory: URL? = nil) {
         let dir = directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -17,6 +21,21 @@ final class ImportHistory {
         url = dir.appending(path: "history.json")
         if let data = try? Data(contentsOf: url), let records = try? JSONDecoder().decode([ImportRecord].self, from: data) {
             index = HistoryIndex(records)
+        } else if FileManager.default.fileExists(atPath: url.path) {
+            // 文件在但读不出来：不能当成「没有记录」，否则下一次保存会把它整个盖掉。
+            // 先另存一份原件，再把还能读的记录逐条捞回来。
+            let data = try? Data(contentsOf: url)
+            let kept = (data.flatMap { try? JSONDecoder().decode([Salvaged].self, from: $0) } ?? []).compactMap(\.record)
+            let copy = dir.appending(path: "history.damaged-\(Int(Date().timeIntervalSince1970)).json")
+            do {
+                try FileManager.default.copyItem(at: url, to: copy)
+                AppLog.shared.add("导入记录文件读不出来，原件另存为 \(copy.lastPathComponent)，保留了 \(kept.count) 条还能读的记录")
+            } catch {
+                // 连原件都留不下来就不再写这个文件，宁可这次的记录不落盘。
+                writable = false
+                AppLog.shared.add("导入记录文件读不出来，也没能另存原件（\(error.localizedDescription)）；这次运行不再写入导入记录")
+            }
+            index = HistoryIndex(kept)
         } else {
             // 旧版：imported.json，键「文件名|大小|时间」→ 路径（更早的版本是字符串集合）。
             let legacy = dir.appending(path: "imported.json")
@@ -25,7 +44,7 @@ final class ImportHistory {
             if let data, let d = try? JSONDecoder().decode([String: String].self, from: data) { dict = d }
             else if let data, let set = try? JSONDecoder().decode(Set<String>.self, from: data) { dict = Dictionary(uniqueKeysWithValues: set.map { ($0, "") }) }
             index = HistoryIndex(HistoryIndex.migrate(legacy: dict))
-            if !dict.isEmpty { save() }
+            if !dict.isEmpty { write() }
         }
     }
 
@@ -88,12 +107,69 @@ final class ImportHistory {
 
     var count: Int { index.records.count }
 
+    private let saver = DeferredSave()
+
+    /// 导入时每存一个文件都会走到这里，而每次都是整份重写：合并成最多每 2 秒一次。
+    /// 这份文件只是「导过没有」的索引，真正的导入记录在日志库里（每个文件即时落盘）。
     private func save() {
-        if let d = try? JSONEncoder().encode(index.records) { try? d.write(to: url, options: .atomic) }
+        saver.schedule { [weak self] in self?.write() }
+    }
+
+    /// 把还没写的立刻写掉（一批导入结束时调用；退出应用前会自动补写）。
+    func flush() { saver.flush() }
+
+    private func write() {
+        guard writable else { return }
+        do {
+            try JSONEncoder().encode(index.records).write(to: url, options: .atomic)
+            saveFailed = false
+        } catch {
+            // 每个文件都会存一次，失败只在头一回记日志，免得刷屏。
+            if !saveFailed { AppLog.shared.add("导入记录写入失败：\(error.localizedDescription)") }
+            saveFailed = true
+        }
+    }
+
+    /// 坏掉的记录文件里逐条解码：单条读不出来不影响其他条。
+    private struct Salvaged: Decodable {
+        let record: ImportRecord?
+        init(from decoder: Decoder) throws { record = try? ImportRecord(from: decoder) }
     }
 
     func clear() {
         index = HistoryIndex()
+        writable = true
         save()
+        flush()
+    }
+}
+
+/// 把频繁的「整份重写」合并起来：两秒内的多次请求只写最后一次。退出应用前补写。
+@MainActor
+final class DeferredSave {
+    private var pending: (@MainActor () -> Void)?
+    private var task: Task<Void, Never>?
+
+    init() {
+        _ = NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.flush() }
+        }
+    }
+
+    func schedule(_ write: @escaping @MainActor () -> Void) {
+        pending = write
+        guard task == nil else { return }
+        task = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            self?.flush()
+        }
+    }
+
+    func flush() {
+        task?.cancel(); task = nil
+        let write = pending
+        pending = nil
+        write?()
     }
 }

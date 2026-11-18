@@ -91,17 +91,42 @@ public actor PTPUSBClient: PTPTransport {
         if let transactionID { tid = transactionID } else { tid = nextTransactionID; nextTransactionID &+= 1 }
         let command = PTPUSBContainer.encode(type: PTPUSBContainer.command, code: code, transactionID: tid, params: params)
         let device = self.device, timeout = responseTimeout
-        let (data, response) = try await withThrowingTaskGroup(of: (data: Data, response: Data)?.self) { group in
-            group.addTask { try await device.send(command: command, outData: dataOut) }
-            group.addTask { try await Task.sleep(for: .seconds(timeout)); return nil }
-            let first = try await group.next() ?? nil
-            group.cancelAll()
-            guard let first else { throw PTPIPTransportError.responseTimeout }
-            return first
+        let data: Data, response: Data
+        do {
+            (data, response) = try await Self.send(command, dataOut, to: device, timeout: timeout)
+        } catch PTPIPTransportError.responseTimeout {
+            // 相机没回这条命令：后面的命令也只会排在它后面，按断线处理，让上层重连。
+            closed = true
+            eventContinuation.finish()
+            throw PTPIPTransportError.responseTimeout
         }
         guard let r = PTPUSBContainer.decode(response), r.type == PTPUSBContainer.response else { throw PTPUSBError.noResponse }
         if requireOK && r.code != PTPResponse.ok { throw PTPError(operation: code, code: r.code) }
         return PTPTransactionResult(code: r.code, params: r.params, data: PTPUSBContainer.payload(data))
+    }
+
+    /// 发命令并等回复，最多等 `timeout` 秒。
+    /// 真机的 `send` 不响应取消（系统不回调就一直等），所以不能用任务组来比快慢：
+    /// 任务组要等所有子任务结束才返回，超时就形同虚设。这里谁先到谁交结果，另一个的结果丢掉。
+    private static func send(_ command: Data, _ dataOut: Data?, to device: any PTPPassthroughDevice,
+                             timeout: TimeInterval) async throws -> (data: Data, response: Data) {
+        let once = OnceFlag()
+        return try await withCheckedThrowingContinuation { cont in
+            let timer = Task {
+                guard (try? await Task.sleep(for: .seconds(timeout))) != nil else { return }
+                if once.claim() { cont.resume(throwing: PTPIPTransportError.responseTimeout) }
+            }
+            Task {
+                do {
+                    let reply = try await device.send(command: command, outData: dataOut)
+                    timer.cancel()
+                    if once.claim() { cont.resume(returning: reply) }
+                } catch {
+                    timer.cancel()
+                    if once.claim() { cont.resume(throwing: error) }
+                }
+            }
+        }
     }
 
     /// 透传一次拿到整段数据：按块交给 sink，效果和 PTP/IP 的边收边写一致（只是先在内存里）。

@@ -12,9 +12,22 @@ extension AppModel {
         captureOneDocument = CaptureOneBridge.currentDocument()
     }
 
+    /// 正在重新读取来源（多半是 15 秒一次的自动刷新）时点了导入：等它读完再做，而不是不理。
+    /// 返回 true 表示已经排上了，调用方直接返回。
+    func afterRefresh(_ action: @escaping @MainActor (AppModel) -> Void) -> Bool {
+        guard isRefreshingSources, let refreshing = refreshTask else { return false }
+        Task { @MainActor [weak self] in
+            await refreshing.value
+            guard let self, !self.isRefreshingSources else { return }
+            action(self)
+        }
+        return true
+    }
+
     /// 普通导入必须有用户选择的项目；先确定项目，再检查备份、空间和后期软件。
     /// 界面上点按钮时用默认参数；提醒里点「继续」时跳过已经确认过的检查。
     func beginImport(checkBackup: Bool = true, checkSpace: Bool = true) {
+        if afterRefresh({ $0.beginImport(checkBackup: checkBackup, checkSpace: checkSpace) }) { return }
         guard importJournal.repairTask == nil, progress == nil, phase == .ready, !isRefreshingSources, !grid.selected.isEmpty else { return }
         guard currentSession != nil else {
             newSessionPrompt = .init(importAfter: true)
@@ -92,7 +105,9 @@ extension AppModel {
     /// 选中的照片按会话分组（旧的在前）。只有一天 / 一场时，各种分法都只有一组。
     func importGroups(_ grouping: SessionGrouping) -> [ImportGroup] {
         func files(_ ids: [UInt32]) -> [CameraContentItem] {
-            Array(allShots.filter { ids.contains($0.id) && grid.contains($0.id) }.flatMap(importFiles).compactMap { items[$0] }.reversed())
+            // 用集合查：ids 是数组时这里是「全部拍摄 × 这一组的拍摄」，几千张时每次重算都很慢。
+            let ids = Set(ids)
+            return Array(allShots.filter { ids.contains($0.id) && grid.contains($0.id) }.flatMap(importFiles).compactMap { items[$0] }.reversed())
         }
         let selectedDays = days.filter { $0.shots.contains(where: grid.contains) }.reversed()
         switch grouping {

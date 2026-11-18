@@ -19,19 +19,25 @@ extension AppModel {
             var sum = LightroomBridge.Results()
             var lastProgress = Date()
             var lastWake = Date()
+            // 唤醒会把 LrC 打开：连着几次都没动静（用户退出了 LrC，或插件没启用）就不再打扰，
+            // 只继续等回执；之后 LrC 自己开起来、有了进展，再恢复唤醒。
+            var wakes = 0
+            let wakeLimit = 6
             while !remaining.isEmpty, !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(1))
+                try? await Task.sleep(for: .seconds(wakes < wakeLimit ? 1 : 5))
                 let r = LightroomBridge.collect(Array(remaining))
-                if !r.done.isEmpty { lastProgress = Date() }
+                if !r.done.isEmpty { lastProgress = Date(); wakes = 0 }
                 remaining.subtract(r.done)
                 sum.added += r.added; sum.skipped += r.skipped; sum.failed += r.failed; sum.failures += r.failures
                 let done = total - remaining.count
                 if remaining.isEmpty { break }
                 let fresh = LightroomBridge.heartbeat()?.isFresh ?? false
                 // LrC 是被唤醒链接打开的话，启动途中那次唤醒会丢，插件要等下一次才开始干活：插件没在跑就隔 10 秒再唤醒一次。
-                if !fresh, Date().timeIntervalSince(lastWake) > 10 {
+                if fresh { wakes = 0 }
+                if !fresh, wakes < wakeLimit, Date().timeIntervalSince(lastWake) > 10 {
                     LightroomBridge.wake()
                     lastWake = Date()
+                    wakes += 1
                 }
                 if !fresh, Date().timeIntervalSince(lastProgress) > 45 {
                     lightroomStatus = String(localized: "Lightroom Classic 无响应（已添加 \(done)/\(total)）。请打开 Lightroom Classic 并确认 MiniDiT 插件已启用，其余照片将继续添加")

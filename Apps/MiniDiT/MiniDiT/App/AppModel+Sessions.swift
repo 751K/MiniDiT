@@ -137,11 +137,21 @@ extension AppModel {
         if browsingSession == id { browseSession(nil) }
     }
 
-    func recordSessionFiles(_ urls: [URL], in id: UUID) {
+    /// - deferred: 导入途中每存一个文件调一次时用：项目列表整份重写，合并成最多每 2 秒一次。
+    func recordSessionFiles(_ urls: [URL], in id: UUID, deferred: Bool = false) {
         guard !urls.isEmpty, let i = sessions.firstIndex(where: { $0.id == id }) else { return }
-        var seen = Set(sessions[i].files)
-        for u in urls where seen.insert(u.path).inserted { sessions[i].files.append(u.path) }
-        ShootSession.save(sessions, to: sessionRecordURL)
+        if urls.count == 1 {
+            // 单个文件不值得为它把项目里的全部路径建成集合。
+            if !sessions[i].files.contains(urls[0].path) { sessions[i].files.append(urls[0].path) } else if deferred { return }
+        } else {
+            var seen = Set(sessions[i].files)
+            for u in urls where seen.insert(u.path).inserted { sessions[i].files.append(u.path) }
+        }
+        sessionSaver.schedule { [weak self] in
+            guard let self else { return }
+            ShootSession.save(sessions, to: sessionRecordURL)
+        }
+        if !deferred { sessionSaver.flush() }
     }
 
     /// C1 会话文件夹里已有的 C1 会话（新的在前）。
@@ -158,6 +168,7 @@ extension AppModel {
 
     /// 把拖拽开始时选中的素材正常导入指定项目；目标项目由落点决定。
     func importDropped(shots ids: Set<UInt32>, into session: ShootSession) {
+        if afterRefresh({ $0.importDropped(shots: ids, into: session) }) { return }
         guard progress == nil, phase == .ready, !isRefreshingSources else { return }
         let valid = ids.filter { shots[$0] != nil }
         guard !valid.isEmpty, sessions.contains(where: { $0.id == session.id }) else { return }

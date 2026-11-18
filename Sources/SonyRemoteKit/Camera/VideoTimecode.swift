@@ -87,9 +87,16 @@ public struct VideoTimecode: Sendable, Hashable {
         return Self(rate: rate, drop: dropFrame, frames: n < 0 ? n + framesPerDay : n)
     }
 
+    /// 加上按另一个帧率数的帧数（如把 100p 素材的帧数加到 25 fps 的时间码上）。
+    /// 全程整数运算：先换成秒再乘回来，会因为浮点误差偶尔少一帧（25p 下 29 帧会算成 28）。
+    public func adding(frames: Int64, at other: VideoFrameRate) -> Self {
+        adding(frames: frames * other.denominator * rate.numerator / (other.numerator * rate.denominator))
+    }
+
     public func adding(seconds: Double) -> Self {
         guard seconds.isFinite else { return self }
-        return adding(frames: Int64((seconds * rate.value).rounded(.down)))
+        // 秒数本身常常是「帧数 ÷ 帧率」算出来的，乘回去可能是 28.999…：加一点余量再取整。
+        return adding(frames: Int64((seconds * rate.value + 1e-6).rounded(.down)))
     }
 
     /// 从显示的时间码定位到片段内秒数，允许片段跨午夜。

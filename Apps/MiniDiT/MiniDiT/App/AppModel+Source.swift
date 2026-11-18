@@ -373,11 +373,12 @@ extension AppModel {
             return
         }
         let wasCard = sourceKind == .card
-        // 主来源的卡被拔了，但还有别的卡开着：让下一张卡顶上来，不回到首页。
-        if wasCard, let i = extraSources.firstIndex(where: { $0.library != nil }) {
+        // 主来源没了（卡被拔了，或 USB、大疆、富士相机断开），但还有别的来源开着：让下一个顶上来，不回到首页。
+        if let i = extraSources.firstIndex(where: { $0.library != nil }) {
             let next = extraSources[i]
-            log.add("存储卡被移除了，改用同时打开的 \(next.isCard ? next.root?.lastPathComponent ?? "" : next.name)")
+            log.add((wasCard ? "存储卡被移除了" : "和相机的连接断开了") + "，改用同时打开的 \(next.isCard ? next.root?.lastPathComponent ?? "" : next.name)")
             importTask?.cancel()
+            lastUSBCamera = nil
             extraSources.remove(at: i)
             let keep = selectedKeys(), keepDays = shownDays
             promote(next)
@@ -387,6 +388,15 @@ extension AppModel {
         log.add(wasCard ? "存储卡被移除了" : "和相机的连接断开了")
         importTask?.cancel()
         library = nil
+        // 没有能顶上来的来源：把还挂着的（正在连、掉线待重连的）一起收掉，和手动断开一样，
+        // 免得下次打开来源时被带进来变成多来源。
+        let leftovers = extraSources
+        extraSources = []
+        for t in extraTasks.values { t.cancel() }
+        extraTasks = [:]
+        Task { for e in leftovers { await e.library?.close() } }
+        lastUSBCamera = nil
+        sessionCameraProfiles = [:]
         resetContent()
         phase = .idle
         errorMessage = wasCard ? String(localized: "存储卡已被移除。") : String(localized: "与相机的连接已断开（相机可能已关机、离开 Wi-Fi 网络，或已被其他设备连接）。")
@@ -459,6 +469,7 @@ extension AppModel {
         metadataTask?.cancel(); metadataTask = nil; metadataRead = []; metadataLoading = false
         closePreview()
         items = [:]; allShots = []; shots = [:]; shotOfFile = [:]; slots = []; days = []
+        listedHandles = [:]
         origins = [:]; cardCameraNames = [:]; cardCameraKeys = [:]; fileCameraKeys = [:]; sourceFilter = nil
         grid = GridSelection(); shownDays = []
         sourceIdentities.retainOpen([])

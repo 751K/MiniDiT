@@ -15871,6 +15871,16 @@
         }
       }
     },
+    "有 %lld 个文件没读到，可点重新读取再试": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld files could not be read. Click Reload to try again."
+          }
+        }
+      }
+    },
     "自动对焦时相机会自己重新对焦，调焦不一定保持；切到 MF 再调": {
       "localizations": {
         "en": {

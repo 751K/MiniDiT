@@ -145,11 +145,18 @@ public actor BackupRepair {
         var result = asset
         if let targetID { result.targetErrors?.removeValue(forKey: targetID.uuidString) }
         else { result.backupError = nil }
-        if let copy = asset.copies.first(where: { $0.role == .backup && Self.isConfined(URL(fileURLWithPath: $0.path), to: root) }),
-           (try? digest(URL(fileURLWithPath: copy.path), size: asset.size)) == baseline {
-            if let index = result.copies.firstIndex(where: { $0.id == copy.id }) { result.copies[index].verifiedAt = Date(); result.copies[index].evidence = .localReadback; result.copies[index].targetID = targetID }
-            progress(asset.size)
-            return result
+        // A recorded copy whose bytes no longer match the baseline stops counting as verified,
+        // whatever happens next; otherwise reports keep vouching for a damaged file.
+        for copy in asset.copies where copy.role == .backup && Self.isConfined(URL(fileURLWithPath: copy.path), to: root) {
+            guard let index = result.copies.firstIndex(where: { $0.id == copy.id }) else { continue }
+            switch try check(URL(fileURLWithPath: copy.path), size: asset.size, baseline: baseline) {
+            case .match:
+                result.copies[index].verifiedAt = Date(); result.copies[index].evidence = .localReadback; result.copies[index].targetID = targetID
+                progress(asset.size)
+                return result
+            case .changed: result.copies[index].verifiedAt = nil
+            case .unavailable: break
+            }
         }
         if (try? digest(destination, size: asset.size)) == baseline {
             result.copies.removeAll { $0.role == .backup && $0.path == destination.path }
@@ -158,10 +165,17 @@ public actor BackupRepair {
             return result
         }
         var source: URL?
-        for copy in asset.copies {
-            try Task.checkCancellation()
+        for index in result.copies.indices {
+            let copy = result.copies[index]
+            // Copies already found changed above are not read a second time.
+            if copy.role == .backup, copy.verifiedAt == nil, asset.copies.first(where: { $0.id == copy.id })?.verifiedAt != nil { continue }
             let candidate = URL(fileURLWithPath: copy.path)
-            if (try? digest(candidate, size: asset.size)) == baseline { source = candidate; break }
+            switch try check(candidate, size: asset.size, baseline: baseline) {
+            case .match: source = candidate
+            case .changed: result.copies[index].verifiedAt = nil
+            case .unavailable: break
+            }
+            if source != nil { break }
         }
         guard let source else { throw Failure.noTrustedCopy }
         let capacity = try root.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
@@ -224,6 +238,19 @@ public actor BackupRepair {
             if (try? FileManager.default.destinationOfSymbolicLink(atPath: current.path)) != nil { return false }
         }
         return true
+    }
+
+    private enum Check { case match, changed, unavailable }
+
+    /// `.changed` only when the file is there and readable but its size or content differs;
+    /// a missing or unreadable file says nothing about the bytes that were verified earlier.
+    private func check(_ file: URL, size: UInt64, baseline: String) throws -> Check {
+        try Task.checkCancellation()
+        guard let count = (try? FileManager.default.attributesOfItem(atPath: file.path))?[.size] as? UInt64 else { return .unavailable }
+        guard count == size else { return .changed }
+        do { return try digest(file, size: size) == baseline ? .match : .changed }
+        catch is CancellationError { throw CancellationError() }
+        catch { return .unavailable }
     }
 
     private func digest(_ file: URL, size: UInt64) throws -> String {

@@ -52,7 +52,8 @@ public struct HistoryIndex: Sendable {
     public mutating func insert(_ r: ImportRecord) {
         let k = Self.key(r.filename, r.size)
         // 同一个文件再导一次：更新位置，不重复记。
-        if let i = byKey[k]?.first(where: { Self.same(records[$0], r.camera, r.dateRaw) }) {
+        // 同名同大小、本地路径也一样的，一定是同一条：没有拍摄时间和机身的文件靠这个避免每次重复追加。
+        if let i = byKey[k]?.first(where: { Self.same(records[$0], r.camera, r.dateRaw) || (r.path != nil && records[$0].path == r.path) }) {
             records[i].path = r.path ?? records[i].path
             records[i].camera = records[i].camera ?? r.camera
             records[i].importedAt = r.importedAt ?? records[i].importedAt
@@ -84,8 +85,11 @@ public struct HistoryIndex: Sendable {
 
     static func same(_ r: ImportRecord, _ camera: String?, _ dateRaw: String) -> Bool {
         if let a = r.camera, let b = camera, a != b { return false }
+        // 两边都没有拍摄时间时，文件名和大小相同不足以说明是同一个文件（编号复位后的定长 RAW 就会撞上）：
+        // 只在两边机身都已知且相同时才算。
+        if r.dateRaw.isEmpty, dateRaw.isEmpty { return r.camera != nil && r.camera == camera }
         if r.dateRaw == dateRaw { return true }
-        guard let a = parse(r.dateRaw), let b = parse(dateRaw) else { return r.dateRaw.isEmpty && dateRaw.isEmpty }
+        guard let a = parse(r.dateRaw), let b = parse(dateRaw) else { return false }
         return abs(a.timeIntervalSince(b)) <= timeWindow
     }
 
