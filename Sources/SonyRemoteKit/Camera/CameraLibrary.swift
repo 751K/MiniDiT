@@ -309,10 +309,12 @@ public actor PTPCameraLibrary: CameraLibrary {
                 let folders = try await children(storage, dcim).filter { $0.1.isFolder }
                 local += folders.map { CameraFolder(id: $0.0, storageID: storage, name: prefix + $0.1.filename, isVideo: false) }
             }
-            // 视频：PRIVATE/M4ROOT/CLIP
-            if let priv = subfolder(root, named: "PRIVATE"),
-               let m4 = subfolder(try await children(storage, priv), named: "M4ROOT"),
-               let clip = subfolder(try await children(storage, m4), named: "CLIP") {
+            // 视频：SD 卡是 PRIVATE/M4ROOT/CLIP，CFexpress 卡是根目录下的 M4ROOT/CLIP。
+            var m4 = subfolder(root, named: "M4ROOT")
+            if m4 == nil, let priv = subfolder(root, named: "PRIVATE") {
+                m4 = subfolder(try await children(storage, priv), named: "M4ROOT")
+            }
+            if let m4, let clip = subfolder(try await children(storage, m4), named: "CLIP") {
                 local.append(CameraFolder(id: clip, storageID: storage, name: prefix + String(localized: "视频", bundle: .miniDiT), isVideo: true))
             }
             // 不符合 DCF 结构的卡（或相机平铺显示）：把根目录当一个文件夹。

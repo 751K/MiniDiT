@@ -44,6 +44,33 @@ import Testing
         #expect(try Data(contentsOf: out).count == 9_000_000)
     }
 
+    /// CFexpress 卡上 M4ROOT 在卡的根目录（不在 PRIVATE/ 里）：视频、XML 和代理都要认出来。
+    @Test func findsVideosWhenM4RootIsAtTheCardRoot() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appending(path: "cfexpress-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? fm.removeItem(at: root) }
+        let clip = root.appending(path: "M4ROOT/CLIP", directoryHint: .isDirectory)
+        let sub = root.appending(path: "M4ROOT/SUB", directoryHint: .isDirectory)
+        try fm.createDirectory(at: clip, withIntermediateDirectories: true)
+        try fm.createDirectory(at: sub, withIntermediateDirectories: true)
+        try fm.createDirectory(at: root.appending(path: "PRIVATE/DATABASE"), withIntermediateDirectories: true)
+        #expect(LocalCardLibrary.looksLikeCard(root))
+
+        try Data(repeating: 1, count: 4096).write(to: clip.appending(path: "C2536.MP4"))
+        try Data(#"<?xml version="1.0"?><NonRealTimeMeta><CreationDate value="2026-10-17T16:58:49+01:00"/></NonRealTimeMeta>"#.utf8)
+            .write(to: clip.appending(path: "C2536M01.XML"))
+        try Data(repeating: 2, count: 1024).write(to: sub.appending(path: "C2536S03.MP4"))
+
+        let lib = LocalCardLibrary(root: root)
+        let folder = try #require(try await lib.folders().first)
+        let items = try await lib.handles(in: folder).asyncMap { try await lib.item($0) }
+        #expect(items.map(\.filename) == ["C2536.MP4"])
+        #expect(items.first?.kind == .video)
+        #expect(items.first?.captureDateRaw == "20261017T165849")
+        let sidecars = await lib.sidecars(try #require(items.first).id)
+        #expect(sidecars.map(\.url.lastPathComponent).sorted() == ["C2536M01.XML", "C2536S03.MP4"])
+    }
+
     @Test func refreshKeepsExistingHandlesWhenNewerMediaArrives() async throws {
         let root = FileManager.default.temporaryDirectory.appending(path: "refresh-card-\(UUID())")
         defer { try? FileManager.default.removeItem(at: root) }

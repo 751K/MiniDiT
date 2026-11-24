@@ -4,7 +4,8 @@ import ImageIO
 import UniformTypeIdentifiers
 
 /// 读卡器 / 已挂载的存储卡：和 Wi-Fi 相机用同一套接口，上层不用区分来源。
-/// 照片在 DCIM/ 下，索尼视频在 PRIVATE/M4ROOT/CLIP/ 下（缩略图在 PRIVATE/M4ROOT/THMBNL/）；
+/// 照片在 DCIM/ 下，索尼视频在 M4ROOT/CLIP/ 下（缩略图在 M4ROOT/THMBNL/、代理在 M4ROOT/SUB/）：
+/// SD 卡上 M4ROOT 在 PRIVATE/ 里，CFexpress 卡上在卡的根目录，两处都找；
 /// 大疆（Osmo Pocket 等）的视频、照片、DNG 和 .LRF 代理都在 DCIM/ 下；佳能的照片和视频都在 DCIM/100CANON 这类文件夹里，富士在 DCIM/100_FUJI 里。
 public actor LocalCardLibrary: CameraLibrary {
     private struct Entry {
@@ -36,8 +37,11 @@ public actor LocalCardLibrary: CameraLibrary {
         let fm = FileManager.default
         var dir: ObjCBool = false
         if fm.fileExists(atPath: url.appending(path: "DCIM").path, isDirectory: &dir), dir.boolValue { return true }
-        return fm.fileExists(atPath: url.appending(path: "PRIVATE/M4ROOT/CLIP").path, isDirectory: &dir) && dir.boolValue
+        return clipFolders.contains { fm.fileExists(atPath: url.appending(path: $0).path, isDirectory: &dir) && dir.boolValue }
     }
+
+    /// 索尼视频所在的文件夹：SD 卡是 PRIVATE/M4ROOT/CLIP，CFexpress 卡是根目录下的 M4ROOT/CLIP。
+    static let clipFolders = ["PRIVATE/M4ROOT/CLIP", "M4ROOT/CLIP"]
 
     /// 卡被拔掉 / 推出时由上层调用。
     public nonisolated func markLost() {
@@ -129,7 +133,7 @@ public actor LocalCardLibrary: CameraLibrary {
     static func scan(_ root: URL) throws -> [(URL, Date, UInt64)] {
         var found: [(URL, Date, UInt64)] = []
         let keys: [URLResourceKey] = [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey]
-        for sub in ["DCIM", "PRIVATE/M4ROOT/CLIP"] {
+        for sub in ["DCIM"] + clipFolders {
             let dir = root.appending(path: sub, directoryHint: .isDirectory)
             guard let e = FileManager.default.enumerator(at: dir, includingPropertiesForKeys: keys,
                                                          options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { continue }
@@ -197,7 +201,7 @@ public actor LocalCardLibrary: CameraLibrary {
         return ClipInfo.sidecar(for: e.url).flatMap { try? Data(contentsOf: $0) } ?? ClipInfo.embeddedXML(inFile: e.url)
     }
 
-    /// 跟着视频片段一起导的文件：同名的 XML（放在片段旁边，名字不变）、代理（PRIVATE/M4ROOT/SUB/C0001S03.MP4，
+    /// 跟着视频片段一起导的文件：同名的 XML（放在片段旁边，名字不变）、代理（M4ROOT/SUB/C0001S03.MP4，
     /// 大疆是原片旁边同名的 .LRF）。
     public struct Sidecar: Sendable {
         public enum Kind: Sendable { case metadata, proxy }
@@ -293,7 +297,7 @@ public actor LocalCardLibrary: CameraLibrary {
         let e = try entry(handle)
         var source = e.url
         if e.item.kind == .video {
-            // C0001.MP4 → PRIVATE/M4ROOT/THMBNL/C0001T01.JPG
+            // C0001.MP4 → M4ROOT/THMBNL/C0001T01.JPG（和 CLIP 同级）
             let thumb = e.url.deletingLastPathComponent().deletingLastPathComponent()
                 .appending(path: "THMBNL").appending(path: e.item.baseName + "T01.JPG")
             guard FileManager.default.fileExists(atPath: thumb.path) else { return nil }
